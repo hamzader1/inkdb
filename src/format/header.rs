@@ -234,7 +234,7 @@ impl SqliteDatabaseHeader {
         assert_one(matches!(self.file_format_read_version, 1 | 2), Self::ERR)?;
 
         assert_one(
-            self.reserved_space < self.database_page_size as u8,
+            (self.reserved_space as u16) < self.database_page_size,
             Self::ERR,
         )?;
 
