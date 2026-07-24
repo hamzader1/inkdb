@@ -10,7 +10,7 @@ use std::path::Path;
 
 pub struct SqliteDatabse {
     file: File,
-    pub header: SqliteDatabaseHeader,
+    header: SqliteDatabaseHeader,
 }
 impl SqliteDatabse {
     pub fn new<P: AsRef<Path>>(f_name: P) -> Result<Self, SqliteDatabaseError> {
@@ -21,5 +21,8 @@ impl SqliteDatabse {
             .map_err(|err| SqliteDatabaseError::DatabaseOpenFailure(err))?;
         let header = SqliteDatabaseHeader::parse(&mut file)?;
         Ok(Self { file, header })
+    }
+    pub fn header(&self) -> &'_ SqliteDatabaseHeader {
+        &self.header
     }
 }
