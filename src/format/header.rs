@@ -107,3 +107,158 @@ pub struct SqliteDatabaseHeader {
     pub version_valid_for_number: u32,
     pub sqlite_version_number: u32,
 }
+
+impl SqliteDatabaseHeader {
+    const ERR: SqliteDatabaseError = SqliteDatabaseError::InvalidDatabaseHeader;
+    pub fn parse<R: std::io::Read + Seek>(reader: &'_ mut R) -> Result<Self, SqliteDatabaseError> {
+        // if size < PAGE_SIZE {
+        //     // TODO!: CORRUPTED FILE
+        // }
+        let header_string: [u8; 16];
+        let database_page_size: u16;
+        let file_format_write_version: u8;
+        let file_format_read_version: u8;
+        let reserved_space: u8;
+        let maximum_embedded_payload_fraction: u8;
+        let minimum_embedded_payload_fraction: u8;
+        let leaf_payload_fraction: u8;
+        let file_change_counter: u32;
+        let database_size_in_pages: u32;
+        let first_freelist_trunk_page: u32;
+        let total_number_of_freelist_pages: u32;
+        let schema_cookie: u32;
+        let schema_format_number: u32;
+        let default_page_cache_size: u32;
+        let largest_root_btree_page: u32;
+        let database_text_encoding: u32;
+        let user_version: u32;
+        let incremental_vacuum_mode: u32;
+        let application_id: u32;
+        let reserved_for_expansion: [u8; 20];
+        let version_valid_for_number: u32;
+        let sqlite_version_number: u32;
+
+        reader.seek(seek_s!(HEADER_STRING_OFFSET));
+        header_string = read_array::<HEADER_STRING_SIZE, R>(reader)?;
+        database_page_size = read_u16_be(reader)?;
+        file_format_write_version = read_u8(reader)?;
+        file_format_read_version = read_u8(reader)?;
+        reserved_space = read_u8(reader)?;
+        maximum_embedded_payload_fraction = read_u8(reader)?;
+        minimum_embedded_payload_fraction = read_u8(reader)?;
+        leaf_payload_fraction = read_u8(reader)?;
+        file_change_counter = read_u32_be(reader)?;
+        database_size_in_pages = read_u32_be(reader)?;
+        first_freelist_trunk_page = read_u32_be(reader)?;
+        total_number_of_freelist_pages = read_u32_be(reader)?;
+        schema_cookie = read_u32_be(reader)?;
+        schema_format_number = read_u32_be(reader)?;
+        default_page_cache_size = read_u32_be(reader)?;
+        largest_root_btree_page = read_u32_be(reader)?;
+        database_text_encoding = read_u32_be(reader)?;
+        user_version = read_u32_be(reader)?;
+        incremental_vacuum_mode = read_u32_be(reader)?;
+        application_id = read_u32_be(reader)?;
+        reserved_for_expansion = read_array::<RESERVED_FOR_EXPANSION_SIZE, R>(reader)?;
+        version_valid_for_number = read_u32_be(reader)?;
+        sqlite_version_number = read_u32_be(reader)?;
+        let header = Self {
+            header_string,
+            database_page_size,
+            file_format_write_version,
+            file_format_read_version,
+            reserved_space,
+            maximum_embedded_payload_fraction,
+            minimum_embedded_payload_fraction,
+            leaf_payload_fraction,
+            file_change_counter,
+            database_size_in_pages,
+            first_freelist_trunk_page,
+            total_number_of_freelist_pages,
+            schema_cookie,
+            schema_format_number,
+            default_page_cache_size,
+            largest_root_btree_page,
+            database_text_encoding,
+            user_version,
+            incremental_vacuum_mode,
+            application_id,
+            reserved_for_expansion,
+            version_valid_for_number,
+            sqlite_version_number,
+        };
+        header.validate()?;
+
+        Ok(header)
+    }
+
+    fn validate(&self) -> Result<(), SqliteDatabaseError> {
+        let Self {
+            header_string,
+            database_page_size,
+            file_format_write_version,
+            file_format_read_version,
+            reserved_space,
+            maximum_embedded_payload_fraction,
+            minimum_embedded_payload_fraction,
+            leaf_payload_fraction,
+            file_change_counter,
+            database_size_in_pages,
+            first_freelist_trunk_page,
+            total_number_of_freelist_pages,
+            schema_cookie,
+            schema_format_number,
+            default_page_cache_size,
+            largest_root_btree_page,
+            database_text_encoding,
+            user_version,
+            incremental_vacuum_mode,
+            application_id,
+            reserved_for_expansion,
+            version_valid_for_number,
+            sqlite_version_number,
+        } = self;
+
+        assert_one(self.header_string == *SQLITE_3_MAGIC, Self::ERR)?;
+
+        assert_one(
+            self.database_page_size == 1
+                || (self.database_page_size >= 512
+                    && self.database_page_size <= 32768
+                    && self.database_page_size.is_power_of_two()),
+            Self::ERR,
+        )?;
+
+        assert_one(matches!(self.file_format_write_version, 1 | 2), Self::ERR)?;
+
+        assert_one(matches!(self.file_format_read_version, 1 | 2), Self::ERR)?;
+
+        assert_one(
+            self.reserved_space < self.database_page_size as u8,
+            Self::ERR,
+        )?;
+
+        assert_one(self.maximum_embedded_payload_fraction == 64, Self::ERR)?;
+
+        assert_one(self.minimum_embedded_payload_fraction == 32, Self::ERR)?;
+
+        assert_one(self.leaf_payload_fraction == 32, Self::ERR)?;
+
+        assert_one(matches!(self.schema_format_number, 1..=4), Self::ERR)?;
+
+        assert_one(matches!(self.database_text_encoding, 1..=3), Self::ERR)?;
+
+        assert_one(
+            self.reserved_for_expansion.iter().all(|&byte| byte == 0),
+            Self::ERR,
+        )?;
+        Ok(())
+    }
+}
+
+pub fn assert_one(condition: bool, err: SqliteDatabaseError) -> Result<(), SqliteDatabaseError> {
+    if !condition {
+        return Err(err);
+    }
+    Ok(())
+}
