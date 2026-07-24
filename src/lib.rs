@@ -10,16 +10,16 @@ use std::path::Path;
 
 pub struct SqliteDatabse {
     file: File,
-    header: SqliteDatabaseHeader,
+    pub header: SqliteDatabaseHeader,
 }
 impl SqliteDatabse {
-    pub fn new<P: AsRef<Path>>(f_name: P) -> Result<(), SqliteDatabaseError> {
+    pub fn new<P: AsRef<Path>>(f_name: P) -> Result<Self, SqliteDatabaseError> {
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(f_name)
             .map_err(|err| SqliteDatabaseError::DatabaseOpenFailure(err))?;
-        SqliteDatabaseHeader::parse(&mut file)?;
-        Ok(())
+        let header = SqliteDatabaseHeader::parse(&mut file)?;
+        Ok(Self { file, header })
     }
 }
