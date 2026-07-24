@@ -13,11 +13,11 @@ pub struct SqliteDatabse {
     header: SqliteDatabaseHeader,
 }
 impl SqliteDatabse {
-    pub fn new<P: AsRef<Path>>(f_name: P) -> Result<Self, SqliteDatabaseError> {
+    pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteDatabaseError> {
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(f_name)
+            .open(db_path)
             .map_err(|err| SqliteDatabaseError::DatabaseOpenFailure(err))?;
         let header = SqliteDatabaseHeader::parse(&mut file)?;
         Ok(Self { file, header })
