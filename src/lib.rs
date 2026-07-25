@@ -3,6 +3,7 @@ mod bytes;
 mod errors;
 mod format;
 mod macros;
+mod util;
 use errors::SqliteDatabaseError;
 use format::header::SqliteDatabaseHeader;
 use std::fs::{File, OpenOptions};

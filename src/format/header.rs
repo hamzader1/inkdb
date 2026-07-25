@@ -9,6 +9,7 @@ use crate::format::header;
 use crate::seek_c;
 use crate::seek_s;
 use crate::sqlite_assert_all;
+use crate::util::assert_one;
 
 pub const PAGE_SIZE: usize = 4096 as _;
 pub const SQLITE_3_MAGIC: &[u8; HEADER_STRING_SIZE] = b"SQLite format 3\0";
@@ -111,9 +112,6 @@ pub struct SqliteDatabaseHeader {
 impl SqliteDatabaseHeader {
     const ERR: SqliteDatabaseError = SqliteDatabaseError::InvalidDatabaseHeader;
     pub fn parse<R: std::io::Read + Seek>(reader: &'_ mut R) -> Result<Self, SqliteDatabaseError> {
-        // if size < PAGE_SIZE {
-        //     // TODO!: CORRUPTED FILE
-        // }
         let header_string: [u8; 16];
         let database_page_size: u16;
         let file_format_write_version: u8;
@@ -254,11 +252,4 @@ impl SqliteDatabaseHeader {
         )?;
         Ok(())
     }
-}
-
-pub fn assert_one(condition: bool, err: SqliteDatabaseError) -> Result<(), SqliteDatabaseError> {
-    if !condition {
-        return Err(err);
-    }
-    Ok(())
 }
