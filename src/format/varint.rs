@@ -1,3 +1,39 @@
+/*
+** The variable-length integer encoding is as follows:
+**
+** KEY:
+**         A = 0xxxxxxx    7 bits of data and one flag bit
+**         B = 1xxxxxxx    7 bits of data and one flag bit
+**         C = xxxxxxxx    8 bits of data
+**
+**  7 bits - A
+** 14 bits - BA
+** 21 bits - BBA
+** 28 bits - BBBA
+** 35 bits - BBBBA
+** 42 bits - BBBBBA
+** 49 bits - BBBBBBA
+** 56 bits - BBBBBBBA
+** 64 bits - BBBBBBBBC
+*/
+
+/*
+** Write a 64-bit variable-length integer to memory starting at p[0].
+** The length of data write will be between 1 and 9 bytes.  The number
+** of bytes written is returned.
+**
+** A variable-length integer consists of the lower 7 bits of each byte
+** for all bytes that have the 8th bit set and one byte with the 8th
+** bit clear.  Except, if we get to the 9th byte, it stores the full
+** 8 bits and is the last byte.
+*/
+
+/*
+** References:
+*   1) https://github.com/sqlite/sqlite/blob/master/src/util.c#L1586
+*   2) https://github.com/sqlite/sqlite/blob/master/src/util.c#L1610
+**
+*/
 pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     let mut temp_buffer = [0u8; 10];
     // in case v=0
@@ -39,6 +75,3 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     }
     return n;
 }
-
-
-
