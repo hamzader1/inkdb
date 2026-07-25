@@ -1,3 +1,4 @@
+use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
 use crate::util::assert_one;
 use crate::{bytes::read_u8, errors::SqliteDatabaseError};
@@ -46,7 +47,10 @@ pub struct BTreePage {
     cell_pointers: Vec<CellPointer>,
 }
 impl BTreePage {
-    pub fn parse<R: Read + Seek>(r: &mut R) -> Result<Self, SqliteDatabaseError> {
+    pub fn parse<R: Read + Seek>(r: &mut R, page_no: u32) -> Result<Self, SqliteDatabaseError> {
+        if page_no == 0 {
+            r.seek(SeekFrom::Start(SQLITE3_HEADER_SIZE.into()));
+        }
         let (header, cell_pointers) = BTreePageHeader::parse_header(r)?;
         Ok(Self {
             header,
@@ -87,7 +91,6 @@ impl BTreePageHeader {
     fn parse_header<R: Read + Seek>(
         r: &mut R,
     ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
-        r.seek(seek_s!(BTREE_TYPE_PAGE_OFFSET));
         let p_kind = BTreePageType::get(read_u8(r)?).unwrap();
         match p_kind {
             BTreePageType::LeafTable => {
