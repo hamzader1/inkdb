@@ -31,26 +31,25 @@ impl SqliteDatabse {
     }
 
     pub fn page(&mut self, page_no: u32) -> Result<BTreePage, SqliteDatabaseError> {
-        let mut bytes_to_read: u32 = {
-            if self.header.database_page_size == 1 {
-                (u16::MAX as u32) + 1u32
-            } else {
-                self.header.database_page_size as _
-            }
-        };
-        let offset;
-        if page_no == 1 {
-            offset = 100;
-            bytes_to_read -= 100;
-        } else {
-            offset = ((bytes_to_read * page_no) - bytes_to_read) as u64;
+        if page_no == 0 {
+            return Err(SqliteDatabaseError::Corrupt(
+                "page number cannot be zero".into(),
+            ));
         }
-        self.file.seek(SeekFrom::Start(offset));
+        if page_no > self.header.database_size_in_pages {
+            return Err(SqliteDatabaseError::Corrupt(
+                "page number is outside the database".into(),
+            ));
+        }
 
-        let mut buff = vec![0u8; bytes_to_read as usize];
+        let page_size = self.header.database_page_size;
+        let offset = page_size * (page_no - 1);
+        self.file.seek(SeekFrom::Start(offset as u64));
+
+        let mut buff = vec![0u8; page_size as usize];
         self.file.read_exact(&mut buff);
         let mut cur = Cursor::new(&mut buff);
 
-        BTreePage::parse::<Cursor<&mut Vec<u8>>>(&mut cur)
+        BTreePage::parse::<Cursor<&mut Vec<u8>>>(&mut cur, page_no)
     }
 }
