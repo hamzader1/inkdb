@@ -76,7 +76,7 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     return n;
 }
 
-pub fn decode_varint(bytes: &[u8]) -> (u64, usize) {
+pub fn decode_varint(bytes: &[u8]) -> Option<(u64, usize)> {
     let mut value = 0u64;
 
     for (i, &byte) in bytes.iter().enumerate() {
@@ -172,5 +172,93 @@ mod tests {
     fn test_nine_byte_boundaries() {
         check(72_057_594_037_927_936, 9);
         check(u64::MAX, 9);
+    }
+    #[test]
+    fn round_trip() {
+        let values = [
+            0,
+            1,
+            127,
+            128,
+            16_383,
+            16_384,
+            2_097_151,
+            2_097_152,
+            268_435_455,
+            268_435_456,
+            34_359_738_367,
+            34_359_738_368,
+            4_398_046_511_103,
+            4_398_046_511_104,
+            562_949_953_421_311,
+            562_949_953_421_312,
+            72_057_594_037_927_935,
+            72_057_594_037_927_936,
+            u64::MAX,
+        ];
+
+        for value in values {
+            let mut buf = [0u8; 9];
+            let len = encode_varint(&mut buf, value);
+
+            let (decoded, used) = decode_varint(&buf[..len]).unwrap();
+
+            assert_eq!(decoded, value);
+            assert_eq!(used, len);
+        }
+    }
+    #[test]
+    fn round_trip_first_100_000() {
+        for value in 0u64..100_000 {
+            let mut buf = [0u8; 9];
+
+            let len = encode_varint(&mut buf, value);
+            let (decoded, used) = decode_varint(&buf[..len]).unwrap();
+
+            assert_eq!(decoded, value);
+            assert_eq!(used, len);
+        }
+    }
+    #[test]
+    fn round_trip_powers_of_two() {
+        for bit in 0..64 {
+            let value = 1u64 << bit;
+
+            let mut buf = [0u8; 9];
+
+            let len = encode_varint(&mut buf, value);
+            let (decoded, used) = decode_varint(&buf[..len]).unwrap();
+
+            assert_eq!(decoded, value);
+            assert_eq!(used, len);
+        }
+    }
+    #[test]
+    fn round_trip_powers_of_two_plus_one() {
+        for bit in 0..63 {
+            let value = (1u64 << bit) + 1;
+
+            let mut buf = [0u8; 9];
+
+            let len = encode_varint(&mut buf, value);
+            let (decoded, used) = decode_varint(&buf[..len]).unwrap();
+
+            assert_eq!(decoded, value);
+            assert_eq!(used, len);
+        }
+    }
+    #[test]
+    fn round_trip_powers_of_two_minus_one() {
+        for bit in 1..64 {
+            let value = (1u64 << bit) - 1;
+
+            let mut buf = [0u8; 9];
+
+            let len = encode_varint(&mut buf, value);
+            let (decoded, used) = decode_varint(&buf[..len]).unwrap();
+
+            assert_eq!(decoded, value);
+            assert_eq!(used, len);
+        }
     }
 }
