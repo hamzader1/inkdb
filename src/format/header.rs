@@ -224,7 +224,7 @@ impl SqliteDatabaseHeader {
                 || (self.database_page_size >= 512
                     && self.database_page_size <= 32768
                     && self.database_page_size.is_power_of_two()),
-            Self::ERR,
+            SqliteDatabaseError::InvalidPageSize(self.database_page_size),
         )?;
 
         assert_one(matches!(self.file_format_write_version, 1 | 2), Self::ERR)?;
