@@ -21,7 +21,7 @@ pub enum SqliteDatabaseError {
 
     #[error("Page {page} is corrupted: {reason}")]
     CorruptedPage { page: u32, reason: String },
-    
+
     #[error("Page data is corrupted")]
     CorruptedPageData,
 
@@ -53,5 +53,5 @@ pub enum SqliteDatabaseError {
     UnexpectedEndOfVarint,
 
     #[error("{0}")]
-    Format(String),
+    Corrupt(String),
 }
