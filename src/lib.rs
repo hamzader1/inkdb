@@ -50,6 +50,10 @@ impl SqliteDatabse {
         self.file.read_exact(&mut buff);
         let mut cur = Cursor::new(&mut buff);
 
-        BTreePage::parse::<Cursor<&mut Vec<u8>>>(&mut cur, page_no)
+        BTreePage::parse::<Cursor<&mut Vec<u8>>>(
+            &mut cur,
+            page_no,
+            (page_size - self.header.reserved_space as u32) as u16,
+        )
     }
 }
