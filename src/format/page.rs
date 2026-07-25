@@ -30,18 +30,20 @@ pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
 #[derive(Debug)]
 struct PageNo(u32);
-// struct CellPointer(u16); //
 
 #[derive(Debug)]
-enum CellPointers {
-    Leaf(Vec<u16>),
-    Interior(Vec<u32>),
-}
+struct CellPointer(u16); //
+
+// #[derive(Debug)]
+// enum CellPointers {
+//     Leaf(Vec<u16>),
+//     Interior(Vec<u32>),
+// }
 
 #[derive(Debug)]
 pub struct BTreePage {
     header: BTreePageHeader,
-    cell_pointers: CellPointers,
+    cell_pointers: Vec<CellPointer>,
 }
 impl BTreePage {
     pub fn parse<R: Read + Seek>(r: &mut R) -> Result<Self, SqliteDatabaseError> {
@@ -84,7 +86,7 @@ pub struct BTreePageHeader {
 impl BTreePageHeader {
     fn parse_header<R: Read + Seek>(
         r: &mut R,
-    ) -> Result<(Self, CellPointers), SqliteDatabaseError> {
+    ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
         r.seek(seek_s!(BTREE_TYPE_PAGE_OFFSET));
         let p_kind = BTreePageType::get(read_u8(r)?).unwrap();
         match p_kind {
@@ -96,7 +98,7 @@ impl BTreePageHeader {
     }
     fn parse_leaf_table<R: Read + Seek>(
         r: &mut R,
-    ) -> Result<(Self, CellPointers), SqliteDatabaseError> {
+    ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
@@ -109,19 +111,19 @@ impl BTreePageHeader {
             frag_cnt,
             right_most_ptr: None,
         };
-        let mut cell_pointers = Vec::<u16>::new();
+        let mut cell_pointers = Vec::<CellPointer>::new();
         for _ in 0..no_of_cells {
-            let cell_pointer = read_u16_be(r)?;
+            let cell_pointer = CellPointer(read_u16_be(r)?);
             cell_pointers.push(cell_pointer);
         }
 
         // TODO:
         // leaf_header.validate_table()?;
-        Ok((page_header, CellPointers::Leaf(cell_pointers)))
+        Ok((page_header, cell_pointers))
     }
     fn parse_interior_table<R: Read + Seek>(
         r: &mut R,
-    ) -> Result<(Self, CellPointers), SqliteDatabaseError> {
+    ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
@@ -136,19 +138,13 @@ impl BTreePageHeader {
             right_most_ptr: Some(PageNo(right_most_ptr)),
         };
 
-        let mut cell_pointers = Vec::<u32>::new();
+        let mut cell_pointers = Vec::<CellPointer>::new();
         for _ in 0..no_of_cells {
-            let cell_pointer = read_u32_be(r)?;
-            let pos_before_varint = r.stream_position()?;
-            let mut buff = [0u8; 9];
-            r.read_exact(&mut buff)?;
-            let (_, no_of_byte) = decode_varint(&buff).unwrap_or_else(|| panic!("TODO FOR NOW"));
-            let next_child_pos = pos_before_varint as usize + no_of_byte;
-            r.seek(seek_s!(next_child_pos))?;
+            let cell_pointer = CellPointer(read_u16_be(r)?);
             cell_pointers.push(cell_pointer);
         }
 
-        Ok((page_header, CellPointers::Interior(cell_pointers)))
+        Ok((page_header, cell_pointers))
     }
     // TODO:
     // fn validate_table(&self) -> Result<(), SqliteDatabaseError> {
