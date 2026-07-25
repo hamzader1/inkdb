@@ -155,7 +155,6 @@ impl BTreePageHeader {
         page_kind: BTreePageType,
         is_interior: bool,
     ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
-        r.seek(SeekFrom::Start(BTREE_TYPE_PAGE_OFFSET as u64));
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
