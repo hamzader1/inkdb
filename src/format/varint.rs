@@ -75,3 +75,80 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     }
     return n;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(value: u64, expected_len: usize) {
+        let mut buf = [0u8; 9];
+        let len = encode_varint(&mut buf, value);
+
+        assert_eq!(len, expected_len);
+    }
+
+    #[test]
+    fn test_one_byte_boundaries() {
+        check(0, 1);
+        check(1, 1);
+        check(126, 1);
+        check(127, 1);
+    }
+
+    #[test]
+    fn test_two_byte_boundaries() {
+        check(128, 2);
+        check(129, 2);
+        check(16382, 2);
+        check(16383, 2);
+    }
+
+    #[test]
+    fn test_three_byte_boundaries() {
+        check(16384, 3);
+        check(16385, 3);
+        check(2_097_150, 3);
+        check(2_097_151, 3);
+    }
+
+    #[test]
+    fn test_four_byte_boundaries() {
+        check(2_097_152, 4);
+        check(268_435_454, 4);
+        check(268_435_455, 4);
+    }
+
+    #[test]
+    fn test_five_byte_boundaries() {
+        check(268_435_456, 5);
+        check(34_359_738_366, 5);
+        check(34_359_738_367, 5);
+    }
+
+    #[test]
+    fn test_six_byte_boundaries() {
+        check(34_359_738_368, 6);
+        check(4_398_046_511_102, 6);
+        check(4_398_046_511_103, 6);
+    }
+
+    #[test]
+    fn test_seven_byte_boundaries() {
+        check(4_398_046_511_104, 7);
+        check(562_949_953_421_310, 7);
+        check(562_949_953_421_311, 7);
+    }
+
+    #[test]
+    fn test_eight_byte_boundaries() {
+        check(562_949_953_421_312, 8);
+        check(72_057_594_037_927_934, 8);
+        check(72_057_594_037_927_935, 8);
+    }
+
+    #[test]
+    fn test_nine_byte_boundaries() {
+        check(72_057_594_037_927_936, 9);
+        check(u64::MAX, 9);
+    }
+}
