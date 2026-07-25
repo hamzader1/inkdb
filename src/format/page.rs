@@ -2,7 +2,7 @@ use crate::bytes::{read_u16_be, read_u32_be};
 use crate::util::assert_one;
 use crate::{bytes::read_u8, errors::SqliteDatabaseError};
 use crate::{decode_varint, seek_c, seek_s};
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, SeekFrom};
 
 // pub const INTERIOR_INEDX_BTREE_PAGE: u8 = 0x02;
 // pub const LEAF_INEDX_BTREE_PAGE: u8 = 0x0a;
@@ -90,52 +90,88 @@ impl BTreePageHeader {
         r.seek(seek_s!(BTREE_TYPE_PAGE_OFFSET));
         let p_kind = BTreePageType::get(read_u8(r)?).unwrap();
         match p_kind {
-            BTreePageType::LeafTable => return Self::parse_leaf_table(r),
-            BTreePageType::InteriorTable => return Self::parse_interior_table(r),
+            BTreePageType::LeafTable => {
+                return Self::parse_page(r, BTreePageType::LeafTable, false)
+            }
+            BTreePageType::InteriorTable => {
+                return Self::parse_page(r, BTreePageType::InteriorTable, true)
+            }
             _ => todo!(),
         };
-        unreachable!()
     }
-    fn parse_leaf_table<R: Read + Seek>(
-        r: &mut R,
-    ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
-        let first_freeblock: u16 = read_u16_be(r)?;
-        let no_of_cells: u16 = read_u16_be(r)?;
-        let cell_content_area: u16 = read_u16_be(r)?;
-        let frag_cnt: u8 = read_u8(r)?;
-        let page_header = Self {
-            page_kind: BTreePageType::LeafTable,
-            first_freeblock,
-            no_of_cells,
-            cell_content_area,
-            frag_cnt,
-            right_most_ptr: None,
-        };
-        let mut cell_pointers = Vec::<CellPointer>::new();
-        for _ in 0..no_of_cells {
-            let cell_pointer = CellPointer(read_u16_be(r)?);
-            cell_pointers.push(cell_pointer);
-        }
+    // fn parse_leaf_table<R: Read + Seek>(
+    //     r: &mut R,
+    // ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
+    //     let first_freeblock: u16 = read_u16_be(r)?;
+    //     let no_of_cells: u16 = read_u16_be(r)?;
+    //     let cell_content_area: u16 = read_u16_be(r)?;
+    //     let frag_cnt: u8 = read_u8(r)?;
+    //     let page_header = Self {
+    //         page_kind: BTreePageType::LeafTable,
+    //         first_freeblock,
+    //         no_of_cells,
+    //         cell_content_area,
+    //         frag_cnt,
+    //         right_most_ptr: None,
+    //     };
+    //     let mut cell_pointers = Vec::<CellPointer>::new();
+    //     for _ in 0..no_of_cells {
+    //         let cell_pointer = CellPointer(read_u16_be(r)?);
+    //         cell_pointers.push(cell_pointer);
+    //     }
 
-        // TODO:
-        // leaf_header.validate_table()?;
-        Ok((page_header, cell_pointers))
-    }
-    fn parse_interior_table<R: Read + Seek>(
+    //     // TODO:
+    //     // leaf_header.validate_table()?;
+    //     Ok((page_header, cell_pointers))
+    // }
+    // fn parse_interior_table<R: Read + Seek>(
+    //     r: &mut R,
+    // ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
+    //     let first_freeblock: u16 = read_u16_be(r)?;
+    //     let no_of_cells: u16 = read_u16_be(r)?;
+    //     let cell_content_area: u16 = read_u16_be(r)?;
+    //     let frag_cnt: u8 = read_u8(r)?;
+    //     let right_most_ptr: u32 = read_u32_be(r)?;
+    //     let page_header = Self {
+    //         page_kind: BTreePageType::InteriorTable,
+    //         first_freeblock,
+    //         no_of_cells,
+    //         cell_content_area,
+    //         frag_cnt,
+    //         right_most_ptr: Some(PageNo(right_most_ptr)),
+    //     };
+
+    //     let mut cell_pointers = Vec::<CellPointer>::new();
+    //     for _ in 0..no_of_cells {
+    //         let cell_pointer = CellPointer(read_u16_be(r)?);
+    //         cell_pointers.push(cell_pointer);
+    //     }
+
+    //     Ok((page_header, cell_pointers))
+    // }
+
+    fn parse_page<R: Read + Seek>(
         r: &mut R,
+        page_kind: BTreePageType,
+        is_interior: bool,
     ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
+        r.seek(SeekFrom::Start(BTREE_TYPE_PAGE_OFFSET as u64));
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
         let frag_cnt: u8 = read_u8(r)?;
-        let right_most_ptr: u32 = read_u32_be(r)?;
+        let right_most_ptr: Option<PageNo> = if is_interior {
+            Some(PageNo(read_u32_be(r)?))
+        } else {
+            None
+        };
         let page_header = Self {
-            page_kind: BTreePageType::InteriorTable,
+            page_kind,
             first_freeblock,
             no_of_cells,
             cell_content_area,
             frag_cnt,
-            right_most_ptr: Some(PageNo(right_most_ptr)),
+            right_most_ptr,
         };
 
         let mut cell_pointers = Vec::<CellPointer>::new();
