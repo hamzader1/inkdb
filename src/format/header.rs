@@ -11,8 +11,9 @@ use crate::seek_s;
 use crate::sqlite_assert_all;
 use crate::util::assert_one;
 
-pub const PAGE_SIZE: usize = 4096 as _;
-pub const SQLITE_3_MAGIC: &[u8; HEADER_STRING_SIZE] = b"SQLite format 3\0";
+pub const SQLITE3_HEADER_SIZE: u8 = 100;
+
+pub const SQLITE3_MAGIC: &[u8; HEADER_STRING_SIZE] = b"SQLite format 3\0";
 
 pub const HEADER_STRING_OFFSET: usize = 0;
 pub const HEADER_STRING_SIZE: usize = 16;
@@ -85,7 +86,7 @@ pub const SQLITE_VERSION_NUMBER_SIZE: usize = 4;
 #[derive(Debug, Clone)]
 pub struct SqliteDatabaseHeader {
     pub header_string: [u8; 16],
-    pub database_page_size: u16,
+    pub database_page_size: u32,
     pub file_format_write_version: u8,
     pub file_format_read_version: u8,
     pub reserved_space: u8,
@@ -160,9 +161,9 @@ impl SqliteDatabaseHeader {
         reserved_for_expansion = read_array::<RESERVED_FOR_EXPANSION_SIZE, R>(reader)?;
         version_valid_for_number = read_u32_be(reader)?;
         sqlite_version_number = read_u32_be(reader)?;
-        let header = Self {
+        let mut header = Self {
             header_string,
-            database_page_size,
+            database_page_size: database_page_size as u32,
             file_format_write_version,
             file_format_read_version,
             reserved_space,
@@ -190,7 +191,7 @@ impl SqliteDatabaseHeader {
         Ok(header)
     }
 
-    fn validate(&self) -> Result<(), SqliteDatabaseError> {
+    fn validate(&mut self) -> Result<(), SqliteDatabaseError> {
         let Self {
             header_string,
             database_page_size,
@@ -217,22 +218,26 @@ impl SqliteDatabaseHeader {
             sqlite_version_number,
         } = self;
 
-        assert_one(self.header_string == *SQLITE_3_MAGIC, Self::ERR)?;
+        assert_one(self.header_string == *SQLITE3_MAGIC, Self::ERR)?;
 
         assert_one(
             self.database_page_size == 1
                 || (self.database_page_size >= 512
                     && self.database_page_size <= 32768
                     && self.database_page_size.is_power_of_two()),
-            SqliteDatabaseError::InvalidPageSize(self.database_page_size),
+            SqliteDatabaseError::InvalidPageSize(self.database_page_size as u16),
         )?;
+
+        if self.database_page_size == 1 {
+            self.database_page_size = 65536;
+        }
 
         assert_one(matches!(self.file_format_write_version, 1 | 2), Self::ERR)?;
 
         assert_one(matches!(self.file_format_read_version, 1 | 2), Self::ERR)?;
 
         assert_one(
-            (self.reserved_space as u16) < self.database_page_size,
+            (self.reserved_space as u32) < self.database_page_size,
             Self::ERR,
         )?;
 
