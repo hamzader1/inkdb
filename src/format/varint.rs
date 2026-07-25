@@ -84,18 +84,18 @@ pub fn decode_varint(bytes: &[u8]) -> (u64, usize) {
         if i == 8 {
             value <<= 8;
             value |= byte as u64;
-            return (value, i + 1);
+            return Some((value, i + 1));
         } else {
             value = (value << 7) | ((byte & 0x7f) as u64);
         }
 
         // MSB == 0 means this is the last byte.
         if byte & 0x80 == 0 {
-            return (value, i + 1);
+            return Some((value, i + 1));
         }
     }
 
-    unreachable!()
+    None
 }
 
 #[cfg(test)]
