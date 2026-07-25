@@ -30,8 +30,8 @@
 
 /*
 ** References:
-*   1) https://github.com/sqlite/sqlite/blob/master/src/util.c#L1586
-*   2) https://github.com/sqlite/sqlite/blob/master/src/util.c#L1610
+*   * https://github.com/sqlite/sqlite/blob/master/src/util.c#L1586
+*   * https://github.com/sqlite/sqlite/blob/master/src/util.c#L1610
 **
 */
 pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
@@ -64,8 +64,10 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     }
     temp_buffer[0] &= 0x7f;
 
-    // same as we match using n <= 8, since if n == 9 we wont get here
-    // but in general n <= 9
+    // This branch is equivalent to matching n <= 8, because if n == 9
+    // the execution flow will never reach this point. In practice, the
+    // general condition is n <= 9, but due to earlier checks, the case
+    // where n == 9 is already excluded before arriving here.
     assert!(n <= 9);
     // let mut j = n - 1;
     let mut i = 0;
@@ -80,7 +82,6 @@ pub fn decode_varint(bytes: &[u8]) -> Option<(u64, usize)> {
     let mut value = 0u64;
 
     for (i, &byte) in bytes.iter().enumerate() {
-        // Keep only the lower 7 bits.
         if i == 8 {
             value <<= 8;
             value |= byte as u64;
@@ -88,8 +89,6 @@ pub fn decode_varint(bytes: &[u8]) -> Option<(u64, usize)> {
         } else {
             value = (value << 7) | ((byte & 0x7f) as u64);
         }
-
-        // MSB == 0 means this is the last byte.
         if byte & 0x80 == 0 {
             return Some((value, i + 1));
         }
