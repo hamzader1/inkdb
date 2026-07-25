@@ -36,3 +36,12 @@ macro_rules! to_int {
         u64::from_be_bytes($x)
     }};
 }
+
+
+// short for std::mem::size_of::<T>();
+#[macro_export]
+macro_rules! size_of {
+    ($t: ty) => {{
+        std::mem::size_of::<$t>()
+    }};
+}
