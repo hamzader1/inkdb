@@ -76,6 +76,28 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     return n;
 }
 
+pub fn decode_varint(bytes: &[u8]) -> (u64, usize) {
+    let mut value = 0u64;
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        // Keep only the lower 7 bits.
+        if i == 8 {
+            value <<= 8;
+            value |= byte as u64;
+            return (value, i + 1);
+        } else {
+            value = (value << 7) | ((byte & 0x7f) as u64);
+        }
+
+        // MSB == 0 means this is the last byte.
+        if byte & 0x80 == 0 {
+            return (value, i + 1);
+        }
+    }
+
+    unreachable!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
