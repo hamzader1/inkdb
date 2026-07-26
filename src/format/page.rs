@@ -30,8 +30,7 @@ pub const FRAGMENTED_FREE_BYTES_SIZE: usize = 1;
 pub const RIGHT_MOST_POINTER_OFFSET: usize = 8;
 pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
-#[derive(Debug)]
-struct PageNo(u32);
+type PageNumber = u32;
 
 #[derive(Debug)]
 struct CellPointer(u16);
@@ -48,8 +47,8 @@ impl BTreePage {
         page_no: u32,
         usable_size: u16,
     ) -> Result<Self, SqliteDatabaseError> {
-        if page_no == 0 {
-            r.seek(SeekFrom::Start(SQLITE3_HEADER_SIZE.into()));
+        if page_no == 1 {
+            r.seek(SeekFrom::Start(SQLITE3_HEADER_SIZE.into()))?;
         }
         let (header, cell_pointers) = BTreePageHeader::parse_header(r)?;
 
@@ -72,7 +71,7 @@ impl BTreePage {
             btree_header_offset = SQLITE3_HEADER_SIZE;
         }
         assert_one(
-            (btree_header_offset + header_size) as u16 + (self.header.no_of_cells * 2)
+            (btree_header_offset as u16 + header_size as u16) + (self.header.no_of_cells * 2)
                 <= usable_size,
             SqliteDatabaseError::CorruptedPage {
                 page: self.page_no,
@@ -129,7 +128,7 @@ impl BTreePage {
             )?;
 
             assert_one(
-                right_most_child.0 != 0,
+                *right_most_child != 0,
                 SqliteDatabaseError::CorruptedPage {
                     page: self.page_no,
                     reason: "interior page has right-most child page 0".into(),
@@ -173,13 +172,17 @@ pub struct BTreePageHeader {
     no_of_cells: u16,
     cell_content_area: u16,
     frag_cnt: u8,
-    right_most_ptr: Option<PageNo>,
+    right_most_ptr: Option<PageNumber>,
 }
 impl BTreePageHeader {
     fn parse_header<R: Read + Seek>(
         r: &mut R,
     ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
-        let p_kind = BTreePageType::get(read_u8(r)?).unwrap();
+        let page_kind_byte = read_u8(r)?;
+        let p_kind = match BTreePageType::get(page_kind_byte) {
+            Some(x) => x,
+            _ => return Err(SqliteDatabaseError::InvalidPageType(page_kind_byte)),
+        };
         match p_kind {
             BTreePageType::LeafTable => {
                 return Self::parse_page(r, BTreePageType::LeafTable, false)
@@ -199,8 +202,8 @@ impl BTreePageHeader {
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
         let frag_cnt: u8 = read_u8(r)?;
-        let right_most_ptr: Option<PageNo> = if is_interior {
-            Some(PageNo(read_u32_be(r)?))
+        let right_most_ptr: Option<PageNumber> = if is_interior {
+            Some(read_u32_be(r)?)
         } else {
             None
         };
