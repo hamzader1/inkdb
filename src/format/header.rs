@@ -111,7 +111,7 @@ pub struct SqliteDatabaseHeader {
 }
 
 impl SqliteDatabaseHeader {
-    const ERR: SqliteDatabaseError = SqliteDatabaseError::InvalidDatabaseHeader;
+    const INVALID_HEADER_ERR: SqliteDatabaseError = SqliteDatabaseError::InvalidDatabaseHeader;
     pub fn parse<R: std::io::Read + Seek>(reader: &'_ mut R) -> Result<Self, SqliteDatabaseError> {
         let header_string: [u8; 16];
         let database_page_size: u16;
@@ -218,7 +218,10 @@ impl SqliteDatabaseHeader {
             sqlite_version_number,
         } = self;
 
-        assert_one(self.header_string == *SQLITE3_MAGIC, Self::ERR)?;
+        assert_one(
+            self.header_string == *SQLITE3_MAGIC,
+            Self::INVALID_HEADER_ERR,
+        )?;
 
         assert_one(
             self.database_page_size == 1
@@ -232,28 +235,46 @@ impl SqliteDatabaseHeader {
             self.database_page_size = 65536;
         }
 
-        assert_one(matches!(self.file_format_write_version, 1 | 2), Self::ERR)?;
+        assert_one(
+            matches!(self.file_format_write_version, 1 | 2),
+            Self::INVALID_HEADER_ERR,
+        )?;
 
-        assert_one(matches!(self.file_format_read_version, 1 | 2), Self::ERR)?;
+        assert_one(
+            matches!(self.file_format_read_version, 1 | 2),
+            Self::INVALID_HEADER_ERR,
+        )?;
 
         assert_one(
             (self.reserved_space as u32) < self.database_page_size,
-            Self::ERR,
+            Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(self.maximum_embedded_payload_fraction == 64, Self::ERR)?;
+        assert_one(
+            self.maximum_embedded_payload_fraction == 64,
+            Self::INVALID_HEADER_ERR,
+        )?;
 
-        assert_one(self.minimum_embedded_payload_fraction == 32, Self::ERR)?;
+        assert_one(
+            self.minimum_embedded_payload_fraction == 32,
+            Self::INVALID_HEADER_ERR,
+        )?;
 
-        assert_one(self.leaf_payload_fraction == 32, Self::ERR)?;
+        assert_one(self.leaf_payload_fraction == 32, Self::INVALID_HEADER_ERR)?;
 
-        assert_one(matches!(self.schema_format_number, 1..=4), Self::ERR)?;
+        assert_one(
+            matches!(self.schema_format_number, 1..=4),
+            Self::INVALID_HEADER_ERR,
+        )?;
 
-        assert_one(matches!(self.database_text_encoding, 1..=3), Self::ERR)?;
+        assert_one(
+            matches!(self.database_text_encoding, 1..=3),
+            Self::INVALID_HEADER_ERR,
+        )?;
 
         assert_one(
             self.reserved_for_expansion.iter().all(|&byte| byte == 0),
-            Self::ERR,
+            Self::INVALID_HEADER_ERR,
         )?;
         Ok(())
     }
