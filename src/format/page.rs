@@ -3,7 +3,7 @@ use crate::bytes::{read_u16_be, read_u32_be};
 use crate::util::assert_one;
 use crate::{bytes::read_u8, errors::SqliteDatabaseError};
 use crate::{decode_varint, seek_c, seek_s, sqlite_assert_all};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 
 // pub const INTERIOR_INEDX_BTREE_PAGE: u8 = 0x02;
 // pub const LEAF_INEDX_BTREE_PAGE: u8 = 0x0a;
@@ -39,22 +39,25 @@ struct CellPointer(u16);
 pub struct BTreePage {
     page_no: u32,
     header: BTreePageHeader,
+    bytes: Vec<u8>,
     cell_pointers: Vec<CellPointer>,
 }
 impl BTreePage {
-    pub fn parse<R: Read + Seek>(
-        r: &mut R,
+    pub fn parse(
+        mut bytes: Vec<u8>,
         page_no: u32,
         usable_size: u16,
     ) -> Result<Self, SqliteDatabaseError> {
+        let mut r = Cursor::new(&mut bytes);
         if page_no == 1 {
             r.seek(SeekFrom::Start(SQLITE3_HEADER_SIZE.into()))?;
         }
-        let (header, cell_pointers) = BTreePageHeader::parse_header(r)?;
+        let (header, cell_pointers) = BTreePageHeader::parse_header::<Cursor<&mut _>>(&mut r)?;
 
         let btree_page = BTreePage {
             page_no,
             header,
+            bytes,
             cell_pointers,
         };
         btree_page.validate(usable_size)?;
