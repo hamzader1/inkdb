@@ -1,6 +1,6 @@
 use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
-use crate::format::cell::TableInteriorCell;
+use crate::format::cell::{TableInteriorCell, TableLeafCell};
 use crate::util::assert_one;
 use crate::{bytes::read_u8, errors::SqliteDatabaseError, format::cell::BTreeCell};
 use crate::{decode_varint, seek_c, seek_s, sqlite_assert_all};
