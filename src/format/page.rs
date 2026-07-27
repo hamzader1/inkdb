@@ -38,6 +38,7 @@ struct CellPointer(u16);
 #[derive(Debug)]
 pub struct BTreePage {
     page_no: u32,
+    header_offset: u16,
     header: BTreePageHeader,
     bytes: Vec<u8>,
     cell_pointers: Vec<CellPointer>,
@@ -49,20 +50,25 @@ impl BTreePage {
         usable_size: u16,
     ) -> Result<Self, SqliteDatabaseError> {
         let mut r = Cursor::new(&mut bytes);
+        let mut header_offset: u16 = 0;
         if page_no == 1 {
+            header_offset = SQLITE3_HEADER_SIZE as _;
             r.seek(SeekFrom::Start(SQLITE3_HEADER_SIZE.into()))?;
         }
-        let (header, cell_pointers) = BTreePageHeader::parse_header::<Cursor<&mut _>>(&mut r)?;
+        let (header) = BTreePageHeader::parse::<Cursor<&mut _>>(&mut r)?;
 
-        let btree_page = BTreePage {
+        let mut btree_page = BTreePage {
             page_no,
+            header_offset,
             header,
             bytes,
-            cell_pointers,
+            cell_pointers: vec![],
         };
+        btree_page.parse_cell_array_into_page()?;
         btree_page.validate(usable_size)?;
         Ok(btree_page)
     }
+
     fn validate(&self, usable_size: u16) -> Result<(), SqliteDatabaseError> {
         let header_size = if self.header.page_kind.is_leaf() {
             LEAF_BTREE_PAGE_HEADER_SIZE
@@ -140,6 +146,25 @@ impl BTreePage {
         }
         Ok(())
     }
+    fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteDatabaseError> {
+        let Self {
+            header_offset,
+            header,
+            cell_pointers,
+            bytes,
+            ..
+        } = self;
+        let mut cursor = Cursor::new(bytes);
+        let header_size = header.get_header_size();
+        cursor.seek(SeekFrom::Start(
+            (*header_offset + header_size as u16) as u64,
+        ))?;
+        for _ in 0..header.no_of_cells {
+            let cell_pointer = CellPointer(read_u16_be(&mut cursor)?);
+            cell_pointers.push(cell_pointer);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -178,9 +203,7 @@ pub struct BTreePageHeader {
     right_most_ptr: Option<PageNumber>,
 }
 impl BTreePageHeader {
-    fn parse_header<R: Read + Seek>(
-        r: &mut R,
-    ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
+    fn parse<R: Read + Seek>(r: &mut R) -> Result<Self, SqliteDatabaseError> {
         let page_kind_byte = read_u8(r)?;
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
@@ -200,7 +223,7 @@ impl BTreePageHeader {
         r: &mut R,
         page_kind: BTreePageType,
         is_interior: bool,
-    ) -> Result<(Self, Vec<CellPointer>), SqliteDatabaseError> {
+    ) -> Result<Self, SqliteDatabaseError> {
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
@@ -218,13 +241,12 @@ impl BTreePageHeader {
             frag_cnt,
             right_most_ptr,
         };
-
-        let mut cell_pointers = Vec::<CellPointer>::new();
-        for _ in 0..no_of_cells {
-            let cell_pointer = CellPointer(read_u16_be(r)?);
-            cell_pointers.push(cell_pointer);
+        Ok(page_header)
+    }
+    fn get_header_size(&self) -> u8 {
+        if self.page_kind.is_interior() {
+            return INTERIOR_BTREE_PAGE_HEADER_SIZE;
         }
-
-        Ok((page_header, cell_pointers))
+        LEAF_BTREE_PAGE_HEADER_SIZE
     }
 }
