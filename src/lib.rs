@@ -1,3 +1,4 @@
+#![allow(unused, dead_code)]
 mod bytes;
 mod errors;
 mod format;
@@ -51,7 +52,8 @@ impl SqliteDatabse {
         BTreePage::parse(
             buff,
             page_no,
-            (page_size - self.header.reserved_space as u32) as u16,
+            page_size as usize,
+            (page_size - self.header.reserved_space as u32) as usize,
         )
     }
 }
