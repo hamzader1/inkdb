@@ -1,4 +1,3 @@
-#![allow(warnings)]
 mod bytes;
 mod errors;
 mod format;
@@ -44,10 +43,10 @@ impl SqliteDatabse {
 
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
-        self.file.seek(SeekFrom::Start(offset as u64));
+        self.file.seek(SeekFrom::Start(offset as u64))?;
 
         let mut buff = vec![0u8; page_size as usize];
-        self.file.read_exact(&mut buff);
+        self.file.read_exact(&mut buff)?;
 
         BTreePage::parse(
             buff,

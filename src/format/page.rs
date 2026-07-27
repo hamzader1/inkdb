@@ -1,3 +1,4 @@
+#![allow(unused)]
 use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
 use crate::util::assert_one;
