@@ -1,10 +1,13 @@
 use std::io::{Read, Seek, SeekFrom};
+use std::range::Range;
 type SlotIdx = u16;
 type CellOffset = u16;
 use crate::bytes::read_u32_be;
 use crate::decode_varint;
 use crate::errors::SqliteDatabaseError;
+use crate::util::compute_local_payload_size;
 
+const OVERFLOWED_PAGE_SIZE: usize = 4;
 use super::page::{CellPointer, PageNumber};
 
 #[derive(Debug)]
@@ -46,5 +49,47 @@ impl TableInteriorCell {
             left_child,
             rowid_boundary,
         })
+    }
+}
+impl TableLeafCell {
+    pub fn parse<R: Read + Seek>(
+        r: &mut R,
+        cell_ptr: CellPointer,
+        usable_size: usize,
+    ) -> Result<Self, SqliteDatabaseError> {
+        let cell_offset = cell_ptr.get() as u64;
+        let pre_moved_cursor = r.seek(SeekFrom::Start(cell_offset))?;
+        let mut buffer = [0u8; 9];
+        r.read_exact(&mut buffer)?;
+        let (payload_len, byte_read) = match decode_varint(&mut buffer) {
+            Some(x) => x,
+            _ => panic!("error while trying to parse payload length"),
+        };
+        let mut pre_moved_cursor = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))?; // we are at row_id
+        r.read_exact(&mut buffer)?;
+
+        let (row_id, byte_read) = match decode_varint(&mut buffer) {
+            Some(x) => x,
+            _ => panic!("error while trying to parse payload length"),
+        };
+
+        let current_pos = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))? as usize;
+        let local_payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let local_payload_range = Range::from((current_pos..current_pos + local_payload_size));
+        let mut overflow_page: Option<u32> = None;
+        if local_payload_size < payload_len as usize {
+            r.seek(SeekFrom::Start(
+                current_pos as u64 + local_payload_size as u64,
+            ))?;
+            overflow_page = Some(read_u32_be(r)?);
+        }
+
+        let cell = Self {
+            payload_len,
+            row_id,
+            local_payload_range,
+            first_overflow_page: overflow_page,
+        };
+        Ok(cell)
     }
 }
