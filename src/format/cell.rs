@@ -51,6 +51,7 @@ impl TableInteriorCell {
         })
     }
 }
+// TODO: improve err handling
 impl TableLeafCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
@@ -81,6 +82,8 @@ impl TableLeafCell {
             r.seek(SeekFrom::Start(
                 current_pos as u64 + local_payload_size as u64,
             ))?;
+            let overflow_page_int = read_u32_be(r)?;
+            assert!(overflow_page_int > 0, "Invalid overflow page pointer");
             overflow_page = Some(read_u32_be(r)?);
         }
 

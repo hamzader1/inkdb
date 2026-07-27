@@ -43,7 +43,6 @@ impl CellPointer {
     }
 }
 
-#[derive(Debug)]
 pub struct BTreePage {
     page_no: u32,
     header_offset: u16,
@@ -186,6 +185,11 @@ impl BTreePage {
             "Cell Index Out of Bounds"
         );
         let cell_ptr = self.cell_pointers[cell_idx as usize];
+        // make sure the cell pointer inside the usable page
+        assert!(
+            cell_ptr.get() as usize <= self.usable_size,
+            "invalid cell pointer"
+        );
         let mut r = Cursor::new(&self.bytes);
         dbg!(&self.header.page_kind);
 
@@ -286,5 +290,21 @@ impl BTreePageHeader {
             return INTERIOR_BTREE_PAGE_HEADER_SIZE;
         }
         LEAF_BTREE_PAGE_HEADER_SIZE
+    }
+}
+
+use std::fmt;
+
+impl fmt::Debug for BTreePage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BTreePage")
+            .field("page_no", &self.page_no)
+            .field("header_offset", &self.header_offset)
+            .field("header", &self.header)
+            .field("bytes_len", &self.bytes.len())
+            .field("cell_pointers", &self.cell_pointers)
+            .field("page_size", &self.page_size)
+            .field("usable_size", &self.usable_size)
+            .finish()
     }
 }
