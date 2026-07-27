@@ -43,6 +43,33 @@ impl CellPointer {
     }
 }
 
+#[derive(Debug)]
+pub enum BTreePageType {
+    InteriorIndex = 0x02,
+    LeafIndex = 0x0a,
+    InteriorTable = 0x05,
+    LeafTable = 0x0d,
+}
+
+impl BTreePageType {
+    fn get(kind: u8) -> Option<Self> {
+        match kind {
+            0x0a => Some(Self::LeafIndex),
+            0x02 => Some(Self::InteriorIndex),
+            0x0d => Some(Self::LeafTable),
+            0x05 => Some(Self::InteriorTable),
+            _ => None,
+        }
+    }
+    fn is_leaf(&self) -> bool {
+        matches!(self, Self::LeafIndex | Self::LeafTable)
+    }
+
+    fn is_interior(&self) -> bool {
+        matches!(self, Self::InteriorTable | Self::InteriorIndex)
+    }
+}
+
 pub struct BTreePage {
     page_no: u32,
     header_offset: u16,
@@ -205,32 +232,6 @@ impl BTreePage {
 
             _ => todo!(),
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum BTreePageType {
-    InteriorIndex = 0x02,
-    LeafIndex = 0x0a,
-    InteriorTable = 0x05,
-    LeafTable = 0x0d,
-}
-impl BTreePageType {
-    fn get(kind: u8) -> Option<Self> {
-        match kind {
-            0x0a => Some(Self::LeafIndex),
-            0x02 => Some(Self::InteriorIndex),
-            0x0d => Some(Self::LeafTable),
-            0x05 => Some(Self::InteriorTable),
-            _ => None,
-        }
-    }
-    fn is_leaf(&self) -> bool {
-        matches!(self, Self::LeafIndex | Self::LeafTable)
-    }
-
-    fn is_interior(&self) -> bool {
-        matches!(self, Self::InteriorTable | Self::InteriorIndex)
     }
 }
 
