@@ -33,8 +33,13 @@ pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
 type PageNumber = u32;
 
-#[derive(Debug)]
-struct CellPointer(u16);
+#[derive(Debug, Clone, Copy)]
+pub struct CellPointer(u16);
+impl CellPointer {
+    pub fn get(&self) -> u16 {
+        self.0
+    }
+}
 
 #[derive(Debug)]
 pub struct BTreePage {
