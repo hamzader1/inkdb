@@ -1,10 +1,12 @@
-#![allow(unused)]
 use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
+use crate::format::cell::TableInteriorCell;
 use crate::util::assert_one;
-use crate::{bytes::read_u8, errors::SqliteDatabaseError};
+use crate::{bytes::read_u8, errors::SqliteDatabaseError, format::cell::BTreeCell};
 use crate::{decode_varint, seek_c, seek_s, sqlite_assert_all};
+use std::any::Any;
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::ops::Index;
 
 // pub const INTERIOR_INEDX_BTREE_PAGE: u8 = 0x02;
 // pub const LEAF_INEDX_BTREE_PAGE: u8 = 0x0a;
@@ -31,7 +33,7 @@ pub const FRAGMENTED_FREE_BYTES_SIZE: usize = 1;
 pub const RIGHT_MOST_POINTER_OFFSET: usize = 8;
 pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
-type PageNumber = u32;
+pub type PageNumber = u32;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CellPointer(u16);
@@ -152,6 +154,7 @@ impl BTreePage {
         }
         Ok(())
     }
+
     fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteDatabaseError> {
         let Self {
             header_offset,
@@ -170,6 +173,25 @@ impl BTreePage {
             cell_pointers.push(cell_pointer);
         }
         Ok(())
+    }
+
+    pub fn cell(&self, cell_idx: u16) -> Result<BTreeCell, SqliteDatabaseError> {
+        assert!(
+            (cell_idx as usize) < self.cell_pointers.len(),
+            "Cell Index Out of Bounds"
+        );
+        let cell_ptr = self.cell_pointers[cell_idx as usize];
+        let mut r = Cursor::new(&self.bytes);
+        dbg!(&self.header.page_kind);
+
+        match self.header.page_kind {
+            BTreePageType::InteriorTable => {
+                return TableInteriorCell::parse::<Cursor<_>>(&mut r, cell_ptr)
+                    .map(BTreeCell::TableInterior);
+            }
+            _ => todo!(),
+        }
+        unreachable!()
     }
 }
 
@@ -217,10 +239,10 @@ impl BTreePageHeader {
         };
         match p_kind {
             BTreePageType::LeafTable => {
-                return Self::parse_page(r, BTreePageType::LeafTable, false)
+                return Self::parse_page(r, BTreePageType::LeafTable, false);
             }
             BTreePageType::InteriorTable => {
-                return Self::parse_page(r, BTreePageType::InteriorTable, true)
+                return Self::parse_page(r, BTreePageType::InteriorTable, true);
             }
             _ => todo!(),
         };
