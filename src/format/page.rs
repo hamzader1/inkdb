@@ -189,6 +189,11 @@ impl BTreePage {
                 return TableInteriorCell::parse::<Cursor<_>>(&mut r, cell_ptr)
                     .map(BTreeCell::TableInterior);
             }
+            BTreePageType::LeafTable => {
+                return TableLeafCell::parse::<Cursor<_>>(&mut r, cell_ptr, self.usable_size)
+                    .map(BTreeCell::TableLeaf);
+            }
+
             _ => todo!(),
         }
         unreachable!()
