@@ -50,12 +50,15 @@ pub struct BTreePage {
     header: BTreePageHeader,
     bytes: Vec<u8>,
     cell_pointers: Vec<CellPointer>,
+    page_size: usize,
+    usable_size: usize,
 }
 impl BTreePage {
     pub fn parse(
         mut bytes: Vec<u8>,
         page_no: u32,
-        usable_size: u16,
+        page_size: usize,
+        usable_size: usize,
     ) -> Result<Self, SqliteDatabaseError> {
         let mut r = Cursor::new(&mut bytes);
         let mut header_offset: u16 = 0;
@@ -69,11 +72,13 @@ impl BTreePage {
             page_no,
             header_offset,
             header,
+            page_size,
+            usable_size,
             bytes,
             cell_pointers: vec![],
         };
         btree_page.parse_cell_array_into_page()?;
-        btree_page.validate(usable_size)?;
+        btree_page.validate(usable_size as u16)?; // fix later
         Ok(btree_page)
     }
 
