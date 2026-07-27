@@ -9,7 +9,7 @@ use format::header::SqliteDatabaseHeader;
 use format::page::BTreePage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::fs::{File, OpenOptions};
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub struct SqliteDatabse {

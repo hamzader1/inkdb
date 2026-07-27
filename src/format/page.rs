@@ -65,7 +65,7 @@ impl BTreePage {
             header_offset = SQLITE3_HEADER_SIZE as _;
             r.seek(SeekFrom::Start(SQLITE3_HEADER_SIZE.into()))?;
         }
-        let (header) = BTreePageHeader::parse::<Cursor<&mut _>>(&mut r)?;
+        let header = BTreePageHeader::parse::<Cursor<&mut _>>(&mut r)?;
 
         let mut btree_page = BTreePage {
             page_no,
@@ -205,7 +205,6 @@ impl BTreePage {
 
             _ => todo!(),
         }
-        unreachable!()
     }
 }
 
