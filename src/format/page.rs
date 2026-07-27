@@ -77,7 +77,7 @@ impl BTreePage {
             cell_pointers: vec![],
         };
         btree_page.parse_cell_array_into_page()?;
-        btree_page.validate(usable_size as u16)?; // fix later
+        btree_page.validate(usable_size as u16)?; // fix usable_size later
         Ok(btree_page)
     }
 
@@ -251,25 +251,18 @@ impl BTreePageHeader {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidPageType(page_kind_byte)),
         };
-        match p_kind {
-            BTreePageType::LeafTable => {
-                return Self::parse_page(r, BTreePageType::LeafTable, false);
-            }
-            BTreePageType::InteriorTable => {
-                return Self::parse_page(r, BTreePageType::InteriorTable, true);
-            }
-            _ => todo!(),
-        };
+
+        Self::parse_page(r, p_kind)
     }
     fn parse_page<R: Read + Seek>(
         r: &mut R,
         page_kind: BTreePageType,
-        is_interior: bool,
     ) -> Result<Self, SqliteDatabaseError> {
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;
         let frag_cnt: u8 = read_u8(r)?;
+        let is_interior = page_kind.is_interior();
         let right_most_ptr: Option<PageNumber> = if is_interior {
             Some(read_u32_be(r)?)
         } else {
