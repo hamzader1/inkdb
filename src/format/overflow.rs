@@ -7,11 +7,11 @@ use crate::{to_int, DbError};
 
 use super::page::PageNumber;
 
-pub struct OverflowPage<'a> {
+pub struct OverflowPageRef<'a> {
     pub next: PageNumber,
     pub data: &'a [u8],
 }
-impl<'a> OverflowPage<'a> {
+impl<'a> OverflowPageRef<'a> {
     pub fn new<T: AsRef<[u8]> + ?Sized>(bytes: &'a T, usable_size: usize) -> Result<Self, DbError> {
         let data = bytes.as_ref();
         let next_page_buffer = data[0..4].as_array::<U32_SIZE>().unwrap();

@@ -18,7 +18,7 @@ use std::task::ready;
 pub type DbError = SqliteDatabaseError;
 
 use self::format::cell::BTreeCellType;
-use self::format::overflow::OverflowPage;
+use self::format::overflow::OverflowPageRef;
 use self::format::page::{CellPointer, PageNumber};
 
 pub struct SqliteDatabse {
@@ -115,7 +115,7 @@ impl SqliteDatabse {
         // let mut next_page = overflow_page.next;
         while remaining > 0 {
             let overflow_page_buffer = self.read_raw_page_into(current_page, &mut buffer)?;
-            let mut overflow_page = OverflowPage::new(&buffer, self.usable_size() as _)?;
+            let mut overflow_page = OverflowPageRef::new(&buffer, self.usable_size() as _)?;
             let bytes_to_read: usize = remaining.min(overflow_page.data.len());
             local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);
             remaining -= bytes_to_read;
