@@ -39,7 +39,6 @@ pub struct TableInteriorCell {
 pub struct TableLeafCell {
     payload_len: u64,
     row_id: u64,
-    payload_ptr: u16,
     local_payload_range: Range<usize>,
     first_overflow_page: Option<PageNumber>,
 }
@@ -47,14 +46,12 @@ pub struct TableLeafCell {
 pub struct IndexInteriorCell {
     left_child: PageNumber,
     payload_len: u64,
-    payload_ptr: u16,
     payload: Range<usize>,
     first_overflow_page: Option<PageNumber>,
 }
 #[derive(Debug)]
 pub struct IndexLeafCell {
     payload_len: u64,
-    payload_ptr: u16,
     payload: Range<usize>,
     first_overflow_page: Option<PageNumber>,
 }
@@ -119,7 +116,6 @@ impl TableLeafCell {
             payload_len,
             row_id,
             local_payload_range,
-            payload_ptr: current_pos as u16,
             first_overflow_page: overflow_page,
         };
         Ok(cell)
@@ -146,7 +142,7 @@ impl IndexInteriorCell {
         };
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
-        let payload_ptr = pre_moved_cursor as u16;
+        // let payload_ptr = pre_moved_cursor as u16;
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from((pre_moved_cursor..pre_moved_cursor + payload_size as usize));
@@ -160,7 +156,6 @@ impl IndexInteriorCell {
         let cell = Self {
             left_child,
             payload_len,
-            payload_ptr,
             payload: local_payload_size,
             first_overflow_page: overflow_page,
         };
@@ -192,7 +187,6 @@ impl IndexLeafCell {
         };
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
-        let payload_ptr = pre_moved_cursor as u16;
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from((pre_moved_cursor..pre_moved_cursor + payload_size as usize));
@@ -205,7 +199,6 @@ impl IndexLeafCell {
         }
         let cell = Self {
             payload_len,
-            payload_ptr,
             payload: local_payload_size,
             first_overflow_page: overflow_page,
         };
@@ -235,14 +228,7 @@ impl BTreeCell {
             _ => BTreeCellType::TableInterior,
         }
     }
-    pub fn payload_ptr(&self) -> u16 {
-        match self {
-            BTreeCell::IndexInterior(x) => x.payload_ptr,
-            BTreeCell::IndexLeaf(x) => x.payload_ptr,
-            BTreeCell::TableLeaf(x) => x.payload_ptr,
-            _ => unreachable!(),
-        }
-    }
+
     pub fn overflow_page(&self) -> Option<PageNumber> {
         match self {
             BTreeCell::IndexInterior(x) => x.first_overflow_page,
