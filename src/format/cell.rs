@@ -160,7 +160,6 @@ impl IndexLeafCell {
         usable_size: usize,
         cell_ptr: CellPointer,
     ) -> Result<Self, SqliteDatabaseError> {
-        // Page number of left child
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
         let mut buf = [0u8; 9];
         r.read_exact(&mut buf)?;
