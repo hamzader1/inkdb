@@ -1,12 +1,10 @@
 use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
-use crate::format::cell::{TableInteriorCell, TableLeafCell};
+use crate::format::cell::{IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use crate::util::assert_one;
 use crate::{bytes::read_u8, errors::SqliteDatabaseError, format::cell::BTreeCell};
 use crate::{decode_varint, seek_c, seek_s, sqlite_assert_all};
-use std::any::Any;
 use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::ops::Index;
 
 // pub const INTERIOR_INEDX_BTREE_PAGE: u8 = 0x02;
 // pub const LEAF_INEDX_BTREE_PAGE: u8 = 0x0a;
@@ -230,6 +228,14 @@ impl BTreePage {
                     .map(BTreeCell::TableLeaf);
             }
 
+            BTreePageType::InteriorIndex => {
+                return IndexInteriorCell::parse(&mut r, cell_ptr, self.usable_size)
+                    .map(BTreeCell::IndexInterior)
+            }
+            BTreePageType::LeafIndex => {
+                return IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size)
+                    .map(BTreeCell::LeafInterior)
+            }
             _ => todo!(),
         }
     }

@@ -17,7 +17,8 @@ use super::page::{CellPointer, PageNumber};
 pub enum BTreeCell {
     TableInterior(TableInteriorCell),
     TableLeaf(TableLeafCell),
-    None,
+    IndexInterior(IndexInteriorCell),
+    LeafInterior(IndexLeafCell),
 }
 
 #[derive(Debug)]
@@ -115,8 +116,8 @@ impl TableLeafCell {
 impl IndexInteriorCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
-        usable_size: usize,
         cell_ptr: CellPointer,
+        usable_size: usize,
     ) -> Result<Self, SqliteDatabaseError> {
         // Page number of left child
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
@@ -157,8 +158,8 @@ impl IndexInteriorCell {
 impl IndexLeafCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
-        usable_size: usize,
         cell_ptr: CellPointer,
+        usable_size: usize,
     ) -> Result<Self, SqliteDatabaseError> {
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
         let mut buf = [0u8; 9];
