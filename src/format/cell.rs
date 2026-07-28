@@ -1,4 +1,7 @@
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{
+    Read, Seek,
+    SeekFrom::{self, Current, Start},
+};
 use std::range::Range;
 type SlotIdx = u16;
 type CellOffset = u16;
@@ -28,6 +31,19 @@ pub struct TableLeafCell {
     payload_len: u64,
     row_id: u64,
     local_payload_range: Range<usize>,
+    first_overflow_page: Option<PageNumber>,
+}
+#[derive(Debug)]
+pub struct IndexInteriorCell {
+    left_child: PageNumber,
+    payload_len: u64,
+    payload: Range<usize>,
+    first_overflow_page: Option<PageNumber>,
+}
+#[derive(Debug)]
+pub struct IndexLeafCell {
+    payload_len: u64,
+    payload: Range<usize>,
     first_overflow_page: Option<PageNumber>,
 }
 impl TableInteriorCell {
@@ -93,6 +109,84 @@ impl TableLeafCell {
             local_payload_range,
             first_overflow_page: overflow_page,
         };
+        Ok(cell)
+    }
+}
+impl IndexInteriorCell {
+    pub fn parse<R: Read + Seek>(
+        r: &mut R,
+        usable_size: usize,
+        cell_ptr: CellPointer,
+    ) -> Result<Self, SqliteDatabaseError> {
+        // Page number of left child
+        let cell_header = r.seek(Start(cell_ptr.get() as _))?;
+        let left_child = read_u32_be(r)?;
+        let mut buf = [0u8; 9];
+        r.read_exact(&mut buf)?;
+        let (payload_len, byte_read) = match decode_varint(&buf) {
+            Some(x) => x,
+            _ => return Err(SqliteDatabaseError::InvalidVarint),
+        };
+        // at the start of the payload
+        let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
+        let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let local_payload_size =
+            Range::from((pre_moved_cursor..pre_moved_cursor + payload_size as usize));
+        let mut overflow_page: Option<PageNumber> = None;
+        if payload_size < payload_len as usize {
+            r.seek(SeekFrom::Current(payload_size as i64))?;
+            let overflow_page_int = read_u32_be(r)?;
+            assert!(overflow_page_int > 0, "Invalid overflow page pointer");
+            overflow_page = Some(read_u32_be(r)?);
+        }
+        let cell = Self {
+            left_child,
+            payload_len,
+            payload: local_payload_size,
+            first_overflow_page: overflow_page,
+        };
+
+        // let overflow
+        Ok(cell)
+    }
+}
+
+// Almost the same as `[IndexInteriorCell]`
+// we may create one struct that works for both, but to keep thing organized
+// we will keep it as this for now at least.
+impl IndexLeafCell {
+    pub fn parse<R: Read + Seek>(
+        r: &mut R,
+        usable_size: usize,
+        cell_ptr: CellPointer,
+    ) -> Result<Self, SqliteDatabaseError> {
+        // Page number of left child
+        let cell_header = r.seek(Start(cell_ptr.get() as _))?;
+        let mut buf = [0u8; 9];
+        r.read_exact(&mut buf)?;
+        let (payload_len, byte_read) = match decode_varint(&buf) {
+            Some(x) => x,
+            _ => return Err(SqliteDatabaseError::InvalidVarint),
+        };
+        // at the start of the payload
+        let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
+        let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let local_payload_size =
+            Range::from((pre_moved_cursor..pre_moved_cursor + payload_size as usize));
+        let mut overflow_page: Option<PageNumber> = None;
+        if payload_size < payload_len as usize {
+            r.seek(SeekFrom::Current(payload_size as i64))?;
+            let overflow_page_int = read_u32_be(r)?;
+            assert!(overflow_page_int > 0, "Invalid overflow page pointer");
+            overflow_page = Some(read_u32_be(r)?);
+        }
+        let cell = Self {
+            payload_len,
+            payload: local_payload_size,
+            first_overflow_page: overflow_page,
+        };
+
+        // let overflow
         Ok(cell)
     }
 }
