@@ -137,6 +137,10 @@ impl SqliteDatabse {
             current_page = overflow_page.next;
         }
 
+        assert!(
+            local_payload_bytes.len() == total_payload_length,
+            "Assembleing bytes wen't wrong" // todo
+        );
         Ok(local_payload_bytes)
     }
 
