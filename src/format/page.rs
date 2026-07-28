@@ -77,7 +77,7 @@ pub struct BTreePage {
     page_size: usize,
     usable_size: usize,
 }
-impl BTreePage {
+impl<'a> BTreePage {
     pub fn parse(
         mut bytes: Vec<u8>,
         page_no: u32,
@@ -238,6 +238,13 @@ impl BTreePage {
             }
             _ => todo!(),
         }
+    }
+
+    pub fn bytes(&'a self) -> &'a Vec<u8> {
+        &self.bytes
+    }
+    pub fn no_of_cell(&self) -> usize {
+        self.header.no_of_cells as _
     }
 }
 
