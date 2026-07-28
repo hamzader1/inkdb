@@ -101,23 +101,40 @@ impl SqliteDatabse {
         total_payload_length: usize,
         first_overflow_page: PageNumber,
     ) -> Result<Vec<u8>, SqliteDatabaseError> {
-        let mut buffer = Vec::<u8>::new();
-        buffer.extend_from_slice(&*local_payload_bytes);
-        let mut remaining = total_payload_length - local_payload_bytes.len();
+        let mut remaining = total_payload_length
+            .checked_sub(local_payload_bytes.len())
+            .ok_or(SqliteDatabaseError::CorruptedPage {
+                page: first_overflow_page, // needs to be change later to the parent page
+                reason: "local payload exceeds total payload length".into(),
+            })?;
         let overflow_page_buffer = self.get_raw_page(first_overflow_page)?;
         let mut overflow_page = OverflowPage::new(overflow_page_buffer, self.usable_size() as _)?;
-        while remaining > 0 && overflow_page.next > 0 {
-            // println!("CURRENT PAGE: {}", overflow_page.next);
+        let mut current_page = first_overflow_page;
+        let mut next_page = overflow_page.next;
+        while remaining > 0 {
             local_payload_bytes.extend_from_slice(&overflow_page.data);
-            dbg!(&overflow_page.data.len(), self.usable_size());
             remaining -= std::cmp::min(remaining, (self.usable_size() as usize) - 4);
+            if remaining == 0 {
+                if next_page != 0 {
+                    return Err(SqliteDatabaseError::CorruptedPage {
+                        page: current_page,
+                        reason: "overflow chain continues after payload is complete".into(),
+                    });
+                }
+                break;
+            }
+            if next_page == 0 {
+                return Err(SqliteDatabaseError::CorruptedPage {
+                    page: current_page,
+                    reason: "overflow chain ends before payload is complete".into(),
+                });
+            }
             let next_op_buffer = self.get_raw_page(overflow_page.next)?;
             overflow_page = OverflowPage::new(next_op_buffer, self.usable_size() as _)?;
-            // if overflow_page.next == 0 {
-            //     break;
-            // }
+            current_page = next_page;
+            next_page = overflow_page.next;
         }
-        local_payload_bytes.extend_from_slice(&overflow_page.data);
+
         Ok(local_payload_bytes)
     }
 
