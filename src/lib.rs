@@ -59,7 +59,11 @@ impl SqliteDatabse {
         self.header.database_page_size - self.header.reserved_space as u32
     }
 
-    pub fn get_raw_page(&mut self, page_no: PageNumber) -> Result<Vec<u8>, SqliteDatabaseError> {
+    pub fn read_raw_page_into(
+        &mut self,
+        page_no: PageNumber,
+        buff: &mut Vec<u8>,
+    ) -> Result<(), SqliteDatabaseError> {
         if page_no == 1 {
             return Err(SqliteDatabaseError::Corrupt(
                 "Page no '1' cant be used as raw page".into(),
@@ -70,14 +74,13 @@ impl SqliteDatabse {
         let offset = page_size * (page_no - 1);
         self.file.seek(SeekFrom::Start(offset as u64))?;
 
-        let mut buff = vec![0u8; page_size as usize];
-        self.file.read_exact(&mut buff)?;
+        self.file.read_exact(buff)?;
 
         // let overflow_page = OverflowPage::new(buff, self.usable_size() as _)?;
 
         // let ref_buffer: &Vec<u8> = buff.as_ref();
         // let raw_page = RawPage::new(ref_buffer);
-        Ok(buff)
+        Ok(())
     }
 
     fn validate_page(&mut self, page_no: PageNumber) -> Result<(), SqliteDatabaseError> {
@@ -107,15 +110,17 @@ impl SqliteDatabse {
                 page: first_overflow_page, // needs to be change later to the parent page
                 reason: "local payload exceeds total payload length".into(),
             })?;
-        let overflow_page_buffer = self.get_raw_page(first_overflow_page)?;
-        let mut overflow_page = OverflowPage::new(overflow_page_buffer, self.usable_size() as _)?;
+        let mut buffer = vec![0u8; self.header.database_page_size as usize];
         let mut current_page = first_overflow_page;
-        let mut next_page = overflow_page.next;
+        // let mut next_page = overflow_page.next;
         while remaining > 0 {
-            local_payload_bytes.extend_from_slice(&overflow_page.data);
-            remaining -= std::cmp::min(remaining, (self.usable_size() as usize) - 4);
+            let overflow_page_buffer = self.read_raw_page_into(current_page, &mut buffer)?;
+            let mut overflow_page = OverflowPage::new(&buffer, self.usable_size() as _)?;
+            let bytes_to_read: usize = remaining.min(overflow_page.data.len());
+            local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);
+            remaining -= bytes_to_read;
             if remaining == 0 {
-                if next_page != 0 {
+                if overflow_page.next != 0 {
                     return Err(SqliteDatabaseError::CorruptedPage {
                         page: current_page,
                         reason: "overflow chain continues after payload is complete".into(),
@@ -123,16 +128,13 @@ impl SqliteDatabse {
                 }
                 break;
             }
-            if next_page == 0 {
+            if overflow_page.next == 0 {
                 return Err(SqliteDatabaseError::CorruptedPage {
                     page: current_page,
                     reason: "overflow chain ends before payload is complete".into(),
                 });
             }
-            let next_op_buffer = self.get_raw_page(overflow_page.next)?;
-            overflow_page = OverflowPage::new(next_op_buffer, self.usable_size() as _)?;
-            current_page = next_page;
-            next_page = overflow_page.next;
+            current_page = overflow_page.next;
         }
 
         Ok(local_payload_bytes)

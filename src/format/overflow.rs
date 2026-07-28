@@ -1,22 +1,27 @@
 use std::io::{Cursor, Read};
+use std::ptr::slice_from_raw_parts;
 
+const U32_SIZE: usize = size_of::<u32>();
 use crate::bytes::read_u32_be;
 use crate::{to_int, DbError};
 
 use super::page::PageNumber;
 
-pub struct OverflowPage {
+pub struct OverflowPage<'a> {
     pub next: PageNumber,
-    pub data: Vec<u8>,
+    pub data: &'a [u8],
 }
-impl OverflowPage {
-    pub fn new(bytes: Vec<u8>, usable_size: usize) -> Result<Self, DbError> {
-        let mut cursor = Cursor::new(&bytes);
-        // let next_page_buffer = &bytes[0..4];
-        let next = read_u32_be(&mut cursor)?;
-        let mut data = vec![0u8; usable_size - 4];
-        cursor.read_exact(&mut data)?;
-        Ok(Self { next, data })
+impl<'a> OverflowPage<'a> {
+    pub fn new<T: AsRef<[u8]> + ?Sized>(bytes: &'a T, usable_size: usize) -> Result<Self, DbError> {
+        let data = bytes.as_ref();
+        let next_page_buffer = data[0..4].as_array::<U32_SIZE>().unwrap();
+        let next_page = u32::from_be_bytes(*next_page_buffer);
+        let data = &data[4..(usable_size)];
+
+        Ok(Self {
+            next: next_page,
+            data,
+        })
     }
 }
 
