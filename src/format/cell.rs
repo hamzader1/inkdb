@@ -1,3 +1,4 @@
+use crate::compute_local_payload_size;
 use std::io::{
     Read, Seek,
     SeekFrom::{self, Current, Start},
@@ -8,7 +9,6 @@ type CellOffset = u16;
 use crate::bytes::read_u32_be;
 use crate::decode_varint;
 use crate::errors::SqliteDatabaseError;
-use crate::util::compute_local_payload_size;
 
 const OVERFLOWED_PAGE_SIZE: usize = 4;
 use super::page::{CellPointer, PageNumber};

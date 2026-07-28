@@ -1,4 +1,5 @@
 #![allow(unused, dead_code)]
+
 mod bytes;
 mod errors;
 mod format;
@@ -6,6 +7,7 @@ mod macros;
 mod util;
 use errors::SqliteDatabaseError;
 use format::header::SqliteDatabaseHeader;
+use format::overflow::compute_local_payload_size;
 use format::page::BTreePage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::fs::{File, OpenOptions};
