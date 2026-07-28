@@ -18,7 +18,7 @@ pub enum BTreeCell {
     TableInterior(TableInteriorCell),
     TableLeaf(TableLeafCell),
     IndexInterior(IndexInteriorCell),
-    LeafInterior(IndexLeafCell),
+    IndexLeaf(IndexLeafCell),
 }
 
 #[derive(Debug)]

@@ -234,7 +234,7 @@ impl BTreePage {
             }
             BTreePageType::LeafIndex => {
                 return IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::LeafInterior)
+                    .map(BTreeCell::IndexLeaf)
             }
             _ => todo!(),
         }
