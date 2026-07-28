@@ -9,10 +9,17 @@ use errors::SqliteDatabaseError;
 use format::header::SqliteDatabaseHeader;
 use format::overflow::compute_local_payload_size;
 use format::page::BTreePage;
+use format::raw_page::RawPage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::task::ready;
+pub type DbError = SqliteDatabaseError;
+
+use self::format::cell::BTreeCellType;
+use self::format::overflow::OverflowPage;
+use self::format::page::{CellPointer, PageNumber};
 
 pub struct SqliteDatabse {
     file: File,
@@ -32,18 +39,8 @@ impl SqliteDatabse {
         &self.header
     }
 
-    pub fn page(&mut self, page_no: u32) -> Result<BTreePage, SqliteDatabaseError> {
-        if page_no == 0 {
-            return Err(SqliteDatabaseError::Corrupt(
-                "page number cannot be zero".into(),
-            ));
-        }
-        if page_no > self.header.database_size_in_pages {
-            return Err(SqliteDatabaseError::Corrupt(
-                "page number is outside the database".into(),
-            ));
-        }
-
+    pub fn page(&mut self, page_no: PageNumber) -> Result<BTreePage, SqliteDatabaseError> {
+        self.validate_page(page_no)?;
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         self.file.seek(SeekFrom::Start(offset as u64))?;
@@ -58,8 +55,107 @@ impl SqliteDatabse {
             (page_size - self.header.reserved_space as u32) as usize,
         )
     }
+    pub fn usable_size(&self) -> u32 {
+        self.header.database_page_size - self.header.reserved_space as u32
+    }
+
+    pub fn get_raw_page(&mut self, page_no: PageNumber) -> Result<Vec<u8>, SqliteDatabaseError> {
+        if page_no == 1 {
+            return Err(SqliteDatabaseError::Corrupt(
+                "Page no '1' cant be used as raw page".into(),
+            ));
+        }
+        self.validate_page(page_no)?;
+        let page_size = self.header.database_page_size;
+        let offset = page_size * (page_no - 1);
+        self.file.seek(SeekFrom::Start(offset as u64))?;
+
+        let mut buff = vec![0u8; page_size as usize];
+        self.file.read_exact(&mut buff)?;
+
+        // let overflow_page = OverflowPage::new(buff, self.usable_size() as _)?;
+
+        // let ref_buffer: &Vec<u8> = buff.as_ref();
+        // let raw_page = RawPage::new(ref_buffer);
+        Ok(buff)
+    }
+
+    fn validate_page(&mut self, page_no: PageNumber) -> Result<(), SqliteDatabaseError> {
+        if page_no == 0 {
+            return Err(SqliteDatabaseError::Corrupt(
+                "page number cannot be zero".into(),
+            ));
+        }
+        if page_no > self.header.database_size_in_pages {
+            return Err(SqliteDatabaseError::Corrupt(
+                "page number is outside the database".into(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn read_overflow_payload(
+        &mut self,
+        mut local_payload_bytes: Vec<u8>,
+        total_payload_length: usize,
+        first_overflow_page: PageNumber,
+    ) -> Result<Vec<u8>, SqliteDatabaseError> {
+        let mut buffer = Vec::<u8>::new();
+        buffer.extend_from_slice(&*local_payload_bytes);
+        let mut remaining = total_payload_length - local_payload_bytes.len();
+        let overflow_page_buffer = self.get_raw_page(first_overflow_page)?;
+        let mut overflow_page = OverflowPage::new(overflow_page_buffer, self.usable_size() as _)?;
+        while remaining > 0 && overflow_page.next > 0 {
+            // println!("CURRENT PAGE: {}", overflow_page.next);
+            local_payload_bytes.extend_from_slice(&overflow_page.data);
+            dbg!(&overflow_page.data.len(), self.usable_size());
+            remaining -= std::cmp::min(remaining, (self.usable_size() as usize) - 4);
+            let next_op_buffer = self.get_raw_page(overflow_page.next)?;
+            overflow_page = OverflowPage::new(next_op_buffer, self.usable_size() as _)?;
+            // if overflow_page.next == 0 {
+            //     break;
+            // }
+        }
+        local_payload_bytes.extend_from_slice(&overflow_page.data);
+        Ok(local_payload_bytes)
+    }
+
+    pub fn cell_payload(
+        &mut self,
+        page: &BTreePage,
+        cell_idx: u16,
+    ) -> Result<Vec<u8>, SqliteDatabaseError> {
+        let cell = page.cell(cell_idx)?;
+        assert!(
+            cell.cell_type() != BTreeCellType::TableInterior,
+            "TableInterior has no cells"
+        );
+        let local_payload = cell.payload();
+        let mut payload = Vec::<u8>::new();
+        // let mut cursor = Cursor::new(page.bytes());
+        // cursor.seek(SeekFrom::Start( as u64))?;
+
+        payload.extend_from_slice(&page.bytes()[local_payload.start..local_payload.end]);
+        if cell.overflow_page().is_none() {
+            assert!(
+                payload.len() == cell.cell_payload_len() as usize,
+                " payload buffer length does not match original cell payload len"
+            );
+            return Ok(payload);
+        }
+        // has overflow
+        self.read_overflow_payload(
+            payload,
+            cell.cell_payload_len() as usize,
+            cell.overflow_page().unwrap(),
+        )
+    }
 
     pub fn page_count(&self) -> u32 {
         self.header.database_size_in_pages
+    }
+    pub fn page_size(&self) -> u32 {
+        self.header.database_page_size
     }
 }
