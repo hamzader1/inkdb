@@ -56,4 +56,8 @@ impl SqliteDatabse {
             (page_size - self.header.reserved_space as u32) as usize,
         )
     }
+
+    pub fn page_count(&self) -> u32 {
+        self.header.database_size_in_pages
+    }
 }
