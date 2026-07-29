@@ -1,7 +1,7 @@
 use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
 use crate::format::cell::{IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
-use crate::util::assert_one;
+use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::{bytes::read_u8, errors::SqliteDatabaseError, format::cell::BTreeCell};
 use crate::{decode_varint, seek_c, seek_s, sqlite_assert_all};
 use std::io::{Cursor, Read, Seek, SeekFrom};
@@ -116,7 +116,7 @@ impl<'a> BTreePage {
         if self.page_no == 0 {
             btree_header_offset = SQLITE3_HEADER_SIZE;
         }
-        assert_one(
+        sqlite_assert_one(
             (btree_header_offset as u16 + header_size as u16) + (self.header.no_of_cells * 2)
                 <= usable_size,
             SqliteDatabaseError::CorruptedPage {
@@ -124,7 +124,7 @@ impl<'a> BTreePage {
                 reason: "cell pointer array exceeds usable page space".into(),
             },
         )?;
-        assert_one(
+        sqlite_assert_one(
             self.header.cell_content_area <= usable_size,
             SqliteDatabaseError::CorruptedPage {
                 page: self.page_no,
@@ -132,7 +132,7 @@ impl<'a> BTreePage {
             },
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             self.header.frag_cnt <= 60,
             SqliteDatabaseError::CorruptedPage {
                 page: self.page_no,
@@ -146,7 +146,7 @@ impl<'a> BTreePage {
         for CellPointer(cell_offset) in &self.cell_pointers {
             let cell_offset = *cell_offset as usize;
 
-            assert_one(
+            sqlite_assert_one(
                 cell_offset < usable_size as usize,
                 SqliteDatabaseError::CorruptedPage {
                     page: self.page_no,
@@ -154,7 +154,7 @@ impl<'a> BTreePage {
                 },
             )?;
 
-            assert_one(
+            sqlite_assert_one(
                 cell_offset >= pointer_array_end,
                 SqliteDatabaseError::CorruptedPage {
                     page: self.page_no,
@@ -173,7 +173,7 @@ impl<'a> BTreePage {
                 },
             )?;
 
-            assert_one(
+            sqlite_assert_one(
                 *right_most_child != 0,
                 SqliteDatabaseError::CorruptedPage {
                     page: self.page_no,
@@ -205,15 +205,15 @@ impl<'a> BTreePage {
     }
 
     pub fn cell(&self, cell_idx: u16) -> Result<BTreeCell, SqliteDatabaseError> {
-        assert!(
+        sqlite_assert_with_corrupt_err(
             (cell_idx as usize) < self.cell_pointers.len(),
-            "Cell Index Out of Bounds"
+            "Cell Index Out of Bounds",
         );
         let cell_ptr = self.cell_pointers[cell_idx as usize];
         // make sure the cell pointer inside the usable page
-        assert!(
+        sqlite_assert_with_corrupt_err(
             cell_ptr.get() as usize <= self.usable_size,
-            "invalid cell pointer"
+            "invalid cell pointer",
         );
         let mut r = Cursor::new(&self.bytes);
         dbg!(&self.header.page_kind);
