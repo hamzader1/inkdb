@@ -92,14 +92,6 @@ impl SqliteDatabse {
                 return Err(SqliteDatabaseError::Corrupt("Exception Failed".into()));
             }
         }
-        // TODO
-        // let clos = |page: u32, other: u32| {
-        //     if page == other {
-        //         return Ok(());
-        //     } else {
-        //         return Err(SqliteDatabaseError::CellOverlap);
-        //     }
-        // };
         if page_no == 0 {
             return Err(SqliteDatabaseError::Corrupt(
                 "page number cannot be zero".into(),
