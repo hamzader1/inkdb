@@ -1,8 +1,8 @@
 #![allow(unused, dead_code)]
 
 mod bytes;
-mod errors;
-mod format;
+pub mod errors;
+pub mod format;
 mod macros;
 mod util;
 use errors::SqliteDatabaseError;
@@ -116,3 +116,5 @@ impl SqliteDatabse {
         self.header.database_page_size
     }
 }
+
+

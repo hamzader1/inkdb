@@ -10,7 +10,7 @@ use crate::format::header;
 use crate::seek_c;
 use crate::seek_s;
 use crate::sqlite_assert_all;
-use crate::util::assert_one;
+use crate::util::sqlite_assert_one;
 
 pub const SQLITE3_HEADER_SIZE: u8 = 100;
 
@@ -219,12 +219,12 @@ impl SqliteDatabaseHeader {
             sqlite_version_number,
         } = self;
 
-        assert_one(
+        sqlite_assert_one(
             self.header_string == *SQLITE3_MAGIC,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             self.database_page_size == 1
                 || (self.database_page_size >= 512
                     && self.database_page_size <= 32768
@@ -236,47 +236,49 @@ impl SqliteDatabaseHeader {
             self.database_page_size = 65536;
         }
 
-        assert_one(
+        sqlite_assert_one(
             matches!(self.file_format_write_version, 1 | 2),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             matches!(self.file_format_read_version, 1 | 2),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             (self.reserved_space as u32) < self.database_page_size,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             self.maximum_embedded_payload_fraction == 64,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             self.minimum_embedded_payload_fraction == 32,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(self.leaf_payload_fraction == 32, Self::INVALID_HEADER_ERR)?;
+        sqlite_assert_one(self.leaf_payload_fraction == 32, Self::INVALID_HEADER_ERR)?;
 
-        assert_one(
+        sqlite_assert_one(
             matches!(self.schema_format_number, 1..=4),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             matches!(self.database_text_encoding, 1..=3),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        assert_one(
+        sqlite_assert_one(
             self.reserved_for_expansion.iter().all(|&byte| byte == 0),
             Self::INVALID_HEADER_ERR,
         )?;
         Ok(())
     }
 }
+
+
