@@ -27,9 +27,12 @@ impl SqliteDatabse {
             let mut cursor = Cursor::new(&mut buf);
             trunk_pages.push(current_page);
             let next_freelist_trunk = read_u32_be(&mut cursor)?;
+            self.validate_page(current_page, Some(|| current_page == 1))?;
             let leaf_pages_cnt = read_u32_be(&mut cursor)?;
             for _ in 0..leaf_pages_cnt {
-                leaf_pages.push(read_u32_be(&mut cursor)?);
+                let leaf_page = read_u32_be(&mut cursor)?;
+                self.validate_page(leaf_page, Some(|| leaf_page == 1))?;
+                leaf_pages.push(leaf_page);
             }
             current_page = next_freelist_trunk;
         }
