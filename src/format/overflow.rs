@@ -3,27 +3,10 @@ use std::ptr::slice_from_raw_parts;
 
 const U32_SIZE: usize = size_of::<u32>();
 use crate::bytes::read_u32_be;
-use crate::{to_int, DbError};
+use crate::{to_int, DbError, SqliteDatabse};
 
 use super::page::PageNumber;
-
-pub struct OverflowPageRef<'a> {
-    pub next: PageNumber,
-    pub data: &'a [u8],
-}
-impl<'a> OverflowPageRef<'a> {
-    pub fn new<T: AsRef<[u8]> + ?Sized>(bytes: &'a T, usable_size: usize) -> Result<Self, DbError> {
-        let data = bytes.as_ref();
-        let next_page_buffer = data[0..4].as_array::<U32_SIZE>().expect("Failed to parse u32 array from page buffer");
-        let next_page = u32::from_be_bytes(*next_page_buffer);
-        let data = &data[4..(usable_size)];
-
-        Ok(Self {
-            next: next_page,
-            data,
-        })
-    }
-}
+use crate::SqliteDatabaseError;
 
 /*
    ** X is U-35 for table btree leaf pages or ((U-12)*64/255)-23 for index pages.
@@ -54,5 +37,73 @@ pub const fn compute_local_payload_size(usable_size: usize, payload_len: usize) 
         } else {
             return m;
         }
+    }
+}
+pub struct OverflowPageRef<'a> {
+    pub next: PageNumber,
+    pub data: &'a [u8],
+}
+impl<'a> OverflowPageRef<'a> {
+    pub fn new<T: AsRef<[u8]> + ?Sized>(bytes: &'a T, usable_size: usize) -> Result<Self, DbError> {
+        let data = bytes.as_ref();
+        let next_page_buffer = data[0..4]
+            .as_array::<U32_SIZE>()
+            .expect("Failed to parse u32 array from page buffer");
+        let next_page = u32::from_be_bytes(*next_page_buffer);
+        let data = &data[4..(usable_size)];
+
+        Ok(Self {
+            next: next_page,
+            data,
+        })
+    }
+}
+
+impl SqliteDatabse {
+    pub fn read_overflow_payload(
+        &mut self,
+        mut local_payload_bytes: Vec<u8>,
+        total_payload_length: usize,
+        first_overflow_page: PageNumber,
+    ) -> Result<Vec<u8>, SqliteDatabaseError> {
+        let mut remaining = total_payload_length
+            .checked_sub(local_payload_bytes.len())
+            .ok_or(SqliteDatabaseError::CorruptedPage {
+                page: first_overflow_page, // needs to be change later to the parent page
+                reason: "local payload exceeds total payload length".into(),
+            })?;
+        let mut buffer = vec![0u8; self.header.database_page_size as usize];
+        let mut current_page = first_overflow_page;
+        // let mut next_page = overflow_page.next;
+        while remaining > 0 {
+            let overflow_page_buffer = self.read_raw_page_into(current_page, &mut buffer)?;
+            let mut overflow_page = OverflowPageRef::new(&buffer, self.usable_size() as _)?;
+            let bytes_to_read: usize = remaining.min(overflow_page.data.len());
+            local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);
+            remaining -= bytes_to_read;
+            if remaining == 0 {
+                if overflow_page.next != 0 {
+                    return Err(SqliteDatabaseError::CorruptedPage {
+                        page: current_page,
+                        reason: "overflow chain continues after payload is complete".into(),
+                    });
+                }
+                break;
+            }
+            if overflow_page.next == 0 {
+                return Err(SqliteDatabaseError::CorruptedPage {
+                    page: current_page,
+                    reason: "overflow chain ends before payload is complete".into(),
+                });
+            }
+            current_page = overflow_page.next;
+        }
+
+        assert_eq!(
+            local_payload_bytes.len(),
+            total_payload_length,
+            "assembled payload length mismatch"
+        );
+        Ok(local_payload_bytes)
     }
 }

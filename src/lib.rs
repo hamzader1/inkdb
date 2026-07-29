@@ -105,83 +105,9 @@ impl SqliteDatabse {
         Ok(())
     }
 
-    fn read_overflow_payload(
-        &mut self,
-        mut local_payload_bytes: Vec<u8>,
-        total_payload_length: usize,
-        first_overflow_page: PageNumber,
-    ) -> Result<Vec<u8>, SqliteDatabaseError> {
-        let mut remaining = total_payload_length
-            .checked_sub(local_payload_bytes.len())
-            .ok_or(SqliteDatabaseError::CorruptedPage {
-                page: first_overflow_page, // needs to be change later to the parent page
-                reason: "local payload exceeds total payload length".into(),
-            })?;
-        let mut buffer = vec![0u8; self.header.database_page_size as usize];
-        let mut current_page = first_overflow_page;
-        // let mut next_page = overflow_page.next;
-        while remaining > 0 {
-            let overflow_page_buffer = self.read_raw_page_into(current_page, &mut buffer)?;
-            let mut overflow_page = OverflowPageRef::new(&buffer, self.usable_size() as _)?;
-            let bytes_to_read: usize = remaining.min(overflow_page.data.len());
-            local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);
-            remaining -= bytes_to_read;
-            if remaining == 0 {
-                if overflow_page.next != 0 {
-                    return Err(SqliteDatabaseError::CorruptedPage {
-                        page: current_page,
-                        reason: "overflow chain continues after payload is complete".into(),
-                    });
-                }
-                break;
-            }
-            if overflow_page.next == 0 {
-                return Err(SqliteDatabaseError::CorruptedPage {
-                    page: current_page,
-                    reason: "overflow chain ends before payload is complete".into(),
-                });
-            }
-            current_page = overflow_page.next;
-        }
 
-        assert_eq!(
-            local_payload_bytes.len(),
-            total_payload_length,
-            "assembled payload length mismatch"
-        );
-        Ok(local_payload_bytes)
-    }
 
-    pub fn cell_payload(
-        &mut self,
-        page: &BTreePage,
-        cell_idx: u16,
-    ) -> Result<Vec<u8>, SqliteDatabaseError> {
-        let cell = page.cell(cell_idx)?;
-        assert!(
-            cell.cell_type() != BTreeCellType::TableInterior,
-            "TableInterior has no cells"
-        );
-        let local_payload = cell.payload();
-        let mut payload = Vec::<u8>::new();
-        // let mut cursor = Cursor::new(page.bytes());
-        // cursor.seek(SeekFrom::Start( as u64))?;
-
-        payload.extend_from_slice(&page.bytes()[local_payload.start..local_payload.end]);
-        if cell.overflow_page().is_none() {
-            assert!(
-                payload.len() == cell.cell_payload_len() as usize,
-                " payload buffer length does not match original cell payload len"
-            );
-            return Ok(payload);
-        }
-        // has overflow
-        self.read_overflow_payload(
-            payload,
-            cell.cell_payload_len() as usize,
-            cell.overflow_page().unwrap(),
-        )
-    }
+    
 
     pub fn page_count(&self) -> u32 {
         self.header.database_size_in_pages

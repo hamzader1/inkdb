@@ -1,4 +1,4 @@
-use crate::compute_local_payload_size;
+use crate::{compute_local_payload_size, format::page::BTreePage, SqliteDatabse};
 use std::io::{
     Read, Seek,
     SeekFrom::{self, Current, Start},
@@ -244,5 +244,38 @@ impl BTreeCell {
             BTreeCell::TableLeaf(x) => x.payload_len,
             _ => unreachable!(),
         }
+    }
+}
+
+impl SqliteDatabse {
+    pub fn cell_payload(
+        &mut self,
+        page: &BTreePage,
+        cell_idx: u16,
+    ) -> Result<Vec<u8>, SqliteDatabaseError> {
+        let cell = page.cell(cell_idx)?;
+        assert!(
+            cell.cell_type() != BTreeCellType::TableInterior,
+            "TableInterior has no cells"
+        );
+        let local_payload = cell.payload();
+        let mut payload = Vec::<u8>::new();
+        // let mut cursor = Cursor::new(page.bytes());
+        // cursor.seek(SeekFrom::Start( as u64))?;
+
+        payload.extend_from_slice(&page.bytes()[local_payload.start..local_payload.end]);
+        if cell.overflow_page().is_none() {
+            assert!(
+                payload.len() == cell.cell_payload_len() as usize,
+                " payload buffer length does not match original cell payload len"
+            );
+            return Ok(payload);
+        }
+        // has overflow
+        self.read_overflow_payload(
+            payload,
+            cell.cell_payload_len() as usize,
+            cell.overflow_page().unwrap(),
+        )
     }
 }
