@@ -3,6 +3,7 @@ use std::ptr::slice_from_raw_parts;
 
 const U32_SIZE: usize = size_of::<u32>();
 use crate::bytes::read_u32_be;
+use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::{to_int, DbError, SqliteDatabse};
 
 use super::page::PageNumber;
@@ -46,9 +47,19 @@ pub struct OverflowPageRef<'a> {
 impl<'a> OverflowPageRef<'a> {
     pub fn new<T: AsRef<[u8]> + ?Sized>(bytes: &'a T, usable_size: usize) -> Result<Self, DbError> {
         let data = bytes.as_ref();
-        let next_page_buffer = data[0..4]
-            .as_array::<U32_SIZE>()
-            .expect("Failed to parse u32 array from page buffer");
+        sqlite_assert_with_corrupt_err(
+            data.len() >= usable_size,
+            "not enough bytes in overflow page",
+        )?;
+
+        let next_page_buffer = match data[0..4].as_array::<U32_SIZE>() {
+            Some(buf) => buf,
+            _ => {
+                return Err(DbError::Corrupt(
+                    "Failed to parse next overflow page from overflow page".into(),
+                ))
+            }
+        };
         let next_page = u32::from_be_bytes(*next_page_buffer);
         let data = &data[4..(usable_size)];
 
@@ -74,10 +85,9 @@ impl SqliteDatabse {
             })?;
         let mut buffer = vec![0u8; self.header.database_page_size as usize];
         let mut current_page = first_overflow_page;
-        // let mut next_page = overflow_page.next;
         while remaining > 0 {
-            let overflow_page_buffer = self.read_raw_page_into(current_page, &mut buffer)?;
-            let mut overflow_page = OverflowPageRef::new(&buffer, self.usable_size() as _)?;
+            self.read_raw_page_into(current_page, &mut buffer)?;
+            let overflow_page = OverflowPageRef::new(&buffer, self.usable_size() as _)?;
             let bytes_to_read: usize = remaining.min(overflow_page.data.len());
             local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);
             remaining -= bytes_to_read;
@@ -99,11 +109,11 @@ impl SqliteDatabse {
             current_page = overflow_page.next;
         }
 
-        assert_eq!(
-            local_payload_bytes.len(),
-            total_payload_length,
-            "assembled payload length mismatch"
-        );
+        sqlite_assert_one(
+            local_payload_bytes.len() == total_payload_length,
+            DbError::Corrupt("assembled payload length mismatch".into()),
+        )?;
+
         Ok(local_payload_bytes)
     }
 }
