@@ -1,4 +1,6 @@
-use crate::{compute_local_payload_size, format::page::BTreePage, SqliteDatabse};
+use crate::{
+    compute_local_payload_size, format::page::BTreePage, util::sqlite_assert_one, DbError, SqliteDatabse,
+};
 use std::io::{
     Read, Seek,
     SeekFrom::{self, Current, Start},
@@ -89,14 +91,14 @@ impl TableLeafCell {
         r.read_exact(&mut buffer)?;
         let (payload_len, byte_read) = match decode_varint(&mut buffer) {
             Some(x) => x,
-            _ => panic!("error while trying to parse payload length"),
+            _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
         pre_moved_cursor = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))?; // we are at row_id
         r.read_exact(&mut buffer)?;
 
         let (row_id, byte_read) = match decode_varint(&mut buffer) {
             Some(x) => x,
-            _ => panic!("error while trying to parse payload length"),
+            _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
 
         let current_pos = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))? as usize;
@@ -108,7 +110,11 @@ impl TableLeafCell {
                 current_pos as u64 + local_payload_size as u64,
             ))?;
             let overflow_page_int = read_u32_be(r)?;
-            assert!(overflow_page_int > 0, "Invalid overflow page pointer");
+            if overflow_page_int == 0 {
+                return Err(SqliteDatabaseError::Corrupt(
+                    "invalid overflow page pointer".into(),
+                ));
+            }
             overflow_page = Some(overflow_page_int)
         }
 
@@ -150,7 +156,11 @@ impl IndexInteriorCell {
         if payload_size < payload_len as usize {
             r.seek(SeekFrom::Current(payload_size as i64))?;
             let overflow_page_int = read_u32_be(r)?;
-            assert!(overflow_page_int > 0, "Invalid overflow page pointer");
+            if overflow_page_int == 0 {
+                return Err(SqliteDatabaseError::Corrupt(
+                    "invalid overflow page pointer".into(),
+                ));
+            }
             overflow_page = Some(overflow_page_int)
         }
         let cell = Self {
@@ -194,7 +204,11 @@ impl IndexLeafCell {
         if payload_size < payload_len as usize {
             r.seek(SeekFrom::Current(payload_size as i64))?;
             let overflow_page_int = read_u32_be(r)?;
-            assert!(overflow_page_int > 0, "Invalid overflow page pointer");
+            if overflow_page_int == 0 {
+                return Err(SqliteDatabaseError::Corrupt(
+                    "invalid overflow page pointer".into(),
+                ));
+            }
             overflow_page = Some(overflow_page_int)
         }
         let cell = Self {
@@ -254,10 +268,11 @@ impl SqliteDatabse {
         cell_idx: u16,
     ) -> Result<Vec<u8>, SqliteDatabaseError> {
         let cell = page.cell(cell_idx)?;
-        assert!(
-            cell.cell_type() != BTreeCellType::TableInterior,
-            "TableInterior has no cells"
-        );
+        if cell.cell_type() == BTreeCellType::TableInterior {
+            return Err(SqliteDatabaseError::Corrupt(
+                "TableInterior has no cells".into(),
+            ));
+        }
         let local_payload = cell.payload();
         let mut payload = Vec::<u8>::new();
         // let mut cursor = Cursor::new(page.bytes());
@@ -265,10 +280,12 @@ impl SqliteDatabse {
 
         payload.extend_from_slice(&page.bytes()[local_payload.start..local_payload.end]);
         if cell.overflow_page().is_none() {
-            assert!(
+            sqlite_assert_one(
                 payload.len() == cell.cell_payload_len() as usize,
-                " payload buffer length does not match original cell payload len"
-            );
+                DbError::Corrupt(
+                    "payload buffer length does not match original cell payload len".into(),
+                ),
+            )?;
             return Ok(payload);
         }
         // has overflow
