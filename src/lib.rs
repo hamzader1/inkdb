@@ -9,7 +9,6 @@ use errors::SqliteDatabaseError;
 use format::header::SqliteDatabaseHeader;
 use format::overflow::compute_local_payload_size;
 use format::page::BTreePage;
-use format::raw_page::RawPage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Read, Seek, SeekFrom};
@@ -18,6 +17,7 @@ use std::task::ready;
 pub type DbError = SqliteDatabaseError;
 
 use self::format::cell::BTreeCellType;
+use self::format::freelist::FreeList;
 use self::format::overflow::OverflowPageRef;
 use self::format::page::{CellPointer, PageNumber};
 
@@ -76,10 +76,6 @@ impl SqliteDatabse {
 
         self.file.read_exact(buff)?;
 
-        // let overflow_page = OverflowPage::new(buff, self.usable_size() as _)?;
-
-        // let ref_buffer: &Vec<u8> = buff.as_ref();
-        // let raw_page = RawPage::new(ref_buffer);
         Ok(())
     }
 
