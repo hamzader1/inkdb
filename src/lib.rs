@@ -40,7 +40,7 @@ impl SqliteDatabse {
     }
 
     pub fn page(&mut self, page_no: PageNumber) -> Result<BTreePage, SqliteDatabaseError> {
-        self.validate_page(page_no)?;
+        self.validate_page(page_no, None::<fn() -> bool>)?;
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         self.file.seek(SeekFrom::Start(offset as u64))?;
@@ -69,7 +69,7 @@ impl SqliteDatabse {
                 "Page no '1' cant be used as raw page".into(),
             ));
         }
-        self.validate_page(page_no)?;
+        self.validate_page(page_no, None::<fn() -> bool>);
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         self.file.seek(SeekFrom::Start(offset as u64))?;
@@ -79,13 +79,32 @@ impl SqliteDatabse {
         Ok(())
     }
 
-    fn validate_page(&mut self, page_no: PageNumber) -> Result<(), SqliteDatabaseError> {
+    fn validate_page<F>(
+        &mut self,
+        page_no: PageNumber,
+        exception: Option<F>,
+    ) -> Result<(), SqliteDatabaseError>
+    where
+        F: Fn() -> bool,
+    {
+        if let Some(exc) = exception {
+            if exc() {
+                return Err(SqliteDatabaseError::Corrupt("Exception Failed".into()));
+            }
+        }
+        // TODO
+        // let clos = |page: u32, other: u32| {
+        //     if page == other {
+        //         return Ok(());
+        //     } else {
+        //         return Err(SqliteDatabaseError::CellOverlap);
+        //     }
+        // };
         if page_no == 0 {
             return Err(SqliteDatabaseError::Corrupt(
                 "page number cannot be zero".into(),
             ));
-        }
-        if page_no > self.header.database_size_in_pages {
+        } else if page_no > self.header.database_size_in_pages {
             return Err(SqliteDatabaseError::Corrupt(
                 "page number is outside the database".into(),
             ));
