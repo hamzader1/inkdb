@@ -1,4 +1,5 @@
 use crate::bytes::read_u32_be;
+use crate::util::sqlite_assert_one;
 use crate::{DbError, SqliteDatabse};
 
 use super::page::PageNumber;
@@ -13,9 +14,22 @@ pub struct FreeList {
 impl SqliteDatabse {
     pub fn freelist(&mut self) -> Result<Option<FreeList>, DbError> {
         let mut current_page = self.header.first_freelist_trunk_page;
-        if self.header.first_freelist_trunk_page == 0 {
-            return Ok(None);
-        } else if let Err(e) = self.validate_page(current_page, None::<fn() -> bool>) {
+        let total_pages = self.header.total_number_of_freelist_pages;
+        match (current_page, total_pages) {
+            (0, 0) => return Ok(None),
+            (0, _) => {
+                return Err(DbError::Corrupt(
+                    "freelist count is nonzero but first trunk page is zero".into(),
+                ));
+            }
+            (_, 0) => {
+                return Err(DbError::Corrupt(
+                    "freelist trunk page is nonzero but freelist count is zero".into(),
+                ));
+            }
+            _ => {}
+        };
+        if let Err(e) = self.validate_page(current_page, None::<fn() -> bool>) {
             return Err(e);
         }
         let mut trunk_pages = Vec::<u32>::new();
@@ -36,11 +50,11 @@ impl SqliteDatabse {
             }
             current_page = next_freelist_trunk;
         }
-        assert_eq!(
-            trunk_pages.len() + leaf_pages.len(),
-            self.header.total_number_of_freelist_pages as usize,
-            "freelist page count mismatch"
-        );
+        sqlite_assert_one(
+            trunk_pages.len() + leaf_pages.len()
+                == self.header.total_number_of_freelist_pages as usize,
+            DbError::Corrupt("freelist page count mismatch".into()),
+        )?;
         Ok(Some(FreeList {
             trunk_pages,
             leaf_pages,
