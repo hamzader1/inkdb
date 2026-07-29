@@ -36,8 +36,10 @@ impl SqliteDatabse {
             }
             current_page = next_freelist_trunk;
         }
-        assert!(
-            trunk_pages.len() + leaf_pages.len() == self.header.total_number_of_freelist_pages as _
+        assert_eq!(
+            trunk_pages.len() + leaf_pages.len(),
+            self.header.total_number_of_freelist_pages as usize,
+            "freelist page count mismatch"
         );
         Ok(Some(FreeList {
             trunk_pages,

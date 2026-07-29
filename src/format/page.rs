@@ -236,7 +236,6 @@ impl<'a> BTreePage {
                 return IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size)
                     .map(BTreeCell::IndexLeaf)
             }
-            _ => todo!(),
         }
     }
 

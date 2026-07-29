@@ -14,7 +14,7 @@ pub struct OverflowPageRef<'a> {
 impl<'a> OverflowPageRef<'a> {
     pub fn new<T: AsRef<[u8]> + ?Sized>(bytes: &'a T, usable_size: usize) -> Result<Self, DbError> {
         let data = bytes.as_ref();
-        let next_page_buffer = data[0..4].as_array::<U32_SIZE>().unwrap();
+        let next_page_buffer = data[0..4].as_array::<U32_SIZE>().expect("Failed to parse u32 array from page buffer");
         let next_page = u32::from_be_bytes(*next_page_buffer);
         let data = &data[4..(usable_size)];
 
