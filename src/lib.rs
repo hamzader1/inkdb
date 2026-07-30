@@ -59,10 +59,10 @@ impl SqliteDatabse {
         self.header.database_page_size - self.header.reserved_space as u32
     }
 
-    pub fn read_raw_page_into(
+    pub fn read_raw_page_into<B: AsMut<[u8]> + ?Sized>(
         &mut self,
         page_no: PageNumber,
-        buff: &mut Vec<u8>,
+        buff: &mut B,
     ) -> Result<(), SqliteDatabaseError> {
         if page_no == 1 {
             return Err(SqliteDatabaseError::Corrupt(
@@ -72,6 +72,7 @@ impl SqliteDatabse {
         self.validate_page(page_no, None::<fn(_) -> bool>);
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
+        let buff = buff.as_mut();
         self.file.seek(SeekFrom::Start(offset as u64))?;
 
         self.file.read_exact(buff)?;
