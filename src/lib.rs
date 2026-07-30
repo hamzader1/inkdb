@@ -40,7 +40,7 @@ impl SqliteDatabse {
     }
 
     pub fn page(&mut self, page_no: PageNumber) -> Result<BTreePage, SqliteDatabaseError> {
-        self.validate_page(page_no, None::<fn() -> bool>)?;
+        self.validate_page(page_no, None::<fn(_) -> bool>)?;
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         self.file.seek(SeekFrom::Start(offset as u64))?;
@@ -69,7 +69,7 @@ impl SqliteDatabse {
                 "Page no '1' cant be used as raw page".into(),
             ));
         }
-        self.validate_page(page_no, None::<fn() -> bool>);
+        self.validate_page(page_no, None::<fn(_) -> bool>);
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         self.file.seek(SeekFrom::Start(offset as u64))?;
@@ -85,10 +85,10 @@ impl SqliteDatabse {
         exception: Option<F>,
     ) -> Result<(), SqliteDatabaseError>
     where
-        F: Fn() -> bool,
+        F: Fn(PageNumber) -> bool,
     {
         if let Some(exc) = exception {
-            if exc() {
+            if exc(page_no) {
                 return Err(SqliteDatabaseError::Corrupt("Exception Failed".into()));
             }
         }
@@ -105,10 +105,6 @@ impl SqliteDatabse {
         Ok(())
     }
 
-
-
-    
-
     pub fn page_count(&self) -> u32 {
         self.header.database_size_in_pages
     }
@@ -116,5 +112,3 @@ impl SqliteDatabse {
         self.header.database_page_size
     }
 }
-
-
