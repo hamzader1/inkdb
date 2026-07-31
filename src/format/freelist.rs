@@ -1,6 +1,7 @@
 use crate::bytes::read_u32_be;
 use crate::util::sqlite_assert_one;
-use crate::{DbError, SqliteDatabse};
+use crate::vfs::file::SqliteFile;
+use crate::{DbError, SqliteDatabase};
 
 use super::page::PageNumber;
 use std::io::{Cursor, Read, Seek};
@@ -11,7 +12,7 @@ pub struct FreeList {
     leaf_pages: Vec<PageNumber>,
 }
 
-impl SqliteDatabse {
+impl<S: SqliteFile> SqliteDatabase<S> {
     pub fn freelist(&mut self) -> Result<Option<FreeList>, DbError> {
         let mut current_page = self.header.first_freelist_trunk_page;
         let total_pages = self.header.total_number_of_freelist_pages;

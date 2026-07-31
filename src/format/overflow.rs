@@ -4,7 +4,8 @@ use std::ptr::slice_from_raw_parts;
 const U32_SIZE: usize = size_of::<u32>();
 use crate::bytes::read_u32_be;
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
-use crate::{to_int, DbError, SqliteDatabse};
+use crate::vfs::file::SqliteFile;
+use crate::{to_int, DbError, SqliteDatabase};
 
 use super::page::PageNumber;
 use crate::SqliteDatabaseError;
@@ -70,7 +71,7 @@ impl<'a> OverflowPageRef<'a> {
     }
 }
 
-impl SqliteDatabse {
+impl<S: SqliteFile> SqliteDatabase<S> {
     pub fn read_overflow_payload(
         &mut self,
         mut local_payload_bytes: Vec<u8>,
