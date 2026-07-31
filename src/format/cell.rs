@@ -14,7 +14,10 @@ use crate::decode_varint;
 use crate::errors::SqliteDatabaseError;
 
 const OVERFLOWED_PAGE_SIZE: usize = 4;
-use super::page::{CellPointer, PageNumber};
+use super::{
+    page::{CellPointer, PageNumber},
+    varint::remaining_varint_bytes,
+};
 
 #[derive(Debug)]
 pub enum BTreeCell {
@@ -62,12 +65,14 @@ impl TableInteriorCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
         cell_ptr: CellPointer,
+        usable_size: usize,
     ) -> Result<Self, SqliteDatabaseError> {
         r.seek(SeekFrom::Current(cell_ptr.get() as _))?;
         let left_child = read_u32_be(r)?;
         // let rowid_boundary: u64;
+        let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buffer = [0u8; 9];
-        r.read_exact(&mut buffer)?;
+        r.read_exact(&mut buffer[..bytes_to_read])?;
         let rowid_boundary = match decode_varint(&buffer) {
             Some((rowid_boundary, _)) => rowid_boundary,
             None => return Err(SqliteDatabaseError::InvalidVarint),
@@ -88,14 +93,17 @@ impl TableLeafCell {
     ) -> Result<Self, SqliteDatabaseError> {
         let cell_offset = cell_ptr.get() as u64;
         let mut pre_moved_cursor = r.seek(SeekFrom::Start(cell_offset))?;
+        let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buffer = [0u8; 9];
-        r.read_exact(&mut buffer)?;
+        r.read_exact(&mut buffer[..bytes_to_read])?;
         let (payload_len, byte_read) = match decode_varint(&mut buffer) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
         pre_moved_cursor = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))?; // we are at row_id
-        r.read_exact(&mut buffer)?;
+
+        let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
+        r.read_exact(&mut buffer[..byte_read])?;
 
         let (row_id, byte_read) = match decode_varint(&mut buffer) {
             Some(x) => x,
@@ -141,8 +149,15 @@ impl IndexInteriorCell {
         // Page number of left child
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
         let left_child = read_u32_be(r)?;
+        let cursor_pos = r.stream_position()? as usize;
+
+        let remaining = usable_size
+            .checked_sub(cursor_pos)
+            .ok_or(SqliteDatabaseError::InvalidVarint)?;
+
+        let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buf = [0u8; 9];
-        r.read_exact(&mut buf)?;
+        r.read_exact(&mut buf[..bytes_to_read])?;
         let (payload_len, byte_read) = match decode_varint(&buf) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),
@@ -190,8 +205,9 @@ impl IndexLeafCell {
         usable_size: usize,
     ) -> Result<Self, SqliteDatabaseError> {
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
+        let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buf = [0u8; 9];
-        r.read_exact(&mut buf)?;
+        r.read_exact(&mut buf[..bytes_to_read])?;
         let (payload_len, byte_read) = match decode_varint(&buf) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),

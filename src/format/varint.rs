@@ -28,6 +28,10 @@
 ** 8 bits and is the last byte.
 */
 
+use std::io::{Read, Seek};
+
+use crate::errors::SqliteDatabaseError;
+
 /*
 ** References:
 *   * https://github.com/sqlite/sqlite/blob/master/src/util.c#L1586
@@ -95,6 +99,18 @@ pub fn decode_varint(bytes: &[u8]) -> Option<(u64, usize)> {
     }
 
     None
+}
+pub fn remaining_varint_bytes<R: Read + Seek>(
+    r: &mut R,
+    usable_size: usize,
+) -> Result<usize, SqliteDatabaseError> {
+    let cursor_pos = r.stream_position()? as usize;
+
+    let remaining = usable_size
+        .checked_sub(cursor_pos)
+        .ok_or(SqliteDatabaseError::InvalidVarint)?;
+
+    Ok(remaining.min(9))
 }
 
 #[cfg(test)]

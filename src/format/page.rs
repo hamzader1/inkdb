@@ -208,19 +208,18 @@ impl<'a> BTreePage {
         sqlite_assert_with_corrupt_err(
             (cell_idx as usize) < self.cell_pointers.len(),
             "Cell Index Out of Bounds",
-        );
+        )?;
         let cell_ptr = self.cell_pointers[cell_idx as usize];
         // make sure the cell pointer inside the usable page
         sqlite_assert_with_corrupt_err(
             cell_ptr.get() as usize <= self.usable_size,
             "invalid cell pointer",
-        );
+        )?;
         let mut r = Cursor::new(&self.bytes);
-        dbg!(&self.header.page_kind);
 
         match self.header.page_kind {
             BTreePageType::InteriorTable => {
-                return TableInteriorCell::parse::<Cursor<_>>(&mut r, cell_ptr)
+                return TableInteriorCell::parse::<Cursor<_>>(&mut r, cell_ptr, self.usable_size)
                     .map(BTreeCell::TableInterior);
             }
             BTreePageType::LeafTable => {
@@ -230,7 +229,7 @@ impl<'a> BTreePage {
 
             BTreePageType::InteriorIndex => {
                 return IndexInteriorCell::parse(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexInterior)
+                    .map(BTreeCell::IndexInterior);
             }
             BTreePageType::LeafIndex => {
                 return IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size)
