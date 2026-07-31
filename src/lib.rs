@@ -31,12 +31,26 @@ pub struct SqliteDatabase<S: SqliteFile> {
     source: S,
     header: SqliteDatabaseHeader,
 }
+
 impl SqliteDatabase<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteDatabaseError> {
         let mut sqlite_default_vfs = DiskFvs;
         let mut source = sqlite_default_vfs.open(db_path, SqliteOptions::default())?;
-        let header = SqliteDatabaseHeader::parse(&mut source)?;
+        let header = SqliteDatabaseHeader::parse(&source)?;
         Ok(Self { source, header })
+    }
+}
+
+// 'f file source
+impl<'f, S: SqliteFile> SqliteDatabase<S> {
+    fn source(&'f self) -> &'f S {
+        &self.source
+    }
+    fn cursor(&self) -> FileCursor<'_, S> {
+        FileCursor::new(self.source())
+    }
+    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, S> {
+        FileCursor::with_offset(self.source(), offset)
     }
     pub fn header(&self) -> &'_ SqliteDatabaseHeader {
         &self.header
@@ -46,10 +60,9 @@ impl SqliteDatabase<DiskFile> {
         self.validate_page(page_no, None::<fn(_) -> bool>)?;
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
-        self.file.seek(SeekFrom::Start(offset as u64))?;
 
         let mut buff = vec![0u8; page_size as usize];
-        self.file.read_exact(&mut buff)?;
+        self.source.read_exact_at(offset as u64, &mut buff)?;
 
         BTreePage::parse(
             buff,
@@ -76,9 +89,9 @@ impl SqliteDatabase<DiskFile> {
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         let buff = buff.as_mut();
-        self.file.seek(SeekFrom::Start(offset as u64))?;
+        // self.file.seek(SeekFrom::Start(offset as u64))?;
 
-        self.file.read_exact(buff)?;
+        self.source.read_exact_at(offset as _, buff)?;
 
         Ok(())
     }
@@ -114,18 +127,5 @@ impl SqliteDatabase<DiskFile> {
     }
     pub fn page_size(&self) -> u32 {
         self.header.database_page_size
-    }
-}
-
-// 'f file source
-impl<'f, S: SqliteFile> SqliteDatabase<S> {
-    fn source(&'f self) -> &'f S {
-        &self.source
-    }
-    fn cursor(&self) -> FileCursor<'_, S> {
-        FileCursor::new(self.source())
-    }
-    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, S> {
-        FileCursor::with_offset(self.source(), offset)
     }
 }
