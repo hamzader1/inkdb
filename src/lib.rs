@@ -5,6 +5,7 @@ pub mod errors;
 pub mod format;
 mod macros;
 mod util;
+pub mod vfs;
 use errors::SqliteDatabaseError;
 use format::header::SqliteDatabaseHeader;
 use format::overflow::compute_local_payload_size;
@@ -12,8 +13,9 @@ use format::page::BTreePage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::os::unix::fs::FileExt;
 use std::path::Path;
-use std::task::ready;
+use vfs::SqliteOptions;
 pub type DbError = SqliteDatabaseError;
 
 use self::format::cell::BTreeCellType;
