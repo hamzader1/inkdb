@@ -1,3 +1,5 @@
+use crate::{to_int, DbError};
+
 use super::file::SqliteFile;
 use super::Vfs;
 
@@ -16,5 +18,37 @@ impl<'source, S: SqliteFile> Cursor<'source, S> {
     }
     fn set_offset(&mut self, offset: u64) {
         self.offset = offset
+    }
+
+    // custom size buff
+    fn read_next_exact<B: AsMut<[u8]> + ?Sized>(&mut self, buf: &mut B) -> Result<(), DbError> {
+        self.s.read_exact_at(self.offset, buf)?;
+        self.offset += buf.as_mut().len() as u64;
+        Ok(())
+    }
+
+    // ported from /../bytes.rs
+    fn read_next_u32(&mut self) -> Result<u32, DbError> {
+        let mut buf = [0u8; 4];
+        self.read_next_exact(&mut buf)?;
+        Ok(to_int!(u32, buf))
+    }
+
+    fn read_next_u16(&mut self) -> Result<u16, DbError> {
+        let mut buf = [0u8; 2];
+        self.read_next_exact(&mut buf)?;
+        Ok(to_int!(u16, buf))
+    }
+
+    fn read_next_u8(&mut self) -> Result<u8, DbError> {
+        let mut buf = [0u8; 1];
+        self.read_next_exact(&mut buf)?;
+        Ok(to_int!(u8, buf))
+    }
+
+    fn read_next_arrary<const N: usize>(&mut self) -> Result<[u8; N], DbError> {
+        let mut buf = [0u8; N];
+        self.read_next_exact(&mut buf)?;
+        Ok(buf)
     }
 }

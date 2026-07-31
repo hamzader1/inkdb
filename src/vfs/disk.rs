@@ -44,11 +44,12 @@ impl SqliteFile for DiskFile {
         Ok(())
     }
 
-    fn set_len(&mut self, len: usize) -> Result<(), DbError> {
+    fn set_len(&self, len: usize) -> Result<(), DbError> {
         self.file.set_len(len as u64)?;
         Ok(())
     }
     fn sync(&self) -> Result<(), DbError> {
+        // TODO:
         self.file.sync_all();
         Ok(())
     }

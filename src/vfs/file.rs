@@ -8,6 +8,6 @@ pub trait SqliteFile {
         buff: &mut B,
     ) -> Result<(), DbError>;
     fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buff: &B) -> Result<(), DbError>;
-    fn set_len(&mut self, len: usize) -> Result<(), DbError>;
+    fn set_len(&self, len: usize) -> Result<(), DbError>;
     fn sync(&self) -> Result<(), DbError>;
 }

@@ -3,9 +3,10 @@ use std::path::Path;
 use self::file::SqliteFile;
 use crate::DbError;
 
-mod disk;
-mod file;
-mod mem;
+pub mod cursor;
+pub mod disk;
+pub mod file;
+pub mod mem;
 
 const READ: u8 = 1 << 0;
 const WRITE: u8 = 1 << 1;
