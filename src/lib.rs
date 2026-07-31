@@ -22,20 +22,21 @@ use self::format::cell::BTreeCellType;
 use self::format::freelist::FreeList;
 use self::format::overflow::OverflowPageRef;
 use self::format::page::{CellPointer, PageNumber};
+use self::vfs::cursor::FileCursor;
+use self::vfs::disk::{DiskFile, DiskFvs};
+use self::vfs::file::SqliteFile;
+use self::vfs::Vfs;
 
-pub struct SqliteDatabse {
-    file: File,
+pub struct SqliteDatabase<S: SqliteFile> {
+    source: S,
     header: SqliteDatabaseHeader,
 }
-impl SqliteDatabse {
+impl SqliteDatabase<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteDatabaseError> {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(db_path)
-            .map_err(|err| SqliteDatabaseError::DatabaseOpenFailure(err))?;
-        let header = SqliteDatabaseHeader::parse(&mut file)?;
-        Ok(Self { file, header })
+        let mut sqlite_default_vfs = DiskFvs;
+        let mut source = sqlite_default_vfs.open(db_path, SqliteOptions::default())?;
+        let header = SqliteDatabaseHeader::parse(&mut source)?;
+        Ok(Self { source, header })
     }
     pub fn header(&self) -> &'_ SqliteDatabaseHeader {
         &self.header
@@ -113,5 +114,18 @@ impl SqliteDatabse {
     }
     pub fn page_size(&self) -> u32 {
         self.header.database_page_size
+    }
+}
+
+// 'f file source
+impl<'f, S: SqliteFile> SqliteDatabase<S> {
+    fn source(&'f self) -> &'f S {
+        &self.source
+    }
+    fn cursor(&self) -> FileCursor<'_, S> {
+        FileCursor::new(self.source())
+    }
+    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, S> {
+        FileCursor::with_offset(self.source(), offset)
     }
 }

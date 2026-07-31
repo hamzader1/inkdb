@@ -3,15 +3,15 @@ use crate::{to_int, DbError};
 use super::file::SqliteFile;
 use super::Vfs;
 
-pub struct Cursor<'source, S> {
+pub struct FileCursor<'source, S> {
     s: &'source S,
     offset: u64,
 }
-impl<'source, S: SqliteFile> Cursor<'source, S> {
-    fn new(s: &'source S) -> Self {
+impl<'source, S: SqliteFile> FileCursor<'source, S> {
+    pub fn new(s: &'source S) -> Self {
         Self { s, offset: 0 }
     }
-    fn with_offset(s: &'source S, offset: u64) -> Self {
+    pub fn with_offset(s: &'source S, offset: u64) -> Self {
         let mut cur = Self::new(s);
         cur.offset = offset;
         cur

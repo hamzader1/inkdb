@@ -59,3 +59,12 @@ impl SqliteOptions {
         self.options & CREATE != 0
     }
 }
+
+impl Default for SqliteOptions {
+    fn default() -> Self {
+        // Opening an exists path
+        Self {
+            options: READ | WRITE,
+        }
+    }
+}
