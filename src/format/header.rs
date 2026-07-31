@@ -11,6 +11,8 @@ use crate::seek_c;
 use crate::seek_s;
 use crate::sqlite_assert_all;
 use crate::util::sqlite_assert_one;
+use crate::vfs::cursor::FileCursor;
+use crate::vfs::file::SqliteFile;
 
 pub const SQLITE3_HEADER_SIZE: u8 = 100;
 
@@ -113,55 +115,33 @@ pub struct SqliteDatabaseHeader {
 
 impl SqliteDatabaseHeader {
     const INVALID_HEADER_ERR: SqliteDatabaseError = SqliteDatabaseError::InvalidDatabaseHeader;
-    pub fn parse<R: std::io::Read + Seek>(reader: &'_ mut R) -> Result<Self, SqliteDatabaseError> {
-        let header_string: [u8; 16];
-        let database_page_size: u16;
-        let file_format_write_version: u8;
-        let file_format_read_version: u8;
-        let reserved_space: u8;
-        let maximum_embedded_payload_fraction: u8;
-        let minimum_embedded_payload_fraction: u8;
-        let leaf_payload_fraction: u8;
-        let file_change_counter: u32;
-        let database_size_in_pages: u32;
-        let first_freelist_trunk_page: u32;
-        let total_number_of_freelist_pages: u32;
-        let schema_cookie: u32;
-        let schema_format_number: u32;
-        let default_page_cache_size: u32;
-        let largest_root_btree_page: u32;
-        let database_text_encoding: u32;
-        let user_version: u32;
-        let incremental_vacuum_mode: u32;
-        let application_id: u32;
-        let reserved_for_expansion: [u8; 20];
-        let version_valid_for_number: u32;
-        let sqlite_version_number: u32;
+    pub fn parse<R: SqliteFile>(sqlite_source: &'_ R) -> Result<Self, SqliteDatabaseError> {
+        // default cursor to 0, no manually offset needed
+        let mut cursor = FileCursor::<'_, R>::new(sqlite_source);
 
-        reader.seek(seek_s!(HEADER_STRING_OFFSET));
-        header_string = read_array::<HEADER_STRING_SIZE, R>(reader)?;
-        database_page_size = read_u16_be(reader)?;
-        file_format_write_version = read_u8(reader)?;
-        file_format_read_version = read_u8(reader)?;
-        reserved_space = read_u8(reader)?;
-        maximum_embedded_payload_fraction = read_u8(reader)?;
-        minimum_embedded_payload_fraction = read_u8(reader)?;
-        leaf_payload_fraction = read_u8(reader)?;
-        file_change_counter = read_u32_be(reader)?;
-        database_size_in_pages = read_u32_be(reader)?;
-        first_freelist_trunk_page = read_u32_be(reader)?;
-        total_number_of_freelist_pages = read_u32_be(reader)?;
-        schema_cookie = read_u32_be(reader)?;
-        schema_format_number = read_u32_be(reader)?;
-        default_page_cache_size = read_u32_be(reader)?;
-        largest_root_btree_page = read_u32_be(reader)?;
-        database_text_encoding = read_u32_be(reader)?;
-        user_version = read_u32_be(reader)?;
-        incremental_vacuum_mode = read_u32_be(reader)?;
-        application_id = read_u32_be(reader)?;
-        reserved_for_expansion = read_array::<RESERVED_FOR_EXPANSION_SIZE, R>(reader)?;
-        version_valid_for_number = read_u32_be(reader)?;
-        sqlite_version_number = read_u32_be(reader)?;
+        let header_string = cursor.read_next_arrary::<HEADER_STRING_SIZE>()?;
+        let database_page_size = cursor.read_next_u16()?;
+        let file_format_write_version = cursor.read_next_u8()?;
+        let file_format_read_version = cursor.read_next_u8()?;
+        let reserved_space = cursor.read_next_u8()?;
+        let maximum_embedded_payload_fraction = cursor.read_next_u8()?;
+        let minimum_embedded_payload_fraction = cursor.read_next_u8()?;
+        let leaf_payload_fraction = cursor.read_next_u8()?;
+        let file_change_counter = cursor.read_next_u32()?;
+        let database_size_in_pages = cursor.read_next_u32()?;
+        let first_freelist_trunk_page = cursor.read_next_u32()?;
+        let total_number_of_freelist_pages = cursor.read_next_u32()?;
+        let schema_cookie = cursor.read_next_u32()?;
+        let schema_format_number = cursor.read_next_u32()?;
+        let default_page_cache_size = cursor.read_next_u32()?;
+        let largest_root_btree_page = cursor.read_next_u32()?;
+        let database_text_encoding = cursor.read_next_u32()?;
+        let user_version = cursor.read_next_u32()?;
+        let incremental_vacuum_mode = cursor.read_next_u32()?;
+        let application_id = cursor.read_next_u32()?;
+        let reserved_for_expansion = cursor.read_next_arrary::<RESERVED_FOR_EXPANSION_SIZE>()?;
+        let version_valid_for_number = cursor.read_next_u32()?;
+        let sqlite_version_number = cursor.read_next_u32()?;
         let mut header = Self {
             header_string,
             database_page_size: database_page_size as u32,
@@ -280,5 +260,3 @@ impl SqliteDatabaseHeader {
         Ok(())
     }
 }
-
-
