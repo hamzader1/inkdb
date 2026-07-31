@@ -1,4 +1,4 @@
-use inkdb::SqliteDatabse;
+use inkdb::SqliteDatabase;
 use std::fs;
 
 fn mutated_fixture(name: &str, mutate: impl FnOnce(&mut [u8])) -> std::path::PathBuf {
@@ -13,7 +13,7 @@ fn mutated_fixture(name: &str, mutate: impl FnOnce(&mut [u8])) -> std::path::Pat
 
 #[test]
 fn valid_freelist_fixture_parses() {
-    let mut db = SqliteDatabse::new("tests/fixtures/freelist.db").unwrap();
+    let mut db = SqliteDatabase::new("tests/fixtures/freelist.db").unwrap();
 
     assert!(db.freelist().is_ok());
 }
@@ -26,7 +26,7 @@ fn zero_head_with_nonzero_count_returns_error_not_panic() {
     });
 
     let result = std::panic::catch_unwind(|| {
-        let mut db = SqliteDatabse::new(&path).unwrap();
+        let mut db = SqliteDatabase::new(&path).unwrap();
         db.freelist()
     });
 
@@ -41,7 +41,7 @@ fn nonzero_head_with_zero_count_returns_error_not_panic() {
     });
 
     let result = std::panic::catch_unwind(|| {
-        let mut db = SqliteDatabse::new(&path).unwrap();
+        let mut db = SqliteDatabase::new(&path).unwrap();
         db.freelist()
     });
 
@@ -56,7 +56,7 @@ fn out_of_range_trunk_page_returns_error_not_panic() {
     });
 
     let result = std::panic::catch_unwind(|| {
-        let mut db = SqliteDatabse::new(&path).unwrap();
+        let mut db = SqliteDatabase::new(&path).unwrap();
         db.freelist()
     });
 

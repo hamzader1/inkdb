@@ -1,5 +1,6 @@
 use crate::{
-    compute_local_payload_size, format::page::BTreePage, util::sqlite_assert_one, DbError, SqliteDatabse,
+    compute_local_payload_size, format::page::BTreePage, util::sqlite_assert_one,
+    vfs::file::SqliteFile, DbError, SqliteDatabase,
 };
 use std::io::{
     Read, Seek,
@@ -261,7 +262,7 @@ impl BTreeCell {
     }
 }
 
-impl SqliteDatabse {
+impl<S: SqliteFile> SqliteDatabase<S> {
     pub fn cell_payload(
         &mut self,
         page: &BTreePage,
