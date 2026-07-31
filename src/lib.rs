@@ -43,6 +43,10 @@ impl SqliteDatabase<DiskFile> {
 
 // 'f file source
 impl<'f, S: SqliteFile> SqliteDatabase<S> {
+    fn with_source<P: AsRef<Path>>(source: S, path: P) -> Result<Self, SqliteDatabaseError> {
+        let header = SqliteDatabaseHeader::parse(&source)?;
+        Ok(Self { source, header })
+    }
     fn source(&'f self) -> &'f S {
         &self.source
     }
