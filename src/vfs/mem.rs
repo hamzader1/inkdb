@@ -4,8 +4,8 @@ use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use crate::vfs::Vfs;
 use crate::DbError;
+use crate::vfs::Vfs;
 
 use super::file::SqliteFile;
 struct MemVfs {
@@ -32,7 +32,7 @@ impl Vfs for MemVfs {
         if let Some(bytes) = self.db_buffers.get(&f.as_ref().to_path_buf()) {
             return Ok(MemFile::new(Rc::clone(bytes)));
         }
-        Err(DbError::CellOverlap)
+        Err(DbError::DatabaseNotExists)
     }
 }
 struct MemFile {
