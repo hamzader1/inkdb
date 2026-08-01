@@ -3,14 +3,19 @@ use crate::DbError;
 use super::file::SqliteFile;
 use super::{SqliteOptions, Vfs};
 use std::fs::OpenOptions;
+
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
+
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 
 #[derive(Debug)]
 pub struct DiskFvs;
 
 #[derive(Debug)]
 pub struct DiskFile {
-    file: std::fs::File,
+    pub file: std::fs::File,
 }
 
 impl Vfs for DiskFvs {
@@ -26,6 +31,7 @@ impl Vfs for DiskFvs {
     }
 }
 
+#[cfg(unix)]
 impl SqliteFile for DiskFile {
     fn len(&self) -> Result<u64, DbError> {
         let len = self.file.metadata()?.len();
@@ -49,8 +55,55 @@ impl SqliteFile for DiskFile {
         Ok(())
     }
     fn sync(&self) -> Result<(), DbError> {
-        // TODO:
-        self.file.sync_all();
+        self.file.sync_all()?;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+impl SqliteFile for DiskFile {
+    fn len(&self) -> Result<u64, DbError> {
+        let len = self.file.metadata()?.len();
+        Ok(len)
+    }
+    fn read_exact_at<B: AsMut<[u8]> + ?Sized>(
+        &self,
+        offset: u64,
+        buf: &mut B,
+    ) -> Result<(), DbError> {
+        let mut buf = buf.as_mut();
+        let mut offset = offset;
+        while !buf.is_empty() {
+            let n = self.file.seek_read(buf, offset)?;
+            if n == 0 {
+                return Err(DbError::Corrupt("Unexpected EOF".into()));
+            }
+            offset += n as u64;
+            buf = &mut buf[n..];
+        }
+
+        Ok(())
+    }
+    fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buf: &B) -> Result<(), DbError> {
+        let mut buf = buf.as_ref();
+        let mut offset = offset;
+        while !buf.is_empty() {
+            let n = self.file.seek_write(buf, offset)?;
+            if n == 0 {
+                return Err(DbError::Corrupt("failed to write the whole buffer".into()));
+            }
+            offset += n as u64;
+            buf = &buf[n..];
+        }
+        Ok(())
+    }
+
+    fn set_len(&self, len: usize) -> Result<(), DbError> {
+        self.file.set_len(len as u64)?;
+        Ok(())
+    }
+    fn sync(&self) -> Result<(), DbError> {
+        self.file.sync_all()?;
         Ok(())
     }
 }
