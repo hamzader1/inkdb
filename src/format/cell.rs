@@ -69,11 +69,20 @@ impl TableInteriorCell {
     ) -> Result<Self, SqliteDatabaseError> {
         r.seek(SeekFrom::Current(cell_ptr.get() as _))?;
         let left_child = read_u32_be(r)?;
+        if left_child == 0 {
+            // use validate function later
+            return Err(SqliteDatabaseError::Corrupt(
+                "invalid left child page number: 0".into(),
+            ));
+        }
         // let rowid_boundary: u64;
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buffer = [0u8; 9];
         r.read_exact(&mut buffer[..bytes_to_read])?;
-        let rowid_boundary = match decode_varint(&buffer) {
+
+        // bug fix, fucking decode used the whole buffer which
+        // results in None never returned in broken varints
+        let rowid_boundary = match decode_varint(&buffer[..bytes_to_read]) {
             Some((rowid_boundary, _)) => rowid_boundary,
             None => return Err(SqliteDatabaseError::InvalidVarint),
         };
@@ -84,7 +93,7 @@ impl TableInteriorCell {
         })
     }
 }
-// TODO: improve err handling
+// TODO: improve err handling valid:
 impl TableLeafCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
@@ -96,16 +105,16 @@ impl TableLeafCell {
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buffer = [0u8; 9];
         r.read_exact(&mut buffer[..bytes_to_read])?;
-        let (payload_len, byte_read) = match decode_varint(&mut buffer) {
+        let (payload_len, byte_read) = match decode_varint(&mut buffer[..bytes_to_read]) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
         pre_moved_cursor = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))?; // we are at row_id
 
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
-        r.read_exact(&mut buffer[..byte_read])?;
+        r.read_exact(&mut buffer[..bytes_to_read])?;
 
-        let (row_id, byte_read) = match decode_varint(&mut buffer) {
+        let (row_id, byte_read) = match decode_varint(&mut buffer[..bytes_to_read]) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
@@ -120,6 +129,7 @@ impl TableLeafCell {
             ))?;
             let overflow_page_int = read_u32_be(r)?;
             if overflow_page_int == 0 {
+                // use validate function later
                 return Err(SqliteDatabaseError::Corrupt(
                     "invalid overflow page pointer".into(),
                 ));
@@ -140,6 +150,8 @@ impl TableLeafCell {
         &self.local_payload_range
     }
 }
+
+// valid
 impl IndexInteriorCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
@@ -148,9 +160,14 @@ impl IndexInteriorCell {
     ) -> Result<Self, SqliteDatabaseError> {
         // Page number of left child
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
-        let left_child = read_u32_be(r)?;
+        let left_child = read_u32_be(r)?; // read 4 bytes
+        if left_child == 0 {
+            // use validate function later
+            return Err(SqliteDatabaseError::Corrupt(
+                "invalid left child page number: 0".into(),
+            ));
+        }
         let cursor_pos = r.stream_position()? as usize;
-
         let remaining = usable_size
             .checked_sub(cursor_pos)
             .ok_or(SqliteDatabaseError::InvalidVarint)?;
@@ -158,13 +175,12 @@ impl IndexInteriorCell {
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buf = [0u8; 9];
         r.read_exact(&mut buf[..bytes_to_read])?;
-        let (payload_len, byte_read) = match decode_varint(&buf) {
+        let (payload_len, byte_read) = match decode_varint(&buf[..bytes_to_read]) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
         // at the start of the payload
-        let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
-        // let payload_ptr = pre_moved_cursor as u16;
+        let pre_moved_cursor = r.seek(Start(cursor_pos as u64 + byte_read as u64))? as usize;
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
@@ -173,6 +189,7 @@ impl IndexInteriorCell {
             r.seek(SeekFrom::Current(payload_size as i64))?;
             let overflow_page_int = read_u32_be(r)?;
             if overflow_page_int == 0 {
+                // validate later
                 return Err(SqliteDatabaseError::Corrupt(
                     "invalid overflow page pointer".into(),
                 ));
@@ -198,6 +215,7 @@ impl IndexInteriorCell {
 // Almost the same as `[IndexInteriorCell]`
 // we may create one struct that works for both, but to keep thing organized
 // we will keep it as this for now at least.
+// valid
 impl IndexLeafCell {
     pub fn parse<R: Read + Seek>(
         r: &mut R,
@@ -208,7 +226,7 @@ impl IndexLeafCell {
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buf = [0u8; 9];
         r.read_exact(&mut buf[..bytes_to_read])?;
-        let (payload_len, byte_read) = match decode_varint(&buf) {
+        let (payload_len, byte_read) = match decode_varint(&buf[..bytes_to_read]) {
             Some(x) => x,
             _ => return Err(SqliteDatabaseError::InvalidVarint),
         };
