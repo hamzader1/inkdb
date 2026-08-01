@@ -33,7 +33,7 @@ pub const fn compute_local_payload_size(usable_size: usize, payload_len: usize) 
         return p;
     } else {
         let m = ((u - 12) * 32 / 255) - 23;
-        let k = m + (p - m) % (u - 4);
+        let k = m + ((p - m) % (u - 4));
         if k <= x {
             return k;
         } else {
