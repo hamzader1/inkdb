@@ -1,5 +1,3 @@
-#![allow(unused, dead_code)]
-
 mod bytes;
 pub mod errors;
 pub mod format;
@@ -35,7 +33,7 @@ pub struct SqliteDatabase<S: SqliteFile> {
 impl SqliteDatabase<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteDatabaseError> {
         let mut sqlite_default_vfs = DiskFvs;
-        let mut source = sqlite_default_vfs.open(db_path, SqliteOptions::default())?;
+        let source = sqlite_default_vfs.open(db_path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
         Ok(Self { source, header })
     }
@@ -89,7 +87,7 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
                 "Page no '1' cant be used as raw page".into(),
             ));
         }
-        self.validate_page(page_no, None::<fn(_) -> bool>);
+        self.validate_page(page_no, None::<fn(_) -> bool>)?;
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
         let buff = buff.as_mut();

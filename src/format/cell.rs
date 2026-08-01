@@ -159,7 +159,7 @@ impl IndexInteriorCell {
         usable_size: usize,
     ) -> Result<Self, SqliteDatabaseError> {
         // Page number of left child
-        let cell_header = r.seek(Start(cell_ptr.get() as _))?;
+        r.seek(Start(cell_ptr.get() as _))?;
         let left_child = read_u32_be(r)?; // read 4 bytes
         if left_child == 0 {
             // use validate function later
@@ -168,9 +168,6 @@ impl IndexInteriorCell {
             ));
         }
         let cursor_pos = r.stream_position()? as usize;
-        let remaining = usable_size
-            .checked_sub(cursor_pos)
-            .ok_or(SqliteDatabaseError::InvalidVarint)?;
 
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buf = [0u8; 9];
