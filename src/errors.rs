@@ -4,6 +4,9 @@ pub enum SqliteDatabaseError {
     #[error("Failed to open database file: {0}")]
     DatabaseOpenFailure(#[from] std::io::Error),
 
+    #[error("Database not exists")]
+    DatabaseNotExists,
+
     #[error("Invalid SQLite database header")]
     InvalidDatabaseHeader,
 
