@@ -16,7 +16,7 @@ pub type DbError = SqliteDatabaseError;
 
 use self::format::page::PageNumber;
 use self::vfs::cursor::FileCursor;
-use self::vfs::disk::{DiskFile, DiskFvs};
+use self::vfs::disk::{DiskFile, DiskVfs};
 use self::vfs::file::SqliteFile;
 use self::vfs::Vfs;
 
