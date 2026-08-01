@@ -27,16 +27,18 @@ pub struct SqliteDatabase<S: SqliteFile> {
 
 impl SqliteDatabase<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteDatabaseError> {
-        let mut sqlite_default_vfs = DiskFvs;
-        let source = sqlite_default_vfs.open(db_path, SqliteOptions::default())?;
-        let header = SqliteDatabaseHeader::parse(&source)?;
-        Ok(Self { source, header })
+        let mut sqlite_default_vfs = DiskVfs;
+        Self::with_source(sqlite_default_vfs, db_path)
     }
 }
 
 // 'f file source
 impl<'f, S: SqliteFile> SqliteDatabase<S> {
-    fn with_source<P: AsRef<Path>>(source: S, path: P) -> Result<Self, SqliteDatabaseError> {
+    pub fn with_source<P: AsRef<Path>, V: Vfs<File = S>>(
+        mut vfs: V,
+        path: P,
+    ) -> Result<Self, SqliteDatabaseError> {
+        let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
         Ok(Self { source, header })
     }
