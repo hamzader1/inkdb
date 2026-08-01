@@ -11,14 +11,14 @@ use std::os::unix::fs::FileExt;
 use std::os::windows::fs::FileExt;
 
 #[derive(Debug)]
-pub struct DiskFvs;
+pub struct DiskVfs;
 
 #[derive(Debug)]
 pub struct DiskFile {
     pub file: std::fs::File,
 }
 
-impl Vfs for DiskFvs {
+impl Vfs for DiskVfs {
     type File = DiskFile;
     fn open<F: AsRef<std::path::Path>>(
         &mut self,
