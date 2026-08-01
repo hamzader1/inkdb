@@ -1,3 +1,4 @@
+#![allow(unused, dead_code)] // temp for now
 mod bytes;
 pub mod errors;
 pub mod format;
@@ -9,17 +10,11 @@ use format::header::SqliteDatabaseHeader;
 use format::overflow::compute_local_payload_size;
 use format::page::BTreePage;
 pub use format::varint::{decode_varint, encode_varint};
-use std::fs::{File, OpenOptions};
-use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use vfs::SqliteOptions;
 pub type DbError = SqliteDatabaseError;
 
-use self::format::cell::BTreeCellType;
-use self::format::freelist::FreeList;
-use self::format::overflow::OverflowPageRef;
-use self::format::page::{CellPointer, PageNumber};
+use self::format::page::PageNumber;
 use self::vfs::cursor::FileCursor;
 use self::vfs::disk::{DiskFile, DiskFvs};
 use self::vfs::file::SqliteFile;

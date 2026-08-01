@@ -1,7 +1,6 @@
 use crate::{to_int, DbError};
 
 use super::file::SqliteFile;
-use super::Vfs;
 
 pub struct FileCursor<'source, S> {
     s: &'source S,
