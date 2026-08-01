@@ -34,10 +34,10 @@ impl SqliteDatabase<DiskFile> {
 
 // 'f file source
 impl<'f, S: SqliteFile> SqliteDatabase<S> {
-    pub fn with_source<P: AsRef<Path>, V: Vfs<File = S>>(
-        mut vfs: V,
-        path: P,
-    ) -> Result<Self, SqliteDatabaseError> {
+    pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteDatabaseError>
+    where
+        V: Vfs<File = S>,
+    {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
         Ok(Self { source, header })
