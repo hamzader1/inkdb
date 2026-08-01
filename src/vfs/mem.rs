@@ -4,15 +4,21 @@ use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use crate::DbError;
 use crate::vfs::Vfs;
+use crate::DbError;
 
 use super::file::SqliteFile;
-struct MemVfs {
+#[derive(Debug)]
+pub struct MemVfs {
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
 }
 
 impl MemVfs {
+    pub fn new() -> Self {
+        Self {
+            db_buffers: HashMap::new(),
+        }
+    }
     pub fn insert<P>(&mut self, f_name: P, bytes: Vec<u8>)
     where
         P: AsRef<Path>,
@@ -35,7 +41,9 @@ impl Vfs for MemVfs {
         Err(DbError::DatabaseNotExists)
     }
 }
-struct MemFile {
+
+#[derive(Debug)]
+pub struct MemFile {
     bytes: Rc<RefCell<Vec<u8>>>,
 }
 
