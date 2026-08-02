@@ -1,43 +1,54 @@
 use crate::format::page::PageNo;
 use crate::size_of;
+use std::cell::Cell;
 
-const FREE: u8 = 1 << 0;
-const CLEAN: u8 = 1 << 1;
-const DIRTY: u8 = 1 << 2;
-const REFERENCED: u8 = 1 << 3;
+pub const FREE: u8 = 1 << 0;
+pub const CLEAN: u8 = 1 << 1;
+pub const DIRTY: u8 = 1 << 2;
+pub const REFERENCED: u8 = 1 << 3;
 
 pub const FRAME_SIZE: usize = size_of!(Frame);
 pub type FrameId = usize;
 pub type FrameIndex = usize;
 #[derive(Clone, Debug)]
 pub struct Frame {
-    page_no: Option<PageNo>,
-    flags: u8,
-    pin_count: u8,
+    pub page_no: Option<PageNo>,
+    pub flags: u8,
+    pub pin_count: Cell<u8>,
 }
 impl Frame {
-    fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
+    pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
         Self {
             page_no,
             flags,
-            pin_count,
+            pin_count: Cell::new(pin_count),
         }
     }
-    fn is(&self, flag: u8) -> bool {
+    pub fn is(&self, flag: u8) -> bool {
         assert!(flag == FREE || flag == CLEAN || flag == DIRTY || flag == REFERENCED);
         self.flags & flag != 0
     }
 
-    fn set(&mut self, flag: u8) {
+    pub fn set(&mut self, flag: u8) {
         self.flags |= flag;
     }
 
-    fn clear(&mut self, flag: u8) {
+    pub fn clear(&mut self, flag: u8) {
         self.flags &= !flag;
     }
 
-    fn reset_to(&mut self, flag: u8) {
-        self.flags = 0 | flag;
+    pub fn reset_to(&mut self, flag: u8) {
+        self.flags = flag;
+    }
+    pub fn incr_pin_count(&self) {
+        let curr_cnt = self.pin_count.get();
+        assert!((curr_cnt as u16 + 1) < u8::MAX as _, "pin count overflow");
+        self.pin_count.set(curr_cnt + 1);
+    }
+
+    pub fn decr_pin_count(&self) {
+        let curr_cnt = self.pin_count.get();
+        self.pin_count.set(curr_cnt - 1);
     }
 }
 
@@ -46,7 +57,7 @@ impl Default for Frame {
         Self {
             page_no: None,
             flags: FREE,
-            pin_count: 0,
+            pin_count: Cell::new(0),
         }
     }
 }
