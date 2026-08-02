@@ -7,7 +7,7 @@ use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::vfs::file::SqliteFile;
 use crate::{to_int, DbError, SqliteDatabase};
 
-use super::page::PageNumber;
+use super::page::PageNo;
 use crate::SqliteDatabaseError;
 
 /*
@@ -42,7 +42,7 @@ pub const fn compute_local_payload_size(usable_size: usize, payload_len: usize) 
     }
 }
 pub struct OverflowPageRef<'a> {
-    pub next: PageNumber,
+    pub next: PageNo,
     pub data: &'a [u8],
 }
 impl<'a> OverflowPageRef<'a> {
@@ -76,7 +76,7 @@ impl<S: SqliteFile> SqliteDatabase<S> {
         &mut self,
         mut local_payload_bytes: Vec<u8>,
         total_payload_length: usize,
-        first_overflow_page: PageNumber,
+        first_overflow_page: PageNo,
     ) -> Result<Vec<u8>, SqliteDatabaseError> {
         let mut remaining = total_payload_length
             .checked_sub(local_payload_bytes.len())

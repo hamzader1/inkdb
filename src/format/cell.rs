@@ -15,7 +15,7 @@ use crate::errors::SqliteDatabaseError;
 
 const OVERFLOWED_PAGE_SIZE: usize = 4;
 use super::{
-    page::{CellPointer, PageNumber},
+    page::{CellPointer, PageNo},
     varint::remaining_varint_bytes,
 };
 
@@ -37,7 +37,7 @@ pub enum BTreeCellType {
 
 #[derive(Debug)]
 pub struct TableInteriorCell {
-    left_child: PageNumber,
+    left_child: PageNo,
     rowid_boundary: u64,
 }
 
@@ -46,20 +46,20 @@ pub struct TableLeafCell {
     payload_len: u64,
     row_id: u64,
     local_payload_range: Range<usize>,
-    first_overflow_page: Option<PageNumber>,
+    first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexInteriorCell {
-    left_child: PageNumber,
+    left_child: PageNo,
     payload_len: u64,
     payload: Range<usize>,
-    first_overflow_page: Option<PageNumber>,
+    first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexLeafCell {
     payload_len: u64,
     payload: Range<usize>,
-    first_overflow_page: Option<PageNumber>,
+    first_overflow_page: Option<PageNo>,
 }
 impl TableInteriorCell {
     pub fn parse<R: Read + Seek>(
@@ -181,7 +181,7 @@ impl IndexInteriorCell {
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
-        let mut overflow_page: Option<PageNumber> = None;
+        let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             r.seek(SeekFrom::Current(payload_size as i64))?;
             let overflow_page_int = read_u32_be(r)?;
@@ -232,7 +232,7 @@ impl IndexLeafCell {
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
-        let mut overflow_page: Option<PageNumber> = None;
+        let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             r.seek(SeekFrom::Current(payload_size as i64))?;
             let overflow_page_int = read_u32_be(r)?;
@@ -275,7 +275,7 @@ impl BTreeCell {
         }
     }
 
-    pub fn overflow_page(&self) -> Option<PageNumber> {
+    pub fn overflow_page(&self) -> Option<PageNo> {
         match self {
             BTreeCell::IndexInterior(x) => x.first_overflow_page,
             BTreeCell::IndexLeaf(x) => x.first_overflow_page,

@@ -6,14 +6,14 @@ macro_rules! sqlite_assert_all {
 }
 
 #[macro_export]
-// seek current
+// Experimental
 macro_rules! seek_c {
     ($x: expr) => {
         std::io::SeekFrom::Current($x as u64)
     };
 }
 
-//seek start
+// Experimental
 #[macro_export]
 macro_rules! seek_s {
     ($x: expr) => {
@@ -36,7 +36,6 @@ macro_rules! to_int {
         u64::from_be_bytes($x)
     }};
 }
-
 
 // short for std::mem::size_of::<T>();
 #[macro_export]

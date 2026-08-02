@@ -31,7 +31,7 @@ pub const FRAGMENTED_FREE_BYTES_SIZE: usize = 1;
 pub const RIGHT_MOST_POINTER_OFFSET: usize = 8;
 pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
-pub type PageNumber = u32;
+pub type PageNo = u32;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CellPointer(u16);
@@ -253,7 +253,7 @@ pub struct BTreePageHeader {
     no_of_cells: u16,
     cell_content_area: u16,
     frag_cnt: u8,
-    right_most_ptr: Option<PageNumber>,
+    right_most_ptr: Option<PageNo>,
 }
 impl BTreePageHeader {
     fn parse<R: Read + Seek>(r: &mut R) -> Result<Self, SqliteDatabaseError> {
@@ -274,7 +274,7 @@ impl BTreePageHeader {
         let cell_content_area: u16 = read_u16_be(r)?;
         let frag_cnt: u8 = read_u8(r)?;
         let is_interior = page_kind.is_interior();
-        let right_most_ptr: Option<PageNumber> = if is_interior {
+        let right_most_ptr: Option<PageNo> = if is_interior {
             Some(read_u32_be(r)?)
         } else {
             None
