@@ -3,13 +3,13 @@ use crate::util::sqlite_assert_one;
 use crate::vfs::file::SqliteFile;
 use crate::{DbError, SqliteDatabase};
 
-use super::page::PageNumber;
+use super::page::PageNo;
 use std::io::{Cursor, Read, Seek};
 
 #[derive(Debug)]
 pub struct FreeList {
-    trunk_pages: Vec<PageNumber>,
-    leaf_pages: Vec<PageNumber>,
+    trunk_pages: Vec<PageNo>,
+    leaf_pages: Vec<PageNo>,
 }
 
 impl<S: SqliteFile> SqliteDatabase<S> {
