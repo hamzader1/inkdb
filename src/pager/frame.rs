@@ -15,6 +15,31 @@ pub struct Frame {
     flags: u8,
     pin_count: u8,
 }
+impl Frame {
+    fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
+        Self {
+            page_no,
+            flags,
+            pin_count,
+        }
+    }
+    fn is(&self, flag: u8) -> bool {
+        assert!(flag == FREE || flag == CLEAN || flag == DIRTY || flag == REFERENCED);
+        self.flags & flag != 0
+    }
+
+    fn set(&mut self, flag: u8) {
+        self.flags |= flag;
+    }
+
+    fn clear(&mut self, flag: u8) {
+        self.flags &= !flag;
+    }
+
+    fn reset_to(&mut self, flag: u8) {
+        self.flags = 0 | flag;
+    }
+}
 
 impl Default for Frame {
     fn default() -> Self {
