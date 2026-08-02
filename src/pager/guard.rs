@@ -63,11 +63,11 @@ impl<'b> PageGuard<'b> {
         }
     }
     pub fn bytes_as_ref(&self) -> &Vec<u8> {
-        self.page_bytes.get_bytes()
+        self.page_bytes.bytes_as_ref()
     }
 
     pub fn bytes_as_mut(&mut self) -> &mut Vec<u8> {
-        self.page_bytes.get_bytes_mut()
+        self.page_bytes.bytes_as_mut()
     }
 }
 
