@@ -3,14 +3,17 @@ use crate::pager::{buffer_pool, frame::FrameId};
 use super::buffer_pool::BufferPool;
 use std::{marker::PhantomData, ptr::NonNull};
 
+#[derive(Debug)]
 enum PageBytes<'b> {
     RefBytes(&'b Vec<u8>),
     RefMutBytes(&'b mut Vec<u8>),
 }
+
+#[derive(Debug)]
 struct PageGuard<'b> {
     bufferpool: NonNull<BufferPool>,
     frame_id: FrameId,
-    bytes: PageBytes<'b>,
+    page_bytes: PageBytes<'b>,
     _marker: PhantomData<BufferPool>,
 }
 impl<'b> PageBytes<'b> {
@@ -21,7 +24,7 @@ impl<'b> PageBytes<'b> {
     pub fn new_refmut(bytes: &'b mut Vec<u8>) -> Self {
         Self::RefMutBytes(bytes)
     }
-    fn get_bytes(&self) -> &'_ Vec<u8> {
+    fn bytes_as_ref(&self) -> &'_ Vec<u8> {
         match self {
             Self::RefBytes(bytes) => bytes,
 
@@ -29,7 +32,7 @@ impl<'b> PageBytes<'b> {
             Self::RefMutBytes(bytes) => bytes,
         }
     }
-    fn get_bytes_mut(&mut self) -> &mut Vec<u8> {
+    fn bytes_as_mut(&mut self) -> &mut Vec<u8> {
         if let Self::RefMutBytes(bytes) = self {
             bytes
         } else {
@@ -42,7 +45,7 @@ impl<'b> PageGuard<'b> {
         Self {
             bufferpool,
             frame_id,
-            bytes: PageBytes::new_ref(bytes),
+            page_bytes: PageBytes::new_ref(bytes),
             _marker: PhantomData,
         }
     }
@@ -55,7 +58,7 @@ impl<'b> PageGuard<'b> {
         Self {
             bufferpool,
             frame_id,
-            bytes: PageBytes::new_refmut(bytes),
+            page_bytes: PageBytes::new_refmut(bytes),
             _marker: PhantomData,
         }
     }
