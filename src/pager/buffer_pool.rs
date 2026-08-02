@@ -3,24 +3,27 @@ use super::frame::{Frame, FrameId, FrameIndex};
 use crate::format::page::PageNo;
 use crate::pager::page;
 use std::collections::HashMap;
+use std::ptr::NonNull;
 
 const CACHE_CAPACITY: usize = 4096;
 #[rustfmt::skip]
+// TODO: after getting things done, change pub to pub(super)
 pub struct BufferPool {
-    page_map    : HashMap<PageNo, FrameId>,
-    page_buffer : Box<[u8]>,
-    frame_buffer: Box<[Frame]>,
-    free_frames : Vec<FrameId>,
-    clock_hand  : FrameIndex
+    pub page_map    : HashMap<PageNo, FrameId>,
+    pub page_buffer : Box<[u8]>,
+    pub frame_buffer: Box<[Frame]>, // Frame Id used to index
+    pub free_frames : Vec<FrameId>, // Frame Id to Index frame_buffer
+    pub clock_hand  : FrameIndex
 }
 
 impl BufferPool {
-    fn new(page_size: usize) -> Self {
+    pub fn new(page_size: usize) -> Self {
         // todo: check overflow of CacheCap * Psize
-        let page_buffer = Self::make_box_buffer::<u8>(CACHE_CAPACITY * page_size);
+        let page_buffer = Self::make_owned_buffer::<u8>(CACHE_CAPACITY * page_size);
         // todo: check overflow of CacheCap * Fsize
-        let frame_buffer = Self::make_box_buffer::<Frame>(CACHE_CAPACITY * FRAME_SIZE);
-        let free_frames = Vec::<FrameId>::with_capacity(CACHE_CAPACITY);
+        let frame_buffer = Self::make_owned_buffer::<Frame>(CACHE_CAPACITY * FRAME_SIZE);
+
+        let free_frames: Vec<FrameId> = (0..CACHE_CAPACITY).collect();
 
         Self {
             page_map: HashMap::new(),
@@ -30,7 +33,13 @@ impl BufferPool {
             clock_hand: 0,
         }
     }
-    pub fn make_box_buffer<T: Clone + Default>(size: usize) -> Box<[T]> {
+    pub fn release(&self, frame_id: FrameId) {
+        self.frame_buffer[frame_id].decr_pin_count();
+    }
+    pub fn make_owned_buffer<T: Clone + Default>(size: usize) -> Box<[T]> {
         vec![T::default(); size].into_boxed_slice()
+    }
+    pub fn as_ptr_mut(&mut self) -> NonNull<Self> {
+        unsafe { NonNull::new_unchecked(self as *mut BufferPool) }
     }
 }
