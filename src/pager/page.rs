@@ -68,7 +68,7 @@ impl<F: SqliteFile> Pager<F> {
             // increment the pin counter
             frame.incr_pin_count();
             // set REFERENCED to 1
-            frame.set(REFERENCED);
+            frame.set(REFERENCED | DIRTY);
             let page_guard = self.page_guard_mut(frame_id);
             return Some(page_guard);
         }
@@ -100,7 +100,7 @@ impl<F: SqliteFile> Pager<F> {
         loop {
             if clock_hand == start {
                 laps += 1;
-                // why more than two laps
+                // Explain why more than 2 laps
                 if laps > 2 {
                     return Err(DbError::BufferPoolExhausted);
                 }
@@ -131,7 +131,7 @@ impl<F: SqliteFile> Pager<F> {
         self.buffer_pool.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN, 0);
 
         self.load_page(page_no, frameid);
-        return Ok(());
+        Ok(())
     }
     fn load_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         // request memory
