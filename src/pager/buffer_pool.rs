@@ -1,7 +1,10 @@
 use super::frame::FRAME_SIZE;
 use super::frame::{Frame, FrameId, FrameIndex};
+use crate::errors::SqliteError;
 use crate::format::page::PageNo;
-use crate::pager::page;
+use crate::pager::{frame, page};
+use crate::util::sqlite_assert_one;
+use crate::DbError;
 use std::collections::HashMap;
 use std::ptr::NonNull;
 
@@ -33,6 +36,16 @@ impl BufferPool {
             clock_hand: 0,
         }
     }
+    pub fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), SqliteError> {
+        sqlite_assert_one(
+            *self.page_table.get(&page_no).unwrap() == frame_id,
+            SqliteError::Corrupt("Frame ID mistmatch while trying to evict the page".into()),
+        )?;
+        self.page_table.remove(&page_no);
+        self.frame_buffer[frame_id] = Frame::default();
+        Ok(())
+    }
+    
     pub fn release(&self, frame_id: FrameId) {
         self.frame_buffer[frame_id].decr_pin_count();
     }
