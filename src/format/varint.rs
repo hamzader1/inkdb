@@ -30,7 +30,7 @@
 
 use std::io::{Read, Seek};
 
-use crate::errors::SqliteDatabaseError;
+use crate::errors::SqliteError;
 
 /*
 ** References:
@@ -103,12 +103,12 @@ pub fn decode_varint(bytes: &[u8]) -> Option<(u64, usize)> {
 pub fn remaining_varint_bytes<R: Read + Seek>(
     r: &mut R,
     usable_size: usize,
-) -> Result<usize, SqliteDatabaseError> {
+) -> Result<usize, SqliteError> {
     let cursor_pos = r.stream_position()? as usize;
 
     let remaining = usable_size
         .checked_sub(cursor_pos)
-        .ok_or(SqliteDatabaseError::InvalidVarint)?;
+        .ok_or(SqliteError::InvalidVarint)?;
 
     Ok(remaining.min(9))
 }

@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -63,8 +62,8 @@ impl SqliteFile for MemFile {
     ) -> Result<(), crate::DbError> {
         let start = offset as usize;
         let end = buff.as_mut().len();
-        let mut buf = buff.as_mut();
-        let slice = (&self.bytes.borrow()[start..start + end]);
+        let buf = buff.as_mut();
+        let slice = &self.bytes.borrow()[start..start + end];
         buf.copy_from_slice(slice);
         Ok(())
     }

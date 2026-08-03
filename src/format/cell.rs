@@ -4,14 +4,14 @@ use crate::{
 };
 use std::io::{
     Read, Seek,
-    SeekFrom::{self, Current, Start},
+    SeekFrom::{self, Start},
 };
 use std::range::Range;
 type SlotIdx = u16;
 type CellOffset = u16;
 use crate::bytes::read_u32_be;
 use crate::decode_varint;
-use crate::errors::SqliteDatabaseError;
+use crate::errors::SqliteError;
 
 const OVERFLOWED_PAGE_SIZE: usize = 4;
 use super::{
@@ -66,12 +66,12 @@ impl TableInteriorCell {
         r: &mut R,
         cell_ptr: CellPointer,
         usable_size: usize,
-    ) -> Result<Self, SqliteDatabaseError> {
+    ) -> Result<Self, SqliteError> {
         r.seek(SeekFrom::Current(cell_ptr.get() as _))?;
         let left_child = read_u32_be(r)?;
         if left_child == 0 {
             // use validate function later
-            return Err(SqliteDatabaseError::Corrupt(
+            return Err(SqliteError::Corrupt(
                 "invalid left child page number: 0".into(),
             ));
         }
@@ -84,7 +84,7 @@ impl TableInteriorCell {
         // results in None never returned in broken varints
         let rowid_boundary = match decode_varint(&buffer[..bytes_to_read]) {
             Some((rowid_boundary, _)) => rowid_boundary,
-            None => return Err(SqliteDatabaseError::InvalidVarint),
+            None => return Err(SqliteError::InvalidVarint),
         };
 
         Ok(Self {
@@ -99,7 +99,7 @@ impl TableLeafCell {
         r: &mut R,
         cell_ptr: CellPointer,
         usable_size: usize,
-    ) -> Result<Self, SqliteDatabaseError> {
+    ) -> Result<Self, SqliteError> {
         let cell_offset = cell_ptr.get() as u64;
         let mut pre_moved_cursor = r.seek(SeekFrom::Start(cell_offset))?;
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
@@ -107,7 +107,7 @@ impl TableLeafCell {
         r.read_exact(&mut buffer[..bytes_to_read])?;
         let (payload_len, byte_read) = match decode_varint(&mut buffer[..bytes_to_read]) {
             Some(x) => x,
-            _ => return Err(SqliteDatabaseError::InvalidVarint),
+            _ => return Err(SqliteError::InvalidVarint),
         };
         pre_moved_cursor = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))?; // we are at row_id
 
@@ -116,7 +116,7 @@ impl TableLeafCell {
 
         let (row_id, byte_read) = match decode_varint(&mut buffer[..bytes_to_read]) {
             Some(x) => x,
-            _ => return Err(SqliteDatabaseError::InvalidVarint),
+            _ => return Err(SqliteError::InvalidVarint),
         };
 
         let current_pos = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))? as usize;
@@ -130,9 +130,7 @@ impl TableLeafCell {
             let overflow_page_int = read_u32_be(r)?;
             if overflow_page_int == 0 {
                 // use validate function later
-                return Err(SqliteDatabaseError::Corrupt(
-                    "invalid overflow page pointer".into(),
-                ));
+                return Err(SqliteError::Corrupt("invalid overflow page pointer".into()));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -157,13 +155,13 @@ impl IndexInteriorCell {
         r: &mut R,
         cell_ptr: CellPointer,
         usable_size: usize,
-    ) -> Result<Self, SqliteDatabaseError> {
+    ) -> Result<Self, SqliteError> {
         // Page number of left child
         r.seek(Start(cell_ptr.get() as _))?;
         let left_child = read_u32_be(r)?; // read 4 bytes
         if left_child == 0 {
             // use validate function later
-            return Err(SqliteDatabaseError::Corrupt(
+            return Err(SqliteError::Corrupt(
                 "invalid left child page number: 0".into(),
             ));
         }
@@ -174,7 +172,7 @@ impl IndexInteriorCell {
         r.read_exact(&mut buf[..bytes_to_read])?;
         let (payload_len, byte_read) = match decode_varint(&buf[..bytes_to_read]) {
             Some(x) => x,
-            _ => return Err(SqliteDatabaseError::InvalidVarint),
+            _ => return Err(SqliteError::InvalidVarint),
         };
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cursor_pos as u64 + byte_read as u64))? as usize;
@@ -187,9 +185,7 @@ impl IndexInteriorCell {
             let overflow_page_int = read_u32_be(r)?;
             if overflow_page_int == 0 {
                 // validate later
-                return Err(SqliteDatabaseError::Corrupt(
-                    "invalid overflow page pointer".into(),
-                ));
+                return Err(SqliteError::Corrupt("invalid overflow page pointer".into()));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -218,14 +214,14 @@ impl IndexLeafCell {
         r: &mut R,
         cell_ptr: CellPointer,
         usable_size: usize,
-    ) -> Result<Self, SqliteDatabaseError> {
+    ) -> Result<Self, SqliteError> {
         let cell_header = r.seek(Start(cell_ptr.get() as _))?;
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buf = [0u8; 9];
         r.read_exact(&mut buf[..bytes_to_read])?;
         let (payload_len, byte_read) = match decode_varint(&buf[..bytes_to_read]) {
             Some(x) => x,
-            _ => return Err(SqliteDatabaseError::InvalidVarint),
+            _ => return Err(SqliteError::InvalidVarint),
         };
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
@@ -237,9 +233,7 @@ impl IndexLeafCell {
             r.seek(SeekFrom::Current(payload_size as i64))?;
             let overflow_page_int = read_u32_be(r)?;
             if overflow_page_int == 0 {
-                return Err(SqliteDatabaseError::Corrupt(
-                    "invalid overflow page pointer".into(),
-                ));
+                return Err(SqliteError::Corrupt("invalid overflow page pointer".into()));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -298,12 +292,10 @@ impl<S: SqliteFile> SqliteDatabase<S> {
         &mut self,
         page: &BTreePage,
         cell_idx: u16,
-    ) -> Result<Vec<u8>, SqliteDatabaseError> {
+    ) -> Result<Vec<u8>, SqliteError> {
         let cell = page.cell(cell_idx)?;
         if cell.cell_type() == BTreeCellType::TableInterior {
-            return Err(SqliteDatabaseError::Corrupt(
-                "TableInterior has no cells".into(),
-            ));
+            return Err(SqliteError::Corrupt("TableInterior has no cells".into()));
         }
         let local_payload = cell.payload();
         let mut payload = Vec::<u8>::new();

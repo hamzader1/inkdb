@@ -3,10 +3,10 @@
 mod common;
 
 use common::{valid_header_bytes, MemFile};
-use inkdb::errors::SqliteDatabaseError;
+use inkdb::errors::SqliteError;
 use inkdb::format::header::SqliteDatabaseHeader;
 
-fn parse(bytes: Vec<u8>) -> Result<SqliteDatabaseHeader, SqliteDatabaseError> {
+fn parse(bytes: Vec<u8>) -> Result<SqliteDatabaseHeader, SqliteError> {
     let file = MemFile::new(bytes);
     SqliteDatabaseHeader::parse(&file)
 }
@@ -49,14 +49,14 @@ fn maximum_valid_page_size_32768_parses() {
 fn page_size_below_512_is_rejected() {
     let bytes = valid_header_bytes(256, 0);
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidPageSize(256)));
+    assert!(matches!(err, SqliteError::InvalidPageSize(256)));
 }
 
 #[test]
 fn page_size_not_power_of_two_is_rejected() {
     let bytes = valid_header_bytes(3000, 0);
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidPageSize(3000)));
+    assert!(matches!(err, SqliteError::InvalidPageSize(3000)));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn bad_magic_string_is_rejected() {
     let err = parse(bytes).unwrap_err();
     assert!(matches!(
         err,
-        SqliteDatabaseError::InvalidDatabaseHeader
+        SqliteError::InvalidDatabaseHeader
     ));
 }
 
@@ -99,7 +99,7 @@ fn invalid_file_format_write_version_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[18] = 3; // only 1 or 2 are valid
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn invalid_file_format_read_version_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[19] = 0;
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn invalid_maximum_embedded_payload_fraction_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[21] = 63; // must be exactly 64
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn invalid_minimum_embedded_payload_fraction_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[22] = 31; // must be exactly 32
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn invalid_leaf_payload_fraction_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[23] = 33; // must be exactly 32
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn schema_format_number_zero_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[44..48].copy_from_slice(&0u32.to_be_bytes());
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn schema_format_number_five_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[44..48].copy_from_slice(&5u32.to_be_bytes());
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn text_encoding_zero_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[56..60].copy_from_slice(&0u32.to_be_bytes());
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn text_encoding_four_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[56..60].copy_from_slice(&4u32.to_be_bytes());
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn nonzero_reserved_for_expansion_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[72] = 1; // reserved_for_expansion must be all zero
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn nonzero_byte_anywhere_in_reserved_for_expansion_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[91] = 0xFF; // last byte of the 20-byte reserved region (72..92)
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(err, SqliteDatabaseError::InvalidDatabaseHeader));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]

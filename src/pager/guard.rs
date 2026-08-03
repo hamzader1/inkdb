@@ -48,7 +48,7 @@ impl<'b> PageGuardMut<'b> {
             _marker: PhantomData,
         }
     }
-    pub fn bytes(&'b mut self) -> &'b mut [u8] {
+    pub fn bytes(&mut self) -> &'_ mut [u8] {
         self.page_bytes
     }
 }

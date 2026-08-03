@@ -2,8 +2,7 @@ use super::header::SQLITE3_HEADER_SIZE;
 use crate::bytes::{read_u16_be, read_u32_be};
 use crate::format::cell::{IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
-use crate::{bytes::read_u8, errors::SqliteDatabaseError, format::cell::BTreeCell};
-use crate::{decode_varint, seek_c, seek_s, sqlite_assert_all};
+use crate::{bytes::read_u8, errors::SqliteError, format::cell::BTreeCell};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 // pub const INTERIOR_INEDX_BTREE_PAGE: u8 = 0x02;
@@ -83,7 +82,7 @@ impl<'a> BTreePage {
         page_no: u32,
         page_size: usize,
         usable_size: usize,
-    ) -> Result<Self, SqliteDatabaseError> {
+    ) -> Result<Self, SqliteError> {
         let mut r = Cursor::new(&mut bytes);
         let mut header_offset: u16 = 0;
         if page_no == 1 {
@@ -106,7 +105,7 @@ impl<'a> BTreePage {
         Ok(btree_page)
     }
 
-    fn validate(&self, usable_size: u16) -> Result<(), SqliteDatabaseError> {
+    fn validate(&self, usable_size: u16) -> Result<(), SqliteError> {
         let header_size = if self.header.page_kind.is_leaf() {
             LEAF_BTREE_PAGE_HEADER_SIZE
         } else {
@@ -119,14 +118,14 @@ impl<'a> BTreePage {
         sqlite_assert_one(
             (btree_header_offset as u16 + header_size as u16) + (self.header.no_of_cells * 2)
                 <= usable_size,
-            SqliteDatabaseError::CorruptedPage {
+            SqliteError::CorruptedPage {
                 page: self.page_no,
                 reason: "cell pointer array exceeds usable page space".into(),
             },
         )?;
         sqlite_assert_one(
             self.header.cell_content_area <= usable_size,
-            SqliteDatabaseError::CorruptedPage {
+            SqliteError::CorruptedPage {
                 page: self.page_no,
                 reason: "cell content area starts outside usable page space".into(),
             },
@@ -134,7 +133,7 @@ impl<'a> BTreePage {
 
         sqlite_assert_one(
             self.header.frag_cnt <= 60,
-            SqliteDatabaseError::CorruptedPage {
+            SqliteError::CorruptedPage {
                 page: self.page_no,
                 reason: "fragmented free-byte count exceeds 60".into(),
             },
@@ -148,7 +147,7 @@ impl<'a> BTreePage {
 
             sqlite_assert_one(
                 cell_offset < usable_size as usize,
-                SqliteDatabaseError::CorruptedPage {
+                SqliteError::CorruptedPage {
                     page: self.page_no,
                     reason: format!("cell pointer {cell_offset} is outside usable page space"),
                 },
@@ -156,7 +155,7 @@ impl<'a> BTreePage {
 
             sqlite_assert_one(
                 cell_offset >= pointer_array_end,
-                SqliteDatabaseError::CorruptedPage {
+                SqliteError::CorruptedPage {
                     page: self.page_no,
                     reason: format!(
                         "cell pointer {cell_offset} points into the page header or cell pointer array"
@@ -166,16 +165,17 @@ impl<'a> BTreePage {
         }
 
         if self.header.page_kind.is_interior() {
-            let right_most_child = (self.header.right_most_ptr).as_ref().ok_or(
-                SqliteDatabaseError::CorruptedPage {
-                    page: self.page_no,
-                    reason: "interior page has no right-most child pointer".into(),
-                },
-            )?;
+            let right_most_child =
+                (self.header.right_most_ptr)
+                    .as_ref()
+                    .ok_or(SqliteError::CorruptedPage {
+                        page: self.page_no,
+                        reason: "interior page has no right-most child pointer".into(),
+                    })?;
 
             sqlite_assert_one(
                 *right_most_child != 0,
-                SqliteDatabaseError::CorruptedPage {
+                SqliteError::CorruptedPage {
                     page: self.page_no,
                     reason: "interior page has right-most child page 0".into(),
                 },
@@ -184,7 +184,7 @@ impl<'a> BTreePage {
         Ok(())
     }
 
-    fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteDatabaseError> {
+    fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteError> {
         let Self {
             header_offset,
             header,
@@ -204,7 +204,7 @@ impl<'a> BTreePage {
         Ok(())
     }
 
-    pub fn cell(&self, cell_idx: u16) -> Result<BTreeCell, SqliteDatabaseError> {
+    pub fn cell(&self, cell_idx: u16) -> Result<BTreeCell, SqliteError> {
         sqlite_assert_with_corrupt_err(
             (cell_idx as usize) < self.cell_pointers.len(),
             "Cell Index Out of Bounds",
@@ -256,11 +256,11 @@ pub struct BTreePageHeader {
     right_most_ptr: Option<PageNo>,
 }
 impl BTreePageHeader {
-    fn parse<R: Read + Seek>(r: &mut R) -> Result<Self, SqliteDatabaseError> {
+    fn parse<R: Read + Seek>(r: &mut R) -> Result<Self, SqliteError> {
         let page_kind_byte = read_u8(r)?;
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
-            _ => return Err(SqliteDatabaseError::InvalidPageType(page_kind_byte)),
+            _ => return Err(SqliteError::InvalidPageType(page_kind_byte)),
         };
 
         Self::parse_page(r, p_kind)
@@ -268,7 +268,7 @@ impl BTreePageHeader {
     fn parse_page<R: Read + Seek>(
         r: &mut R,
         page_kind: BTreePageType,
-    ) -> Result<Self, SqliteDatabaseError> {
+    ) -> Result<Self, SqliteError> {
         let first_freeblock: u16 = read_u16_be(r)?;
         let no_of_cells: u16 = read_u16_be(r)?;
         let cell_content_area: u16 = read_u16_be(r)?;

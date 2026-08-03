@@ -1,4 +1,4 @@
-use inkdb::errors::SqliteDatabaseError;
+use inkdb::errors::SqliteError;
 use inkdb::format::page::BTreePage;
 
 fn page(kind: u8, cell_offset: usize, cell: &[u8]) -> BTreePage {
@@ -34,7 +34,7 @@ fn leaf_cell_kinds_reject_truncated_varint() {
 
         // println!("FIRST PASSED");
         assert!(
-            matches!(result, Err(SqliteDatabaseError::InvalidVarint)),
+            matches!(result, Err(SqliteError::InvalidVarint)),
             "kind {kind:#x} should reject a truncated varint, got {result:?}",
         );
     }

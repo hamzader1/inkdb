@@ -1,6 +1,6 @@
 mod buffer_pool;
-mod frame;
-mod guard;
-mod page;
-mod metadata;
 mod configuation;
+mod frame;
+pub mod guard;
+mod metadata;
+pub mod page;

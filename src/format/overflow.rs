@@ -1,14 +1,10 @@
-use std::io::{Cursor, Read};
-use std::ptr::slice_from_raw_parts;
-
 const U32_SIZE: usize = size_of::<u32>();
-use crate::bytes::read_u32_be;
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::vfs::file::SqliteFile;
-use crate::{to_int, DbError, SqliteDatabase};
+use crate::{DbError, SqliteDatabase};
 
 use super::page::PageNo;
-use crate::SqliteDatabaseError;
+use crate::SqliteError;
 
 /*
    ** X is U-35 for table btree leaf pages or ((U-12)*64/255)-23 for index pages.
@@ -77,24 +73,25 @@ impl<S: SqliteFile> SqliteDatabase<S> {
         mut local_payload_bytes: Vec<u8>,
         total_payload_length: usize,
         first_overflow_page: PageNo,
-    ) -> Result<Vec<u8>, SqliteDatabaseError> {
+    ) -> Result<Vec<u8>, SqliteError> {
         let mut remaining = total_payload_length
             .checked_sub(local_payload_bytes.len())
-            .ok_or(SqliteDatabaseError::CorruptedPage {
+            .ok_or(SqliteError::CorruptedPage {
                 page: first_overflow_page, // needs to be change later to the parent page
                 reason: "local payload exceeds total payload length".into(),
             })?;
-        let mut buffer = vec![0u8; self.header.database_page_size as usize];
         let mut current_page = first_overflow_page;
+        let usable_size = self.usable_size();
         while remaining > 0 {
-            self.read_raw_page_into(current_page, &mut buffer)?;
-            let overflow_page = OverflowPageRef::new(&buffer, self.usable_size() as _)?;
+            // self.read_raw_page_into(current_page, &mut buffer)?;
+            let buffer = self.pager.get(current_page)?.bytes();
+            let overflow_page = OverflowPageRef::new(&buffer, usable_size as _)?;
             let bytes_to_read: usize = remaining.min(overflow_page.data.len());
             local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);
             remaining -= bytes_to_read;
             if remaining == 0 {
                 if overflow_page.next != 0 {
-                    return Err(SqliteDatabaseError::CorruptedPage {
+                    return Err(SqliteError::CorruptedPage {
                         page: current_page,
                         reason: "overflow chain continues after payload is complete".into(),
                     });
@@ -102,7 +99,7 @@ impl<S: SqliteFile> SqliteDatabase<S> {
                 break;
             }
             if overflow_page.next == 0 {
-                return Err(SqliteDatabaseError::CorruptedPage {
+                return Err(SqliteError::CorruptedPage {
                     page: current_page,
                     reason: "overflow chain ends before payload is complete".into(),
                 });
