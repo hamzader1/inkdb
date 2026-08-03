@@ -42,7 +42,7 @@ impl<F: SqliteFile> Pager<F> {
     ) -> Self {
         Self {
             source,
-            buffer_pool: BufferPool::with_custom_cache(cache_size, page_size),
+            buffer_pool: BufferPool::with_cache(cache_size, page_size),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
         }
     }
@@ -90,6 +90,7 @@ impl<F: SqliteFile> Pager<F> {
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
             frame.incr_pin_count();
+            frame.clear(CLEAN);
             frame.set(REFERENCED | DIRTY);
             let page_guard = self.page_guard_mut(frame_id);
             return Some(page_guard);
@@ -130,7 +131,6 @@ impl<F: SqliteFile> Pager<F> {
                 if frame.is(REFERENCED) {
                     frame.clear(REFERENCED);
                 } else {
-                    clock_hand = (clock_hand + 1) % buffer_len;
                     break clock_hand;
                 }
             }
@@ -183,7 +183,7 @@ impl<F: SqliteFile> Pager<F> {
         let start = frameid;
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
-        let bytes = self.buffer_pool.page_buffer[start..end].as_mut();
+        // let bytes = self.buffer_pool.page_buffer[start..end].as_mut();
         let ptr = unsafe {
             NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
         };

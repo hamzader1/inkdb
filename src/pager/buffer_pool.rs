@@ -34,7 +34,7 @@ impl BufferPool {
             clock_hand: 0,
         }
     }
-    pub fn with_custom_cache(cache_size: usize, page_size: usize) -> Self {
+    pub fn with_cache(cache_size: usize, page_size: usize) -> Self {
         // todo: check overflow of CacheCap * Psize
         let page_buffer = Self::owned_buffer::<u8>(cache_size * page_size);
         // todo: check overflow of CacheCap * Fsize
