@@ -22,9 +22,25 @@ impl BufferPool {
         // todo: check overflow of CacheCap * Psize
         let page_buffer = Self::owned_buffer::<u8>(CACHE_CAPACITY * page_size);
         // todo: check overflow of CacheCap * Fsize
-        let frame_buffer = Self::owned_buffer::<Frame>(CACHE_CAPACITY * FRAME_SIZE);
+        let frame_buffer = Self::owned_buffer::<Frame>(CACHE_CAPACITY);
 
         let free_frames: Vec<FrameId> = (0..CACHE_CAPACITY).collect();
+
+        Self {
+            page_table: HashMap::new(),
+            page_buffer,
+            frame_buffer,
+            free_frames,
+            clock_hand: 0,
+        }
+    }
+    pub fn with_custom_cache(cache_size: usize, page_size: usize) -> Self {
+        // todo: check overflow of CacheCap * Psize
+        let page_buffer = Self::owned_buffer::<u8>(cache_size * page_size);
+        // todo: check overflow of CacheCap * Fsize
+        let frame_buffer = Self::owned_buffer::<Frame>(cache_size);
+
+        let free_frames: Vec<FrameId> = (0..cache_size).collect();
 
         Self {
             page_table: HashMap::new(),
@@ -52,5 +68,17 @@ impl BufferPool {
     }
     pub fn as_ptr_mut(&mut self) -> NonNull<Self> {
         unsafe { NonNull::new_unchecked(self as *mut BufferPool) }
+    }
+}
+
+impl std::fmt::Debug for BufferPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferPool")
+            .field("page_table", &self.page_table)
+            .field("page_buffer_len", &self.page_buffer.len())
+            .field("frame_buffer_len", &self.frame_buffer.len())
+            .field("free_frames", &self.free_frames.len())
+            .field("clock_hand", &self.clock_hand)
+            .finish()
     }
 }

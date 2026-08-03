@@ -10,6 +10,7 @@ use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
 use crate::DbError;
 
+#[derive(Debug)]
 pub struct Pager<F: SqliteFile> {
     pub source: F,
     pub buffer_pool: BufferPool,
@@ -26,6 +27,20 @@ impl<F: SqliteFile> Pager<F> {
         Self {
             source,
             buffer_pool: BufferPool::new(page_size),
+            metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
+        }
+    }
+
+    pub fn with_cache(
+        source: F,
+        page_size: usize,
+        usable_size: usize,
+        max_allocated_pages: usize,
+        cache_size: usize,
+    ) -> Self {
+        Self {
+            source,
+            buffer_pool: BufferPool::with_custom_cache(cache_size, page_size),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
         }
     }
