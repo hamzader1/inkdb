@@ -84,7 +84,8 @@ impl<S: SqliteFile> SqliteDatabase<S> {
         let usable_size = self.usable_size();
         while remaining > 0 {
             // self.read_raw_page_into(current_page, &mut buffer)?;
-            let buffer = self.pager.get(current_page)?.bytes();
+            let page = self.pager.get(current_page)?;
+            let buffer = page.bytes();
             let overflow_page = OverflowPageRef::new(&buffer, usable_size as _)?;
             let bytes_to_read: usize = remaining.min(overflow_page.data.len());
             local_payload_bytes.extend_from_slice(&overflow_page.data[..bytes_to_read]);

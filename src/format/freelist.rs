@@ -41,8 +41,9 @@ impl<S: SqliteFile> SqliteDatabase<S> {
 
         while current_page > 0 {
             // self.read_raw_page_into(current_page, &mut buf)?;
-            let buf = self.pager.get(current_page)?.bytes();
-            let mut cursor = Cursor::new(&buf);
+            let page = self.pager.get(current_page)?;
+            let buf = page.bytes();
+            let mut cursor = Cursor::new(buf);
             trunk_pages.push(current_page);
             let next_freelist_trunk = read_u32_be(&mut cursor)?;
             Pager::<S>::validate_page(current_page, max_pages as _, Some(|p| p == 1))?;
