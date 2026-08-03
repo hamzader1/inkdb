@@ -1,6 +1,7 @@
 use crate::sqlite_assert_all;
 
 #[rustfmt::skip]
+#[derive(Debug)]
 pub struct SqliteMetadata {
     pub page_size           : usize,
     pub usable_size         : usize,
