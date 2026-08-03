@@ -3,7 +3,7 @@
 mod common;
 
 use common::{build_db_image, build_overflow_page, set_page_count, valid_header_bytes, MemFile};
-use inkdb::errors::SqliteDatabaseError;
+use inkdb::errors::SqliteError;
 use inkdb::format::overflow::{compute_local_payload_size, OverflowPageRef};
 use inkdb::vfs::disk::DiskFile;
 use inkdb::SqliteDatabase; // only for type inference where needed

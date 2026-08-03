@@ -10,7 +10,7 @@ use common::{
     encode_index_leaf_cell, encode_table_leaf_cell, write_interior_index_page,
     write_interior_table_page, write_leaf_index_page, write_leaf_table_page,
 };
-use inkdb::errors::SqliteDatabaseError;
+use inkdb::errors::SqliteError;
 use inkdb::format::cell::BTreeCell;
 use inkdb::format::page::BTreePage;
 
@@ -87,7 +87,7 @@ fn interior_page_with_zero_right_most_pointer_is_rejected() {
     let result = BTreePage::parse(buf, 3, PAGE_SIZE, USABLE_SIZE);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SqliteDatabaseError::CorruptedPage { reason, .. } => {
+        SqliteError::CorruptedPage { reason, .. } => {
             assert!(reason.contains("right-most"));
         }
         other => panic!("expected CorruptedPage, got {other:?}"),
@@ -116,7 +116,7 @@ fn parse_interior_index_page() {
         b
     };
     write_interior_index_page(&mut buf, 0, &[cell_body], 11);
-    let page = BTreePage::parse(buf, 2, PAGE_SIZE, USABLE_SIZE).unwrap();
+    let mut page = BTreePage::parse(buf, 2, PAGE_SIZE, USABLE_SIZE).unwrap();
     assert_eq!(page.no_of_cell(), 1);
     match page.cell(0).unwrap() {
         BTreeCell::IndexInterior(_) => {}
@@ -130,7 +130,7 @@ fn invalid_page_type_byte_is_rejected() {
     buf[0] = 0xFF; // not a valid btree page type
     let result = BTreePage::parse(buf, 2, PAGE_SIZE, USABLE_SIZE);
     match result {
-        Err(SqliteDatabaseError::InvalidPageType(0xFF)) => {}
+        Err(SqliteError::InvalidPageType(0xFF)) => {}
         other => panic!("expected InvalidPageType(0xFF), got {other:?}"),
     }
 }
