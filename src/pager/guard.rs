@@ -4,56 +4,50 @@ use super::buffer_pool::BufferPool;
 use super::frame::Frame;
 use std::{marker::PhantomData, ptr::NonNull};
 
-// #[derive(Debug)]
-// pub enum PageBytes<'b> {
-//     RefBytes(&'b [u8]),
-//     RefMutBytes(&'b mut [u8]),
-// }
-
 #[derive(Debug)]
-pub struct PageGuard<'b> {
+pub struct PageGuard {
     buffer_pool: NonNull<BufferPool>,
     frame_id: FrameId,
-    page_bytes: &'b [u8],
+    slice: NonNull<[u8]>,
     _marker: PhantomData<BufferPool>,
 }
 #[derive(Debug)]
-pub struct PageGuardMut<'b> {
+pub struct PageGuardMut {
     buffer_pool: NonNull<BufferPool>,
     frame_id: FrameId,
-    page_bytes: &'b mut [u8],
+    slice: NonNull<[u8]>,
     _marker: PhantomData<BufferPool>,
 }
 
-impl<'b> PageGuard<'b> {
-    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, bytes: &'b [u8]) -> Self {
+impl PageGuard {
+    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, slice: NonNull<[u8]>) -> Self {
         Self {
             buffer_pool,
             frame_id,
-            page_bytes: bytes,
+            slice,
             _marker: PhantomData,
         }
     }
-    pub fn bytes(&self) -> &'b [u8] {
-        self.page_bytes
+    pub fn bytes(&self) -> &[u8] {
+        unsafe { self.slice.as_ref() }
     }
 }
 
-impl<'b> PageGuardMut<'b> {
-    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, bytes: &'b mut [u8]) -> Self {
+impl PageGuardMut {
+    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, slice: NonNull<[u8]>) -> Self {
         Self {
             buffer_pool,
             frame_id,
-            page_bytes: bytes,
+            slice,
             _marker: PhantomData,
         }
     }
-    pub fn bytes(&mut self) -> &'_ mut [u8] {
-        self.page_bytes
+    pub fn bytes(&mut self) -> &mut [u8] {
+        unsafe { self.slice.as_mut() }
     }
 }
 
-impl<'b> Drop for PageGuard<'b> {
+impl Drop for PageGuard {
     fn drop(&mut self) {
         unsafe {
             self.buffer_pool.as_mut().release(self.frame_id);
@@ -61,7 +55,7 @@ impl<'b> Drop for PageGuard<'b> {
     }
 }
 
-impl<'b> Drop for PageGuardMut<'b> {
+impl Drop for PageGuardMut {
     fn drop(&mut self) {
         unsafe {
             self.buffer_pool.as_mut().release(self.frame_id);

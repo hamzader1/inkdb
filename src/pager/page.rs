@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::errors::SqliteError;
 
 use super::buffer_pool::BufferPool;
@@ -46,7 +48,7 @@ impl<F: SqliteFile> Pager<F> {
     }
 
     // PageGuard holds lifetime of self
-    pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard<'_>, DbError> {
+    pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {
         Self::validate_page(
             page_no,
             self.metadata.max_allocated_pages,
@@ -58,7 +60,7 @@ impl<F: SqliteFile> Pager<F> {
             .expect("page should be present after get_impl"))
     }
 
-    pub fn get_mut(&mut self, page_no: PageNo) -> Result<PageGuardMut<'_>, DbError> {
+    pub fn get_mut(&mut self, page_no: PageNo) -> Result<PageGuardMut, DbError> {
         Self::validate_page(
             page_no,
             self.metadata.max_allocated_pages,
@@ -71,7 +73,7 @@ impl<F: SqliteFile> Pager<F> {
     }
 
     // cache look up
-    fn try_get_fast(&mut self, page_no: PageNo) -> Option<PageGuard<'_>> {
+    fn try_get_fast(&mut self, page_no: PageNo) -> Option<PageGuard> {
         if let Some(frame_id) = self.buffer_pool.page_table.get(&page_no) {
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
@@ -83,7 +85,7 @@ impl<F: SqliteFile> Pager<F> {
         None
     }
 
-    fn try_get_fast_mut(&mut self, page_no: PageNo) -> Option<PageGuardMut<'_>> {
+    fn try_get_fast_mut(&mut self, page_no: PageNo) -> Option<PageGuardMut> {
         if let Some(frame_id) = self.buffer_pool.page_table.get(&page_no) {
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
@@ -166,19 +168,27 @@ impl<F: SqliteFile> Pager<F> {
     fn get_page_offset(&self, page_no: PageNo) -> usize {
         ((page_no as usize) - 1) * self.metadata.page_size
     }
-    fn page_guard(&mut self, frameid: FrameId) -> PageGuard<'_> {
+    fn page_guard(&mut self, frameid: FrameId) -> PageGuard {
         let start = frameid;
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
-        let bytes = self.buffer_pool.page_buffer[start..end].as_ref();
-        PageGuard::new(buffer_pool, frameid, bytes)
+        let ptr = unsafe {
+            NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
+        };
+        let slice: NonNull<[u8]> = NonNull::slice_from_raw_parts(ptr, self.metadata.page_size);
+
+        PageGuard::new(buffer_pool, frameid, slice)
     }
-    fn page_guard_mut(&mut self, frameid: FrameId) -> PageGuardMut<'_> {
+    fn page_guard_mut(&mut self, frameid: FrameId) -> PageGuardMut {
         let start = frameid;
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
         let bytes = self.buffer_pool.page_buffer[start..end].as_mut();
-        PageGuardMut::new(buffer_pool, frameid, bytes)
+        let ptr = unsafe {
+            NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
+        };
+        let slice: NonNull<[u8]> = NonNull::slice_from_raw_parts(ptr, self.metadata.page_size);
+        PageGuardMut::new(buffer_pool, frameid, slice)
     }
     fn flush_page(&self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         let offset = self.get_page_offset(page_no);
