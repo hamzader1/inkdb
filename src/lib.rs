@@ -6,14 +6,14 @@ mod macros;
 mod pager;
 mod util;
 pub mod vfs;
-use errors::SqliteDatabaseError;
+use errors::SqliteError;
 use format::header::SqliteDatabaseHeader;
 use format::overflow::compute_local_payload_size;
 use format::page::BTreePage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::path::Path;
 use vfs::SqliteOptions;
-pub type DbError = SqliteDatabaseError;
+pub type DbError = SqliteError;
 
 use self::format::page::PageNo;
 use self::vfs::cursor::FileCursor;
@@ -27,7 +27,7 @@ pub struct SqliteDatabase<S: SqliteFile> {
 }
 
 impl SqliteDatabase<DiskFile> {
-    pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteDatabaseError> {
+    pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
         let mut sqlite_default_vfs = DiskVfs;
         Self::with_source(sqlite_default_vfs, db_path)
     }
@@ -35,7 +35,7 @@ impl SqliteDatabase<DiskFile> {
 
 // 'f file source
 impl<'f, S: SqliteFile> SqliteDatabase<S> {
-    pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteDatabaseError>
+    pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteError>
     where
         V: Vfs<File = S>,
     {
@@ -56,7 +56,7 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
         &self.header
     }
 
-    pub fn page(&mut self, page_no: PageNo) -> Result<BTreePage, SqliteDatabaseError> {
+    pub fn page(&mut self, page_no: PageNo) -> Result<BTreePage, SqliteError> {
         self.validate_page(page_no, None::<fn(_) -> bool>)?;
         let page_size = self.header.database_page_size;
         let offset = page_size * (page_no - 1);
@@ -79,9 +79,9 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
         &mut self,
         page_no: PageNo,
         buff: &mut B,
-    ) -> Result<(), SqliteDatabaseError> {
+    ) -> Result<(), SqliteError> {
         if page_no == 1 {
-            return Err(SqliteDatabaseError::Corrupt(
+            return Err(SqliteError::Corrupt(
                 "Page no '1' cant be used as raw page".into(),
             ));
         }
@@ -100,21 +100,21 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
         &mut self,
         page_no: PageNo,
         exception: Option<F>,
-    ) -> Result<(), SqliteDatabaseError>
+    ) -> Result<(), SqliteError>
     where
         F: Fn(PageNo) -> bool,
     {
         if let Some(exc) = exception {
             if exc(page_no) {
-                return Err(SqliteDatabaseError::Corrupt("Exception Failed".into()));
+                return Err(SqliteError::Corrupt("Exception Failed".into()));
             }
         }
         if page_no == 0 {
-            return Err(SqliteDatabaseError::Corrupt(
+            return Err(SqliteError::Corrupt(
                 "page number cannot be zero".into(),
             ));
         } else if page_no > self.header.database_size_in_pages {
-            return Err(SqliteDatabaseError::Corrupt(
+            return Err(SqliteError::Corrupt(
                 "page number is outside the database".into(),
             ));
         }
