@@ -1,21 +1,19 @@
 use crate::errors::SqliteError;
-use std::ptr::NonNull;
 
 use super::buffer_pool::BufferPool;
 use super::frame::FrameId;
-use super::frame::{CLEAN, DIRTY, FREE, REFERENCED};
+use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::guard::{PageGuard, PageGuardMut};
 use super::metadata::SqliteMetadata;
 use crate::format::page::PageNo;
 use crate::pager::frame::Frame;
-use crate::pager::page;
 use crate::vfs::file::SqliteFile;
-use crate::{sqlite_assert_all, DbError};
+use crate::DbError;
 
-struct Pager<F: SqliteFile> {
-    source: F,
-    buffer_pool: BufferPool,
-    metadata: SqliteMetadata,
+pub struct Pager<F: SqliteFile> {
+    pub source: F,
+    pub buffer_pool: BufferPool,
+    pub metadata: SqliteMetadata,
 }
 
 impl<F: SqliteFile> Pager<F> {
@@ -34,7 +32,11 @@ impl<F: SqliteFile> Pager<F> {
 
     // PageGuard holds lifetime of self
     pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard<'_>, DbError> {
-        self.validate_page(page_no, None::<fn(_) -> bool>)?;
+        Self::validate_page(
+            page_no,
+            self.metadata.max_allocated_pages,
+            None::<fn(_) -> bool>,
+        )?;
         self.ensure_page_loaded(page_no)?;
         Ok(self
             .try_get_fast(page_no)
@@ -42,7 +44,11 @@ impl<F: SqliteFile> Pager<F> {
     }
 
     pub fn get_mut(&mut self, page_no: PageNo) -> Result<PageGuardMut<'_>, DbError> {
-        self.validate_page(page_no, None::<fn(_) -> bool>)?;
+        Self::validate_page(
+            page_no,
+            self.metadata.max_allocated_pages,
+            None::<fn(_) -> bool>,
+        )?;
         self.ensure_page_loaded(page_no)?;
         Ok(self
             .try_get_fast_mut(page_no)
@@ -85,7 +91,7 @@ impl<F: SqliteFile> Pager<F> {
             let frame = &mut self.buffer_pool.frame_buffer[frameid];
             *frame = Frame::new(Some(page_no), CLEAN, 0);
 
-            self.load_page(page_no, frameid);
+            self.load_page(page_no, frameid)?;
             return Ok(());
         }
         // run the clock
@@ -128,7 +134,7 @@ impl<F: SqliteFile> Pager<F> {
         // set the new frame
         self.buffer_pool.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN, 0);
 
-        self.load_page(page_no, frameid);
+        self.load_page(page_no, frameid)?;
         Ok(())
     }
     fn load_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
@@ -137,7 +143,7 @@ impl<F: SqliteFile> Pager<F> {
         let page_buffer =
             &mut self.buffer_pool.page_buffer[frameid..frameid + self.metadata.page_size];
         // if this went right
-        self.source.read_exact_at(page_offset as _, page_buffer);
+        self.source.read_exact_at(page_offset as _, page_buffer)?;
         self.buffer_pool.page_table.insert(page_no, frameid);
 
         Ok(())
@@ -167,7 +173,11 @@ impl<F: SqliteFile> Pager<F> {
         Ok(())
     }
 
-    fn validate_page<E>(&self, page_no: PageNo, exception: Option<E>) -> Result<(), DbError>
+    pub fn validate_page<E>(
+        page_no: PageNo,
+        max_pages: usize,
+        exception: Option<E>,
+    ) -> Result<(), DbError>
     where
         E: Fn(PageNo) -> bool,
     {
@@ -178,7 +188,7 @@ impl<F: SqliteFile> Pager<F> {
         }
         if page_no == 0 {
             return Err(SqliteError::Corrupt("page number cannot be zero".into()));
-        } else if page_no as usize > self.metadata.max_allocated_pages {
+        } else if page_no as usize > max_pages {
             return Err(SqliteError::Corrupt(
                 "page number is outside the database".into(),
             ));

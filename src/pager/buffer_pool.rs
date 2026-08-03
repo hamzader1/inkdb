@@ -2,9 +2,7 @@ use super::frame::FRAME_SIZE;
 use super::frame::{Frame, FrameId, FrameIndex};
 use crate::errors::SqliteError;
 use crate::format::page::PageNo;
-use crate::pager::{frame, page};
 use crate::util::sqlite_assert_one;
-use crate::DbError;
 use std::collections::HashMap;
 use std::ptr::NonNull;
 
@@ -22,9 +20,9 @@ pub struct BufferPool {
 impl BufferPool {
     pub fn new(page_size: usize) -> Self {
         // todo: check overflow of CacheCap * Psize
-        let page_buffer = Self::make_owned_buffer::<u8>(CACHE_CAPACITY * page_size);
+        let page_buffer = Self::owned_buffer::<u8>(CACHE_CAPACITY * page_size);
         // todo: check overflow of CacheCap * Fsize
-        let frame_buffer = Self::make_owned_buffer::<Frame>(CACHE_CAPACITY * FRAME_SIZE);
+        let frame_buffer = Self::owned_buffer::<Frame>(CACHE_CAPACITY * FRAME_SIZE);
 
         let free_frames: Vec<FrameId> = (0..CACHE_CAPACITY).collect();
 
@@ -45,11 +43,11 @@ impl BufferPool {
         self.frame_buffer[frame_id] = Frame::default();
         Ok(())
     }
-    
+
     pub fn release(&self, frame_id: FrameId) {
         self.frame_buffer[frame_id].decr_pin_count();
     }
-    pub fn make_owned_buffer<T: Clone + Default>(size: usize) -> Box<[T]> {
+    pub fn owned_buffer<T: Clone + Default>(size: usize) -> Box<[T]> {
         vec![T::default(); size].into_boxed_slice()
     }
     pub fn as_ptr_mut(&mut self) -> NonNull<Self> {

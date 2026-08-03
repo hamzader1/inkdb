@@ -5,7 +5,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 
 use crate::bytes::*;
-use crate::errors::SqliteDatabaseError;
+use crate::errors::SqliteError;
 use crate::format::header;
 use crate::seek_c;
 use crate::seek_s;
@@ -114,8 +114,8 @@ pub struct SqliteDatabaseHeader {
 }
 
 impl SqliteDatabaseHeader {
-    const INVALID_HEADER_ERR: SqliteDatabaseError = SqliteDatabaseError::InvalidDatabaseHeader;
-    pub fn parse<R: SqliteFile>(sqlite_source: &'_ R) -> Result<Self, SqliteDatabaseError> {
+    const INVALID_HEADER_ERR: SqliteError = SqliteError::InvalidDatabaseHeader;
+    pub fn parse<R: SqliteFile>(sqlite_source: &'_ R) -> Result<Self, SqliteError> {
         // default cursor to 0, no manually offset needed
         let mut cursor = FileCursor::<'_, R>::new(sqlite_source);
 
@@ -172,7 +172,7 @@ impl SqliteDatabaseHeader {
         Ok(header)
     }
 
-    fn validate(&mut self) -> Result<(), SqliteDatabaseError> {
+    fn validate(&mut self) -> Result<(), SqliteError> {
         let Self {
             header_string,
             database_page_size,
@@ -209,7 +209,7 @@ impl SqliteDatabaseHeader {
                 || (self.database_page_size >= 512
                     && self.database_page_size <= 32768
                     && self.database_page_size.is_power_of_two()),
-            SqliteDatabaseError::InvalidPageSize(self.database_page_size as u16),
+            SqliteError::InvalidPageSize(self.database_page_size as u16),
         )?;
 
         if self.database_page_size == 1 {
