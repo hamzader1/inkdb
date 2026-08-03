@@ -9,7 +9,7 @@ const CACHE_CAPACITY: usize = 4096;
 #[rustfmt::skip]
 // TODO: after getting things done, change pub to pub(super)
 pub struct BufferPool {
-    pub page_map    : HashMap<PageNo, FrameId>,
+    pub page_table    : HashMap<PageNo, FrameId>,
     pub page_buffer : Box<[u8]>,
     pub frame_buffer: Box<[Frame]>, // Frame Id used to index
     pub free_frames : Vec<FrameId>, // Frame Id to Index frame_buffer
@@ -26,7 +26,7 @@ impl BufferPool {
         let free_frames: Vec<FrameId> = (0..CACHE_CAPACITY).collect();
 
         Self {
-            page_map: HashMap::new(),
+            page_table: HashMap::new(),
             page_buffer,
             frame_buffer,
             free_frames,
