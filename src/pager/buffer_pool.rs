@@ -6,7 +6,7 @@ use crate::util::sqlite_assert_one;
 use std::collections::HashMap;
 use std::ptr::NonNull;
 
-const CACHE_CAPACITY: usize = 4096;
+const CACHE_SIZE: usize = 4096;
 #[rustfmt::skip]
 // TODO: after getting things done, change pub to pub(super)
 pub struct BufferPool {
@@ -19,12 +19,11 @@ pub struct BufferPool {
 
 impl BufferPool {
     pub fn new(page_size: usize) -> Self {
-        // todo: check overflow of CacheCap * Psize
-        let page_buffer = Self::owned_buffer::<u8>(CACHE_CAPACITY * page_size);
-        // todo: check overflow of CacheCap * Fsize
-        let frame_buffer = Self::owned_buffer::<Frame>(CACHE_CAPACITY);
+        // NO OVERFLOW CHECKS NEEDED HERE
+        let page_buffer = Self::owned_buffer::<u8>(CACHE_SIZE * page_size);
+        let frame_buffer = Self::owned_buffer::<Frame>(CACHE_SIZE);
 
-        let free_frames: Vec<FrameId> = (0..CACHE_CAPACITY).collect();
+        let free_frames: Vec<FrameId> = (0..CACHE_SIZE).collect();
 
         Self {
             page_table: HashMap::new(),
@@ -35,9 +34,11 @@ impl BufferPool {
         }
     }
     pub fn with_cache(cache_size: usize, page_size: usize) -> Self {
-        // todo: check overflow of CacheCap * Psize
-        let page_buffer = Self::owned_buffer::<u8>(cache_size * page_size);
-        // todo: check overflow of CacheCap * Fsize
+        let cache_cap: usize = cache_size
+            .checked_mul(page_size)
+            .expect("Overflow while trying to multiply");
+        let page_buffer = Self::owned_buffer::<u8>(cache_cap);
+
         let frame_buffer = Self::owned_buffer::<Frame>(cache_size);
 
         let free_frames: Vec<FrameId> = (0..cache_size).collect();
