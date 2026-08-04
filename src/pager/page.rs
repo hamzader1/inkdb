@@ -267,12 +267,14 @@ impl<F: SqliteFile> Pager<F> {
         let mut tail = self.dp_ll;
         while let Some(tail_f_id) = tail {
             let frame = &self.buffer_pool.frame_buffer[tail_f_id];
+            let page_no = frame.page_no.unwrap();
             debug_assert!(
                 frame.is(DIRTY),
-                "Page is not dirty while its declared as dirty in the linked list"
+                "Page {} is not dirty while its declared as dirty in the linked list",
+                page_no
             );
-            let page_no = frame.page_no.unwrap();
             self.flush_page(page_no, tail_f_id)?;
+            tail = frame.prev;
             self.dp_ll_remove(tail_f_id);
         }
         Ok(())
