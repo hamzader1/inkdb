@@ -2,12 +2,13 @@ use std::ptr::NonNull;
 
 use crate::errors::SqliteError;
 
-use super::buffer_pool::BufferPool;
+use super::buffer_pool::{self, BufferPool};
 use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::guard::{PageGuard, PageGuardMut};
 use super::metadata::SqliteMetadata;
-use crate::format::page::PageNo;
+use super::statistics::SqliteStatistics;
+use crate::format::page::{self, PageNo};
 use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
 use crate::DbError;
@@ -17,6 +18,7 @@ pub struct Pager<F: SqliteFile> {
     pub source: F,
     pub buffer_pool: BufferPool,
     pub metadata: SqliteMetadata,
+    pub statistics: SqliteStatistics, // pub configuration: SqliteConfiguration,
 }
 
 impl<F: SqliteFile> Pager<F> {
@@ -30,6 +32,7 @@ impl<F: SqliteFile> Pager<F> {
             source,
             buffer_pool: BufferPool::new(page_size),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
+            statistics: SqliteStatistics::default(),
         }
     }
 
@@ -44,6 +47,7 @@ impl<F: SqliteFile> Pager<F> {
             source,
             buffer_pool: BufferPool::with_cache(cache_size, page_size),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
+            statistics: SqliteStatistics::default(),
         }
     }
 
@@ -100,6 +104,7 @@ impl<F: SqliteFile> Pager<F> {
     // page not in cache
     fn ensure_page_loaded(&mut self, page_no: PageNo) -> Result<(), DbError> {
         if self.buffer_pool.page_table.contains_key(&page_no) {
+            self.statistics.inc_cache_hit();
             return Ok(()); // page already in cache
         }
 
@@ -109,7 +114,9 @@ impl<F: SqliteFile> Pager<F> {
             let frame = &mut self.buffer_pool.frame_buffer[frameid];
             *frame = Frame::new(Some(page_no), CLEAN, 0);
 
-            self.load_page(page_no, frameid)?;
+            self.allocate_page(page_no, frameid)?;
+
+            self.statistics.inc_cache_miss();
             return Ok(());
         }
         // run the clock
@@ -147,14 +154,16 @@ impl<F: SqliteFile> Pager<F> {
 
         // evict the page from page table
         self.buffer_pool.evict_page(frame_page_no, frameid)?;
+        self.statistics.inc_evictions();
 
         // set the new frame
         self.buffer_pool.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN, 0);
 
-        self.load_page(page_no, frameid)?;
+        self.allocate_page(page_no, frameid)?;
+        self.statistics.inc_cache_miss();
         Ok(())
     }
-    fn load_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
+    fn allocate_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         // request memory
         let page_offset = self.get_page_offset(page_no);
         let page_buffer =
@@ -197,6 +206,7 @@ impl<F: SqliteFile> Pager<F> {
         let bytes = &self.buffer_pool.page_buffer[start..end];
         self.source.write_all_at(offset as _, bytes)?;
         self.source.sync()?;
+        self.statistics.inc_disk_write();
         Ok(())
     }
 
