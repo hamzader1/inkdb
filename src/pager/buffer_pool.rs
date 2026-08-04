@@ -53,7 +53,8 @@ impl BufferPool {
     }
     pub fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), SqliteError> {
         sqlite_assert_one(
-            *self.page_table.get(&page_no).unwrap() == frame_id,
+            self.page_table.contains_key(&page_no)
+                && *self.page_table.get(&page_no).unwrap() == frame_id,
             SqliteError::Corrupt("Frame ID mistmatch while trying to evict the page".into()),
         )?;
         self.page_table.remove(&page_no);
