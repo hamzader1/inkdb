@@ -57,6 +57,10 @@ pub enum SqliteError {
 
     #[error("{0}")]
     Corrupt(String),
+
     #[error("buffer pool exhausted: no unpinned frame available for eviction")]
     BufferPoolExhausted,
+
+    #[error("{0}")]
+    OverFlow(String),
 }
