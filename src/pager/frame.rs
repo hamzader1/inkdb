@@ -13,32 +13,32 @@ pub type FrameIndex = usize;
 #[derive(Clone, Debug)]
 pub struct Frame {
     pub page_no: Option<PageNo>,
-    pub flags: u8,
+    pub flags: Cell<u8>,
     pub pin_count: Cell<u8>,
 }
 impl Frame {
     pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
         Self {
             page_no,
-            flags,
+            flags: Cell::new(flags),
             pin_count: Cell::new(pin_count),
         }
     }
     pub fn is(&self, flag: u8) -> bool {
         assert!(flag == FREE || flag == CLEAN || flag == DIRTY || flag == REFERENCED);
-        self.flags & flag != 0
+        self.flags.get() & flag != 0
     }
 
-    pub fn set(&mut self, flag: u8) {
-        self.flags |= flag;
+    pub fn set(&self, flag: u8) {
+        self.flags.set(self.flags.get() | flag);
     }
 
-    pub fn clear(&mut self, flag: u8) {
-        self.flags &= !flag;
+    pub fn clear(&self, flag: u8) {
+        self.flags.set(self.flags.get() & !flag);
     }
 
-    pub fn reset_to(&mut self, flag: u8) {
-        self.flags = flag;
+    pub fn reset_to(&self, flag: u8) {
+        self.flags.swap(&Cell::new(flag));
     }
     pub fn incr_pin_count(&self) {
         let curr_cnt = self.pin_count.get();
@@ -56,7 +56,7 @@ impl Default for Frame {
     fn default() -> Self {
         Self {
             page_no: None,
-            flags: FREE,
+            flags: Cell::new(FREE),
             pin_count: Cell::new(0),
         }
     }
