@@ -1,4 +1,6 @@
 use crate::DbError;
+#[cfg(unix)]
+use crate::errors::SqliteError;
 
 use super::file::SqliteFile;
 use super::{SqliteOptions, Vfs};
@@ -42,10 +44,20 @@ impl SqliteFile for DiskFile {
         offset: u64,
         buff: &mut B,
     ) -> Result<(), DbError> {
-        self.file.read_exact_at(buff.as_mut(), offset)?;
+        let file_len = self.file.metadata()?.len();
+        let buf = buff.as_mut();
+        if (offset as usize) + buf.len() > file_len as _ {
+            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+        }
+        self.file.read_exact_at(buf, offset)?;
         Ok(())
     }
     fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buff: &B) -> Result<(), DbError> {
+        let file_len = self.file.metadata()?.len();
+        let buf = buff.as_ref();
+        if (offset as usize) + buf.len() > file_len as _ {
+            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+        }
         self.file.write_all_at(buff.as_ref(), offset)?;
         Ok(())
     }
@@ -71,7 +83,12 @@ impl SqliteFile for DiskFile {
         offset: u64,
         buf: &mut B,
     ) -> Result<(), DbError> {
+        use crate::SqliteError;
+        let file_len = self.file.metadata()?.len();
         let mut buf = buf.as_mut();
+        if offset as usize + buf.len() > file_len as _ {
+            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+        }
         let mut offset = offset;
         while !buf.is_empty() {
             let n = self.file.seek_read(buf, offset)?;
@@ -85,7 +102,12 @@ impl SqliteFile for DiskFile {
         Ok(())
     }
     fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buf: &B) -> Result<(), DbError> {
+        use crate::SqliteError;
+        let file_len = self.file.metadata()?.len();
         let mut buf = buf.as_ref();
+        if offset as usize + buf.len() > file_len as _ {
+            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+        }
         let mut offset = offset;
         while !buf.is_empty() {
             let n = self.file.seek_write(buf, offset)?;
