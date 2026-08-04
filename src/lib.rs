@@ -23,7 +23,7 @@ use self::vfs::Vfs;
 use crate::pager::page::Pager;
 
 pub struct SqliteDatabase<S: SqliteFile> {
-    pager: Pager<S>,
+    pub pager: Pager<S>,
     header: SqliteDatabaseHeader,
 }
 
@@ -31,6 +31,10 @@ impl SqliteDatabase<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
         let sqlite_default_vfs = DiskVfs;
         Self::with_source(sqlite_default_vfs, db_path)
+    }
+    pub fn with_cache<P: AsRef<Path>>(db_path: P, cache_size: usize) -> Result<Self, SqliteError> {
+        let sqlite_default_vfs = DiskVfs;
+        Self::with_source_cache(sqlite_default_vfs, db_path, cache_size)
     }
 }
 
@@ -47,6 +51,25 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
             header.database_page_size as _,
             (header.database_page_size - header.reserved_space as u32) as _,
             header.database_size_in_pages as _,
+        );
+        Ok(Self { pager, header })
+    }
+    pub fn with_source_cache<P: AsRef<Path>, V>(
+        mut vfs: V,
+        path: P,
+        cache_size: usize,
+    ) -> Result<Self, SqliteError>
+    where
+        V: Vfs<File = S>,
+    {
+        let source = vfs.open(path, SqliteOptions::default())?;
+        let header = SqliteDatabaseHeader::parse(&source)?;
+        let pager = Pager::with_cache(
+            source,
+            header.database_page_size as _,
+            (header.database_page_size - header.reserved_space as u32) as _,
+            header.database_size_in_pages as _,
+            cache_size,
         );
         Ok(Self { pager, header })
     }
