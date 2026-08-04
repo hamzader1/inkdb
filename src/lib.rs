@@ -16,10 +16,10 @@ use vfs::SqliteOptions;
 pub type DbError = SqliteError;
 
 use self::format::page::PageNo;
+use self::vfs::Vfs;
 use self::vfs::cursor::FileCursor;
 use self::vfs::disk::{DiskFile, DiskVfs};
 use self::vfs::file::SqliteFile;
-use self::vfs::Vfs;
 use crate::pager::page::Pager;
 
 pub struct SqliteDatabase<S: SqliteFile> {
@@ -130,10 +130,10 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
     where
         F: Fn(PageNo) -> bool,
     {
-        if let Some(exc) = exception {
-            if exc(page_no) {
-                return Err(SqliteError::Corrupt("Exception Failed".into()));
-            }
+        if let Some(exc) = exception
+            && exc(page_no)
+        {
+            return Err(SqliteError::Corrupt("Exception Failed".into()));
         }
         if page_no == 0 {
             return Err(SqliteError::Corrupt("page number cannot be zero".into()));

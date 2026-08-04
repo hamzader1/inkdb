@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use crate::vfs::Vfs;
 use crate::DbError;
+use crate::errors::SqliteError;
+use crate::vfs::Vfs;
 
 use super::file::SqliteFile;
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MemVfs {
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
 }
@@ -60,10 +61,14 @@ impl SqliteFile for MemFile {
         offset: u64,
         buff: &mut B,
     ) -> Result<(), crate::DbError> {
-        let start = offset as usize;
-        let end = buff.as_mut().len();
+        let bytes = &self.bytes.borrow();
         let buf = buff.as_mut();
-        let slice = &self.bytes.borrow()[start..start + end];
+        let start = offset as usize;
+        let end = start + buf.len();
+        if end > bytes.len() {
+            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+        }
+        let slice = &bytes[start..end];
         buf.copy_from_slice(slice);
         Ok(())
     }
@@ -73,10 +78,14 @@ impl SqliteFile for MemFile {
         offset: u64,
         buff: &B,
     ) -> Result<(), crate::DbError> {
+        let bytes = &mut self.bytes.borrow_mut();
         let buff = buff.as_ref();
         let start = offset as usize;
         let end = start + buff.len();
-        let slice = &mut self.bytes.borrow_mut()[start..end];
+        if end > bytes.len() {
+            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+        }
+        let slice = &mut bytes[start..end];
         slice.copy_from_slice(buff);
         Ok(())
     }
