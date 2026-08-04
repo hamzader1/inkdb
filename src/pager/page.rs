@@ -111,19 +111,18 @@ impl<F: SqliteFile> Pager<F> {
         // check if the we have any free frames
         if let Some(frameid) = self.buffer_pool.free_frames.pop() {
             self.buffer_pool.page_table.insert(page_no, frameid);
-            let frame = &mut self.buffer_pool.frame_buffer[frameid];
-            *frame = Frame::new(Some(page_no), CLEAN, 0);
 
             self.allocate_page(page_no, frameid)?;
 
-            self.statistics.inc_cache_miss();
+            let frame = &mut self.buffer_pool.frame_buffer[frameid];
+            *frame = Frame::new(Some(page_no), CLEAN, 0);
+
             return Ok(());
         }
         // run the clock
         let mut clock_hand = self.buffer_pool.clock_hand;
         let start = clock_hand;
         let mut laps = 0;
-        let last_index = self.buffer_pool.frame_buffer.len();
         let buffer_len = self.buffer_pool.frame_buffer.len();
         let frameid: usize = loop {
             if clock_hand == start {
@@ -156,11 +155,11 @@ impl<F: SqliteFile> Pager<F> {
         self.buffer_pool.evict_page(frame_page_no, frameid)?;
         self.statistics.inc_evictions();
 
-        // set the new frame
-        self.buffer_pool.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN, 0);
-
         self.allocate_page(page_no, frameid)?;
-        self.statistics.inc_cache_miss();
+
+        // after the alloation; set the new frame
+        //
+        self.buffer_pool.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN, 0);
         Ok(())
     }
     fn allocate_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
@@ -171,6 +170,8 @@ impl<F: SqliteFile> Pager<F> {
         // if this went right
         self.source.read_exact_at(page_offset as _, page_buffer)?;
         self.buffer_pool.page_table.insert(page_no, frameid);
+
+        self.statistics.inc_cache_miss();
 
         Ok(())
     }
