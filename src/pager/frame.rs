@@ -15,6 +15,8 @@ pub struct Frame {
     pub page_no: Option<PageNo>,
     pub flags: Cell<u8>,
     pub pin_count: Cell<u8>,
+    pub next: Option<FrameId>,
+    pub prev: Option<FrameId>,
 }
 impl Frame {
     pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
@@ -22,6 +24,8 @@ impl Frame {
             page_no,
             flags: Cell::new(flags),
             pin_count: Cell::new(pin_count),
+            next: None,
+            prev: None,
         }
     }
     pub fn is(&self, flag: u8) -> bool {
@@ -58,6 +62,8 @@ impl Default for Frame {
             page_no: None,
             flags: Cell::new(FREE),
             pin_count: Cell::new(0),
+            next: None,
+            prev: None,
         }
     }
 }
