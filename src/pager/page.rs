@@ -1,3 +1,4 @@
+use std::ops::Rem;
 use std::ptr::NonNull;
 
 use crate::errors::SqliteError;
@@ -210,18 +211,20 @@ impl<F: SqliteFile> Pager<F> {
         self.buffer_pool.frame_buffer[frameid].reset_to(CLEAN);
         self.source.write_all_at(offset as _, bytes)?;
         self.statistics.inc_disk_write();
-        self.source.sync(); // temporary for now
+        self.source.sync()?; // temporary for now
         Ok(())
     }
-    fn flush_all(&mut self) {
+    fn flush_all(&mut self) -> Result<(), SqliteError> {
         let len = self.buffer_pool.frame_buffer.len();
         for id in 0..len {
             let frame = &self.buffer_pool.frame_buffer[id];
+            // TODO: double check using PageTable
             if frame.is(DIRTY) {
                 let page_no = frame.page_no.unwrap();
-                self.flush_page(page_no, id);
+                self.flush_page(page_no, id)?;
             }
         }
+        Ok(())
     }
 
     pub fn validate_page<E>(
