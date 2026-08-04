@@ -1,6 +1,3 @@
-//! Comprehensive tests for `inkdb::pager` — BufferPool, Frame, Pager,
-//! SqliteMetadata, SqliteStatistics, PageGuard, and PageGuardMut.
-
 mod common;
 
 use std::io::Write;
@@ -22,9 +19,6 @@ fn rc_vec(data: Vec<u8>) -> std::rc::Rc<std::cell::RefCell<Vec<u8>>> {
     std::rc::Rc::new(std::cell::RefCell::new(data))
 }
 
-// ===========================================================================
-// Temp file helpers
-// ===========================================================================
 
 fn temp_path(name: &str) -> std::path::PathBuf {
     let mut p = std::env::temp_dir();
@@ -41,10 +35,6 @@ fn write_db_file(path: &std::path::Path, contents: &[u8]) {
     f.write_all(contents).unwrap();
     f.sync_all().unwrap();
 }
-
-// ===========================================================================
-// SqliteMetadata
-// ===========================================================================
 
 #[test]
 fn metadata_new_valid() {
@@ -72,10 +62,6 @@ fn metadata_new_usable_greater_than_page_size_panics() {
 fn metadata_new_zero_max_pages_panics() {
     let _ = SqliteMetadata::new(4096, 4096, 0);
 }
-
-// ===========================================================================
-// SqliteStatistics
-// ===========================================================================
 
 #[test]
 fn statistics_default_all_zeros() {
@@ -137,10 +123,6 @@ fn statistics_multiple_increments() {
     }
     assert_eq!(stats.cache_hit(), 100);
 }
-
-// ===========================================================================
-// Frame
-// ===========================================================================
 
 #[test]
 fn frame_new_with_all_fields() {
@@ -273,10 +255,6 @@ fn frame_page_no_some() {
     assert_eq!(frame.page_no, Some(42));
 }
 
-// ===========================================================================
-// BufferPool
-// ===========================================================================
-
 #[test]
 fn buffer_pool_new_has_correct_free_frames() {
     let pool = BufferPool::new(512);
@@ -397,9 +375,6 @@ fn buffer_pool_debug_impl() {
     assert!(debug.contains("BufferPool"));
 }
 
-// ===========================================================================
-// Pager construction
-// ===========================================================================
 
 fn make_mem_db(page_size: usize, page_count: u32) -> MemFile {
     let mut data = vec![0u8; page_size * page_count as usize];
@@ -439,9 +414,6 @@ fn pager_with_cache_sets_correct_metadata() {
     assert_eq!(pager.buffer_pool.frame_buffer.len(), 5);
 }
 
-// ===========================================================================
-// Pager get / get_mut
-// ===========================================================================
 
 #[test]
 fn pager_get_loads_page_into_cache() {
@@ -550,10 +522,6 @@ fn pager_get_mut_multiple_pages_fills_cache() {
     assert_eq!(pager.cached_page_count(), 2);
 }
 
-// ===========================================================================
-// Pager page eviction and dirty page flushing
-// ===========================================================================
-
 #[test]
 fn pager_eviction_flushes_dirty_page() {
     let file = make_mem_db(512, 4);
@@ -619,10 +587,6 @@ fn pager_cached_page_count_after_drop() {
     assert_eq!(pager.cached_page_count(), 1);
 }
 
-// ===========================================================================
-// Pager validate_page
-// ===========================================================================
-
 #[test]
 fn pager_validate_page_valid() {
     assert!(Pager::<MemFile>::validate_page(1, 10, None::<fn(_) -> bool>).is_ok());
@@ -653,10 +617,6 @@ fn pager_validate_page_with_exception_not_triggered() {
     assert!(result.is_ok());
 }
 
-// ===========================================================================
-// PageGuard
-// ===========================================================================
-
 #[test]
 fn page_guard_bytes_returns_page_slice() {
     let file = make_mem_db(512, 3);
@@ -686,10 +646,6 @@ fn page_guard_drop_decrements_pin_count() {
     assert_eq!(pager.buffer_pool.frame_buffer[fid].pin_count.get(), 0);
 }
 
-// ===========================================================================
-// PageGuardMut
-// ===========================================================================
-
 #[test]
 fn page_guard_mut_bytes_returns_mutable_slice() {
     let file = make_mem_db(512, 3);
@@ -718,10 +674,6 @@ fn page_guard_mut_drop_decrements_pin_count() {
     drop(guard);
     assert_eq!(pager.buffer_pool.frame_buffer[fid].pin_count.get(), 0);
 }
-
-// ===========================================================================
-// Pager integration through SqliteDatabase
-// ===========================================================================
 
 #[test]
 fn sqlite_database_new_opens_valid_db() {
@@ -840,10 +792,6 @@ fn sqlite_database_usable_size_with_reserved_space() {
     let _ = std::fs::remove_file(&path);
 }
 
-// ===========================================================================
-// Pager with small cache - eviction behavior
-// ===========================================================================
-
 #[test]
 fn pager_small_cache_evicts_old_pages() {
     let file = make_mem_db(512, 5);
@@ -874,10 +822,6 @@ fn pager_small_cache_with_pinned_page_evicts_other() {
     let _g3 = pager.get(4).unwrap();
     assert_eq!(pager.cached_page_count(), 2);
 }
-
-// ===========================================================================
-// Pager dirty page tracking
-// ===========================================================================
 
 #[test]
 fn pager_get_mut_then_get_reads_modified_data() {
@@ -912,10 +856,6 @@ fn pager_dirty_page_flushed_on_eviction() {
     assert_eq!(guard.bytes()[20], 0xDE);
 }
 
-// ===========================================================================
-// Pager statistics tracking
-// ===========================================================================
-
 #[test]
 fn pager_statistics_tracks_cache_hits_and_misses() {
     let file = make_mem_db(512, 3);
@@ -945,10 +885,6 @@ fn pager_statistics_tracks_evictions() {
     assert!(pager.statistics.evictions() >= 1);
 }
 
-// ===========================================================================
-// Pager get on page 1 (header page)
-// ===========================================================================
-
 #[test]
 fn pager_get_page_one_reads_header() {
     let page_size = 512usize;
@@ -969,10 +905,6 @@ fn pager_get_page_one_reads_header() {
     assert_eq!(&bytes[0..16], b"SQLite format 3\0");
 }
 
-// ===========================================================================
-// Pager with reserved space
-// ===========================================================================
-
 #[test]
 fn pager_with_reserved_space() {
     let page_size = 512usize;
@@ -982,10 +914,6 @@ fn pager_with_reserved_space() {
     let pager = Pager::new(file, page_size, usable, 3);
     assert_eq!(pager.metadata.usable_size, usable);
 }
-
-// ===========================================================================
-// BufferPool page_table tracking
-// ===========================================================================
 
 #[test]
 fn buffer_pool_page_table_tracks_loaded_pages() {
@@ -1020,10 +948,6 @@ fn buffer_pool_page_table_removes_on_eviction() {
     assert!(evicted);
 }
 
-// ===========================================================================
-// Frame buffer indexing
-// ===========================================================================
-
 #[test]
 fn frame_buffer_indexed_by_frame_id() {
     let file = make_mem_db(512, 3);
@@ -1048,10 +972,6 @@ fn frame_buffer_multiple_pages_different_frame_ids() {
 
     assert_ne!(fid1, fid2);
 }
-
-// ===========================================================================
-// Pager source access
-// ===========================================================================
 
 #[test]
 fn pager_source_is_mem_file() {

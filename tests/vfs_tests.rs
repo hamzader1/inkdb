@@ -18,10 +18,6 @@ fn rc_vec(data: Vec<u8>) -> Rc<RefCell<Vec<u8>>> {
     Rc::new(RefCell::new(data))
 }
 
-// ===========================================================================
-// SqliteOptions
-// ===========================================================================
-
 #[test]
 fn sqlite_options_default_is_read_write() {
     let opts = SqliteOptions::default();
@@ -92,10 +88,6 @@ fn sqlite_options_set_invalid_flag_panics() {
     opts.set(0xFF, true);
 }
 
-// ===========================================================================
-// MemVfs
-// ===========================================================================
-
 #[test]
 fn mem_vfs_open_existing_file_returns_mem_file() {
     let mut vfs = MemVfs::new();
@@ -145,10 +137,6 @@ fn mem_vfs_multiple_files_are_independent() {
     assert_eq!(buf_a, [1]);
     assert_eq!(buf_b, [2]);
 }
-
-// ===========================================================================
-// MemFile
-// ===========================================================================
 
 #[test]
 fn mem_file_len_returns_correct_length() {
@@ -287,10 +275,6 @@ fn mem_file_write_then_read_consistent() {
     assert_eq!(buf, [0, 0, 5, 6, 7, 0, 0, 0]);
 }
 
-// ===========================================================================
-// DiskVfs
-// ===========================================================================
-
 fn temp_path(name: &str) -> std::path::PathBuf {
     let mut p = std::env::temp_dir();
     p.push(format!(
@@ -347,10 +331,6 @@ fn disk_vfs_open_with_create_on_existing_file_succeeds() {
     assert_eq!(file.len().unwrap(), 8);
     let _ = std::fs::remove_file(&path);
 }
-
-// ===========================================================================
-// DiskFile
-// ===========================================================================
 
 #[test]
 fn disk_file_len_returns_correct_size() {
@@ -470,10 +450,6 @@ fn disk_file_write_then_read_consistent() {
     let _ = std::fs::remove_file(&path);
 }
 
-// ===========================================================================
-// FileCursor with MemFile
-// ===========================================================================
-
 #[test]
 fn cursor_mem_file_read_u8_sequential() {
     let file = MemFile::new(rc_vec(vec![0x11, 0x22, 0x33]));
@@ -579,10 +555,6 @@ fn cursor_mem_file_two_independent_cursors() {
     assert_eq!(cur_a.read_next_u8().unwrap(), b'1');
     assert_eq!(cur_b.read_next_u8().unwrap(), b'6');
 }
-
-// ===========================================================================
-// FileCursor with DiskFile
-// ===========================================================================
 
 #[test]
 fn cursor_disk_file_read_u8_sequential() {
@@ -704,10 +676,6 @@ fn cursor_disk_file_two_independent_cursors() {
     let _ = std::fs::remove_file(&path);
 }
 
-// ===========================================================================
-// MemFile + FileCursor round-trip through header parsing
-// ===========================================================================
-
 #[test]
 fn cursor_mem_file_can_read_sqlite_header_magic() {
     let header = common::valid_header_bytes(4096, 0);
@@ -726,10 +694,6 @@ fn cursor_mem_file_can_read_page_size_from_header() {
     let page_size = cur.read_next_u16().unwrap();
     assert_eq!(page_size, 4096);
 }
-
-// ===========================================================================
-// DiskFile + FileCursor round-trip through header parsing
-// ===========================================================================
 
 #[test]
 fn cursor_disk_file_can_read_sqlite_header_magic() {
@@ -757,10 +721,6 @@ fn cursor_disk_file_can_read_page_size_from_header() {
     assert_eq!(page_size, 8192);
     let _ = std::fs::remove_file(&path);
 }
-
-// ===========================================================================
-// SqliteOptions flag combinations
-// ===========================================================================
 
 #[test]
 fn sqlite_options_read_write_no_create() {
@@ -793,10 +753,6 @@ fn sqlite_options_all_flags() {
     assert!(opts.can_write());
     assert!(opts.is_create());
 }
-
-// ===========================================================================
-// MemFile shared buffer mutation through multiple cursors
-// ===========================================================================
 
 #[test]
 fn mem_file_write_visible_to_another_cursor() {
