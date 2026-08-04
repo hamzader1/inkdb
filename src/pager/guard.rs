@@ -31,6 +31,9 @@ impl PageGuard {
     pub fn bytes(&self) -> &[u8] {
         unsafe { self.slice.as_ref() }
     }
+    pub fn frame_id(&self) -> FrameId {
+        self.frame_id
+    }
 }
 
 impl PageGuardMut {
@@ -44,6 +47,9 @@ impl PageGuardMut {
     }
     pub fn bytes(&mut self) -> &mut [u8] {
         unsafe { self.slice.as_mut() }
+    }
+    pub fn frame_id(&self) -> FrameId {
+        self.frame_id
     }
 }
 

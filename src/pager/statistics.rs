@@ -24,4 +24,20 @@ impl SqliteStatistics {
     pub fn inc_evictions(&self) {
         self.evictions.set(self.evictions.get() + 1);
     }
+
+    pub fn cache_hit(&self) -> usize {
+        self.cache_hit.get()
+    }
+
+    pub fn cache_miss(&self) -> usize {
+        self.cache_miss.get()
+    }
+
+    pub fn disk_write(&self) -> usize {
+        self.disk_write.get()
+    }
+
+    pub fn evictions(&self) -> usize {
+        self.evictions.get()
+    }
 }
