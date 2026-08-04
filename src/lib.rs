@@ -3,7 +3,7 @@ mod bytes;
 pub mod errors;
 pub mod format;
 mod macros;
-mod pager;
+pub mod pager;
 mod util;
 pub mod vfs;
 use errors::SqliteError;

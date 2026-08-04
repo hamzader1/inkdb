@@ -1,6 +1,6 @@
-mod buffer_pool;
-mod frame;
+pub mod buffer_pool;
+pub mod frame;
 pub mod guard;
-mod metadata;
+pub mod metadata;
 pub mod page;
-mod statistics;
+pub mod statistics;
