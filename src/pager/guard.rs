@@ -50,7 +50,7 @@ impl PageGuardMut {
 impl Drop for PageGuard {
     fn drop(&mut self) {
         unsafe {
-            self.buffer_pool.as_mut().release(self.frame_id);
+            self.buffer_pool.as_mut().free_page(self.frame_id);
         }
     }
 }
@@ -58,7 +58,7 @@ impl Drop for PageGuard {
 impl Drop for PageGuardMut {
     fn drop(&mut self) {
         unsafe {
-            self.buffer_pool.as_mut().release(self.frame_id);
+            self.buffer_pool.as_mut().free_page(self.frame_id);
         }
     }
 }

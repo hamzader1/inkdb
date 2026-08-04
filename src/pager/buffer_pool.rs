@@ -60,7 +60,7 @@ impl BufferPool {
         Ok(())
     }
 
-    pub fn release(&self, frame_id: FrameId) {
+    pub fn free_page(&self, frame_id: FrameId) {
         self.frame_buffer[frame_id].decr_pin_count();
     }
     pub fn owned_buffer<T: Clone + Default>(size: usize) -> Box<[T]> {
