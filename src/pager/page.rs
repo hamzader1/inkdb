@@ -149,6 +149,7 @@ impl<F: SqliteFile> Pager<F> {
         // if the frame is dirty, flush it to the disk first
         if frame.is(DIRTY) {
             self.flush_page(frame_page_no, frameid)?;
+            self.source.sync();
         }
 
         // evict the page from page table
@@ -205,10 +206,21 @@ impl<F: SqliteFile> Pager<F> {
         let start = frameid * self.metadata.page_size;
         let end = start + self.metadata.page_size;
         let bytes = &self.buffer_pool.page_buffer[start..end];
+        self.buffer_pool.frame_buffer[frameid].reset_to(CLEAN);
         self.source.write_all_at(offset as _, bytes)?;
-        self.source.sync()?;
         self.statistics.inc_disk_write();
+        self.source.sync(); // temporary for now
         Ok(())
+    }
+    fn flush_all(&mut self) {
+        let len = self.buffer_pool.frame_buffer.len();
+        for id in 0..len {
+            let frame = &self.buffer_pool.frame_buffer[id];
+            if frame.is(DIRTY) {
+                let page_no = frame.page_no.unwrap();
+                self.flush_page(page_no, id);
+            }
+        }
     }
 
     pub fn validate_page<E>(
