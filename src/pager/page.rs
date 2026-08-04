@@ -169,7 +169,7 @@ impl<F: SqliteFile> Pager<F> {
         ((page_no as usize) - 1) * self.metadata.page_size
     }
     fn page_guard(&mut self, frameid: FrameId) -> PageGuard {
-        let start = frameid;
+        let start = frameid * self.metadata.page_size;
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
         let ptr = unsafe {
@@ -180,7 +180,7 @@ impl<F: SqliteFile> Pager<F> {
         PageGuard::new(buffer_pool, frameid, slice)
     }
     fn page_guard_mut(&mut self, frameid: FrameId) -> PageGuardMut {
-        let start = frameid;
+        let start = frameid * self.metadata.page_size;
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
         // let bytes = self.buffer_pool.page_buffer[start..end].as_mut();
@@ -192,7 +192,9 @@ impl<F: SqliteFile> Pager<F> {
     }
     fn flush_page(&self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         let offset = self.get_page_offset(page_no);
-        let bytes = &self.buffer_pool.page_buffer[frameid..frameid + self.metadata.page_size];
+        let start = frameid * self.metadata.page_size;
+        let end = start + self.metadata.page_size;
+        let bytes = &self.buffer_pool.page_buffer[start..end];
         self.source.write_all_at(offset as _, bytes)?;
         self.source.sync()?;
         Ok(())
