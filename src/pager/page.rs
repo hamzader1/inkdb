@@ -233,4 +233,7 @@ impl<F: SqliteFile> Pager<F> {
 
         Ok(())
     }
+    pub fn cached_page_count(&self) -> usize {
+        self.buffer_pool.frame_buffer.len() - self.buffer_pool.free_frames.len()
+    }
 }
