@@ -166,8 +166,9 @@ impl<F: SqliteFile> Pager<F> {
     fn allocate_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         // request memory
         let page_offset = self.get_page_offset(page_no);
-        let page_buffer =
-            &mut self.buffer_pool.page_buffer[frameid..frameid + self.metadata.page_size];
+        let start = frameid * self.metadata.page_size;
+        let end = start + self.metadata.page_size;
+        let page_buffer = &mut self.buffer_pool.page_buffer[start..end];
         // if this went right
         self.source.read_exact_at(page_offset as _, page_buffer)?;
         self.buffer_pool.page_table.insert(page_no, frameid);
