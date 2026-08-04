@@ -260,18 +260,20 @@ impl<F: SqliteFile> Pager<F> {
         self.buffer_pool.frame_buffer[frameid].reset_to(CLEAN);
         self.source.write_all_at(offset as _, bytes)?;
         self.statistics.inc_disk_write();
-        self.source.sync()?; // temporary for now
+        self.source.sync()?; // temporary for now !!
         Ok(())
     }
     fn flush_all(&mut self) -> Result<(), SqliteError> {
-        let len = self.buffer_pool.frame_buffer.len();
-        for id in 0..len {
-            let frame = &self.buffer_pool.frame_buffer[id];
-            // TODO: double check using PageTable
-            if frame.is(DIRTY) {
-                let page_no = frame.page_no.unwrap();
-                self.flush_page(page_no, id)?;
-            }
+        let mut tail = self.dp_ll;
+        while let Some(tail_f_id) = tail {
+            let frame = &self.buffer_pool.frame_buffer[tail_f_id];
+            debug_assert!(
+                frame.is(DIRTY),
+                "Page is not dirty while its declared as dirty in the linked list"
+            );
+            let page_no = frame.page_no.unwrap();
+            self.flush_page(page_no, tail_f_id)?;
+            self.dp_ll_remove(tail_f_id);
         }
         Ok(())
     }
@@ -301,5 +303,11 @@ impl<F: SqliteFile> Pager<F> {
     }
     pub fn cached_page_count(&self) -> usize {
         self.buffer_pool.frame_buffer.len() - self.buffer_pool.free_frames.len()
+    }
+}
+
+impl<S: SqliteFile> Drop for Pager<S> {
+    fn drop(&mut self) {
+        self.flush_all();
     }
 }
