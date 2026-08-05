@@ -115,49 +115,6 @@ impl<F: SqliteFile> Pager<F> {
         }
         None
     }
-    pub fn dp_ll_insert(&mut self, frame_id: FrameId) {
-        let frame = &mut self.buffer_pool.frame_buffer[frame_id];
-        frame.prev = self.dp_ll;
-        frame.next = None;
-        if let Some(db_ll_tail) = self.dp_ll {
-            let ll_tail_frame = &mut self.buffer_pool.frame_buffer[db_ll_tail];
-            ll_tail_frame.next = Some(frame_id);
-        }
-        self.dp_ll = Some(frame_id);
-    }
-    pub fn dp_ll_remove(&mut self, frame_id: FrameId) {
-        let mut next = None;
-        let mut prev = None;
-        // safe to unwrap since we want to remove a Node,
-        // so logically we at lease have one node
-        let mut is_tail = frame_id == self.dp_ll.unwrap(); // if this went wrong, we have a bug
-
-        // BORROWING HELL
-        {
-            let frame = &mut self.buffer_pool.frame_buffer[frame_id];
-            next = frame.next;
-            prev = frame.prev;
-            // in case this returned the buffer pool,
-            // should not handle its old pointers so it breaks the list
-            frame.prev = None;
-            frame.next = None;
-        }
-        if is_tail && prev.is_none() {
-            self.dp_ll = None;
-            return;
-        }
-        if let Some(next_frame_id) = next {
-            let next_frame = &mut self.buffer_pool.frame_buffer[next_frame_id];
-            next_frame.prev = prev
-        }
-        if let Some(prev_frame_id) = prev {
-            let prev_frame = &mut self.buffer_pool.frame_buffer[prev_frame_id];
-            prev_frame.next = next;
-            if is_tail {
-                self.dp_ll = Some(prev_frame_id);
-            }
-        }
-    }
     // page not in cache
     fn ensure_page_loaded(&mut self, page_no: PageNo) -> Result<bool, DbError> {
         if let Some(frameid) = self.buffer_pool.page_table.get(&page_no) {
@@ -211,7 +168,6 @@ impl<F: SqliteFile> Pager<F> {
         if frame.is(DIRTY) {
             self.flush_page(frame_page_no, frameid)?;
             self.dp_ll_remove(frameid);
-            self.source.sync();
         }
 
         // evict the page from page table
@@ -239,6 +195,50 @@ impl<F: SqliteFile> Pager<F> {
 
         Ok(())
     }
+    pub fn dp_ll_insert(&mut self, frame_id: FrameId) {
+        let frame = &mut self.buffer_pool.frame_buffer[frame_id];
+        frame.prev = self.dp_ll;
+        frame.next = None;
+        if let Some(db_ll_tail) = self.dp_ll {
+            let ll_tail_frame = &mut self.buffer_pool.frame_buffer[db_ll_tail];
+            ll_tail_frame.next = Some(frame_id);
+        }
+        self.dp_ll = Some(frame_id);
+    }
+    pub fn dp_ll_remove(&mut self, frame_id: FrameId) {
+        let mut next = None;
+        let mut prev = None;
+        // safe to unwrap since we want to remove a Node,
+        // so logically we at lease have one node
+        let mut is_tail = frame_id == self.dp_ll.unwrap(); // if this went wrong, we have a bug
+
+        // BORROWING HELL
+        {
+            let frame = &mut self.buffer_pool.frame_buffer[frame_id];
+            next = frame.next;
+            prev = frame.prev;
+            // in case this returned the buffer pool,
+            // should not handle its old pointers so it breaks the list
+            frame.prev = None;
+            frame.next = None;
+        }
+        if is_tail && prev.is_none() {
+            self.dp_ll = None;
+            return;
+        }
+        if let Some(next_frame_id) = next {
+            let next_frame = &mut self.buffer_pool.frame_buffer[next_frame_id];
+            next_frame.prev = prev
+        }
+        if let Some(prev_frame_id) = prev {
+            let prev_frame = &mut self.buffer_pool.frame_buffer[prev_frame_id];
+            prev_frame.next = next;
+            if is_tail {
+                self.dp_ll = Some(prev_frame_id);
+            }
+        }
+    }
+
     fn get_page_offset(&self, page_no: PageNo) -> usize {
         ((page_no as usize) - 1) * self.metadata.page_size
     }
