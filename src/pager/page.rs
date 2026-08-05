@@ -75,9 +75,9 @@ impl<F: SqliteFile> Pager<F> {
             self.metadata.max_allocated_pages,
             None::<fn(_) -> bool>,
         )?;
-        self.ensure_page_loaded(page_no)?;
+        let was_dirty = self.ensure_page_loaded(page_no)?;
         Ok(self
-            .try_get_fast_mut(page_no)
+            .try_get_fast_mut(page_no, was_dirty)
             .expect("page should be present after get_impl"))
     }
 
@@ -94,20 +94,28 @@ impl<F: SqliteFile> Pager<F> {
         None
     }
 
-    fn try_get_fast_mut(&mut self, page_no: PageNo) -> Option<PageGuardMut> {
+    fn try_get_fast_mut(&mut self, page_no: PageNo, was_dirty: bool) -> Option<PageGuardMut> {
         if let Some(frame_id) = self.buffer_pool.page_table.get(&page_no) {
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
             frame.incr_pin_count();
             frame.clear(CLEAN);
             frame.set(REFERENCED | DIRTY);
-            self.dp_ll_insert(frame_id);
+            // This fixes the bug of inserting the same node twice
+            // for example in call like
+            // let p2_rc = get_mut(page_2);
+            // let p2_rc_2 = get_mut(page_2);
+            // this will insert the page twice
+            // which can also cause infinite loop (pointer point to it self)
+            if !was_dirty {
+                self.dp_ll_insert(frame_id);
+            }
             let page_guard = self.page_guard_mut(frame_id);
             return Some(page_guard);
         }
         None
     }
-    fn dp_ll_insert(&mut self, frame_id: FrameId) {
+    pub fn dp_ll_insert(&mut self, frame_id: FrameId) {
         let frame = &mut self.buffer_pool.frame_buffer[frame_id];
         frame.prev = self.dp_ll;
         frame.next = None;
@@ -117,7 +125,7 @@ impl<F: SqliteFile> Pager<F> {
         }
         self.dp_ll = Some(frame_id);
     }
-    fn dp_ll_remove(&mut self, frame_id: FrameId) {
+    pub fn dp_ll_remove(&mut self, frame_id: FrameId) {
         let mut next = None;
         let mut prev = None;
         // safe to unwrap since we want to remove a Node,
@@ -151,10 +159,14 @@ impl<F: SqliteFile> Pager<F> {
         }
     }
     // page not in cache
-    fn ensure_page_loaded(&mut self, page_no: PageNo) -> Result<(), DbError> {
-        if self.buffer_pool.page_table.contains_key(&page_no) {
+    fn ensure_page_loaded(&mut self, page_no: PageNo) -> Result<bool, DbError> {
+        if let Some(frameid) = self.buffer_pool.page_table.get(&page_no) {
+            let mut is_dirty = false;
+            if self.buffer_pool.frame_buffer[*frameid].is(DIRTY) {
+                is_dirty = true;
+            }
             self.statistics.inc_cache_hit();
-            return Ok(()); // page already in cache
+            return Ok(is_dirty); // page already in cache
         }
 
         // check if the we have any free frames
@@ -166,7 +178,7 @@ impl<F: SqliteFile> Pager<F> {
             let frame = &mut self.buffer_pool.frame_buffer[frameid];
             *frame = Frame::new(Some(page_no), CLEAN, 0);
 
-            return Ok(());
+            return Ok(false);
         }
         // run the clock
         let mut clock_hand = self.buffer_pool.clock_hand;
@@ -211,7 +223,7 @@ impl<F: SqliteFile> Pager<F> {
         // after the alloation; set the new frame
         //
         self.buffer_pool.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN, 0);
-        Ok(())
+        Ok(false)
     }
     fn allocate_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         // request memory
@@ -263,7 +275,7 @@ impl<F: SqliteFile> Pager<F> {
         self.source.sync()?; // temporary for now !!
         Ok(())
     }
-    fn flush_all(&mut self) -> Result<(), SqliteError> {
+    pub fn flush_all(&mut self) -> Result<(), SqliteError> {
         let mut tail = self.dp_ll;
         while let Some(tail_f_id) = tail {
             let frame = &self.buffer_pool.frame_buffer[tail_f_id];
