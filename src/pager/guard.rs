@@ -8,28 +8,28 @@ use std::{marker::PhantomData, ptr::NonNull};
 pub struct PageGuard {
     buffer_pool: NonNull<BufferPool>,
     frame_id: FrameId,
-    slice: NonNull<[u8]>,
+    bytes: NonNull<[u8]>,
     _marker: PhantomData<BufferPool>,
 }
 #[derive(Debug)]
 pub struct PageGuardMut {
     buffer_pool: NonNull<BufferPool>,
     frame_id: FrameId,
-    slice: NonNull<[u8]>,
+    bytes: NonNull<[u8]>,
     _marker: PhantomData<BufferPool>,
 }
 
 impl PageGuard {
-    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, slice: NonNull<[u8]>) -> Self {
+    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, bytes: NonNull<[u8]>) -> Self {
         Self {
             buffer_pool,
             frame_id,
-            slice,
+            bytes,
             _marker: PhantomData,
         }
     }
     pub fn bytes(&self) -> &[u8] {
-        unsafe { self.slice.as_ref() }
+        unsafe { self.bytes.as_ref() }
     }
     pub fn frame_id(&self) -> FrameId {
         self.frame_id
@@ -37,16 +37,16 @@ impl PageGuard {
 }
 
 impl PageGuardMut {
-    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, slice: NonNull<[u8]>) -> Self {
+    pub fn new(buffer_pool: NonNull<BufferPool>, frame_id: FrameId, bytes: NonNull<[u8]>) -> Self {
         Self {
             buffer_pool,
             frame_id,
-            slice,
+            bytes,
             _marker: PhantomData,
         }
     }
     pub fn bytes(&mut self) -> &mut [u8] {
-        unsafe { self.slice.as_mut() }
+        unsafe { self.bytes.as_mut() }
     }
     pub fn frame_id(&self) -> FrameId {
         self.frame_id

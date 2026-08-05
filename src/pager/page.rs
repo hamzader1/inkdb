@@ -249,7 +249,7 @@ impl<F: SqliteFile> Pager<F> {
         let ptr = unsafe {
             NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
         };
-        let slice: NonNull<[u8]> = NonNull::slice_from_raw_parts(ptr, self.metadata.page_size);
+        let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, self.metadata.page_size);
 
         PageGuard::new(buffer_pool, frameid, slice)
     }
@@ -261,7 +261,7 @@ impl<F: SqliteFile> Pager<F> {
         let ptr = unsafe {
             NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
         };
-        let slice: NonNull<[u8]> = NonNull::slice_from_raw_parts(ptr, self.metadata.page_size);
+        let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, self.metadata.page_size);
         PageGuardMut::new(buffer_pool, frameid, slice)
     }
     fn flush_page(&self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
