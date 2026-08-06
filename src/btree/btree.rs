@@ -130,7 +130,7 @@ pub struct BTreePageRef<'p> {
     _marker: PhantomData<&'p PageGuard>,
 }
 impl<'p> BTreePageRef<'p> {
-    fn new(
+    pub fn new(
         bytes: &'p [u8],
         _guard: &'p PageGuard,
         page_size: usize,
@@ -145,7 +145,7 @@ impl<'p> BTreePageRef<'p> {
             _marker: PhantomData,
         })
     }
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+    pub fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
         let start = self.header_size() as u16;
         let end = start + self.no_of_cells() * 2;
 
@@ -201,8 +201,8 @@ impl<'p> BTreePageRef<'p> {
     }
 }
 
-#[derive(Debug)]
-enum CursorState {
+#[derive(Debug, PartialEq)]
+pub enum CursorState {
     At,
     Invalid,
     AfterLast,
@@ -216,8 +216,8 @@ pub enum SeekResult {
 #[derive(Debug)]
 pub struct BTreeCursor {
     root: PageNo,
-    stack: Vec<(PageNo, CellIdx)>,
-    state: CursorState,
+    pub stack: Vec<(PageNo, CellIdx)>,
+    pub state: CursorState,
 }
 impl BTreeCursor {
     pub fn new(root: PageNo) -> Self {
