@@ -1,7 +1,13 @@
-use super::page_cursor::PageCursor;
+use super::cell::BTreeCell;
+use super::cell::IndexInteriorCell;
+use super::cell::IndexLeafCell;
+use super::cell::TableInteriorCell;
+use super::cell::TableLeafCell;
+use super::page_cursor::SqliteCursor;
 use crate::bytes::*;
 use crate::pager::guard::PageGuard;
 use crate::pager::page::Pager;
+use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
 use crate::PageNo;
 use crate::SqliteError;
@@ -141,6 +147,34 @@ impl<'p> BTreePageRef<'p> {
             usable_size,
             _marker: PhantomData,
         })
+    }
+    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+        let start = self.header_size() as u16;
+        let end = start + self.no_of_cells() * 2;
+        sqlite_assert_with_corrupt_err(
+            cell_idx >= start && cell_idx < end && (cell_idx - start) % 2 == 0,
+            "Cell Index Out of Bounds",
+        )?;
+        let bytes = self.bytes;
+        match self.header.page_kind {
+            BTreePageType::InteriorTable => {
+                return TableInteriorCell::parse(bytes, cell_idx, self.usable_size)
+                    .map(BTreeCell::TableInterior);
+            }
+            BTreePageType::LeafTable => {
+                return TableLeafCell::parse(bytes, cell_idx, self.usable_size)
+                    .map(BTreeCell::TableLeaf);
+            }
+
+            BTreePageType::InteriorIndex => {
+                return IndexInteriorCell::parse(bytes, cell_idx, self.usable_size)
+                    .map(BTreeCell::IndexInterior);
+            }
+            BTreePageType::LeafIndex => {
+                return IndexLeafCell::parse(bytes, cell_idx, self.usable_size)
+                    .map(BTreeCell::IndexLeaf)
+            }
+        }
     }
     fn page_type(&self) -> BTreePageType {
         self.header.page_kind
