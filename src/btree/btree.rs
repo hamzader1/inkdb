@@ -3,7 +3,7 @@ use super::cell::IndexInteriorCell;
 use super::cell::IndexLeafCell;
 use super::cell::TableInteriorCell;
 use super::cell::TableLeafCell;
-use super::page_cursor::SqliteCursor;
+use super::sqlite_cursor::SqliteCursor;
 use crate::bytes::*;
 use crate::pager::guard::PageGuard;
 use crate::pager::page::Pager;
