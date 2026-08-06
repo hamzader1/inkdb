@@ -250,6 +250,7 @@ impl BTreeCursor {
 
         let (found, cell_idx) = self.choose_target(page, target)?;
         self.stack.push((page_no, cell_idx));
+        self.state = CursorState::At;
         if found {
             return Ok(SeekResult::Exact);
         }
