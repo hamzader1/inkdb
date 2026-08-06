@@ -39,7 +39,7 @@ pub const RIGHT_MOST_POINTER_OFFSET: usize = 8;
 pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
 pub type CellIdx = u16;
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BTreePageType {
     InteriorIndex = 0x02,
     LeafIndex = 0x0a,
@@ -77,26 +77,26 @@ pub struct BTreePageHeader {
 }
 impl BTreePageHeader {
     fn parse(bytes: &[u8]) -> Result<Self, SqliteError> {
-        let mut r = Cursor::new(bytes);
-        let page_kind_byte = read_u8(&mut r)?;
+        let mut cursor = SqliteCursor::new(bytes);
+        let page_kind_byte = cursor.read_next_u8();
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
             _ => return Err(SqliteError::InvalidPageType(page_kind_byte)),
         };
 
-        Self::parse_page(&mut r, p_kind)
+        Self::parse_page(&mut cursor, p_kind)
     }
-    fn parse_page<R: Read + Seek>(
-        r: &mut R,
+    fn parse_page(
+        cursor: &mut SqliteCursor,
         page_kind: BTreePageType,
     ) -> Result<Self, SqliteError> {
-        let first_freeblock: u16 = read_u16_be(r)?;
-        let no_of_cells: u16 = read_u16_be(r)?;
-        let cell_content_area: u16 = read_u16_be(r)?;
-        let frag_cnt: u8 = read_u8(r)?;
+        let first_freeblock: u16 = cursor.read_next_u16();
+        let no_of_cells: u16 = cursor.read_next_u16();
+        let cell_content_area: u16 = cursor.read_next_u16();
+        let frag_cnt: u8 = cursor.read_next_u8();
         let is_interior = page_kind.is_interior();
         let right_most_ptr: Option<PageNo> = if is_interior {
-            Some(read_u32_be(r)?)
+            Some(cursor.read_next_u32())
         } else {
             None
         };
@@ -121,11 +121,7 @@ impl BTreePageHeader {
     }
 }
 
-// should cache:
-// page type
-// cell pointer count for assertion?
-// cell pointer array
-struct BTreePageRef<'p> {
+pub struct BTreePageRef<'p> {
     header: BTreePageHeader,
     bytes: &'p [u8],
     size: usize,
@@ -192,6 +188,9 @@ impl<'p> BTreePageRef<'p> {
     fn right_most_ptr(&self) -> Option<PageNo> {
         self.header.right_most_ptr()
     }
+    fn no_of_cells(&self) -> u16 {
+        self.header.no_of_cells
+    }
 }
 
 enum CursorState {
@@ -236,28 +235,74 @@ impl BTreeCursor {
                 // move to the next step
                 break;
             }
-            let (child_page, idx) = self.choose_child(page, target);
+            let (child_page, idx) = self.choose_child(page, target)?;
             self.stack.push((page_no, idx));
             page_no = child_page;
         }
 
-        Ok(SeekResult::Exact) // temp for now until we implement
+        let page_guard = pager.get(page_no)?;
+        let page = BTreePageRef::new(
+            page_guard.bytes(),
+            &page_guard,
+            pager.metadata.page_size,
+            pager.metadata.usable_size,
+        )?;
+
+        let (found, cell_idx) = self.choose_target(page, target)?;
+        self.stack.push((page_no, cell_idx));
+        if found {
+            return Ok(SeekResult::Exact);
+        }
+        Ok(SeekResult::NotFound)
     }
-    fn choose_child<'a>(&self, page: BTreePageRef<'a>, target: u64) -> (PageNo, CellIdx) {
+    fn choose_child<'a>(
+        &self,
+        page: BTreePageRef<'a>,
+        target: u64,
+    ) -> Result<(PageNo, CellIdx), SqliteError> {
         debug_assert!(
             page.is_interior(),
             "Navigation path of this works only with interior pages"
         );
         let bytes = page.bytes;
-        let cell_count = page.header.no_of_cells;
-        let mut p_cursor = PageCursor::new_offset(bytes, page.header_size() as _);
-        for i in 0..page.header.no_of_cells {
-            let left_child_page = p_cursor.read_next_u32();
-            let (rowid, _) = p_cursor.read_varint_next(page.usable_size);
-            if rowid >= target {
-                return (left_child_page, i);
+        let cell_count = page.no_of_cells();
+        let mut p_cursor = SqliteCursor::with_offset(bytes, page.header_size() as _);
+        let pre_moved_cursor = p_cursor.stream_pos();
+        if page.page_type() == BTreePageType::InteriorTable {
+            for i in 0..page.header.no_of_cells {
+                let cell = page.cell(i)?;
+                if cell.row_id() >= target {
+                    return Ok((cell.left_child(), i));
+                }
             }
+            return Ok((page.right_most_ptr().unwrap(), cell_count));
         }
-        return (page.right_most_ptr().unwrap(), cell_count);
+        todo!("INDEX INTERIOR NOT IMPLEMENTED YET")
+    }
+
+    fn choose_target<'a>(
+        &self,
+        page: BTreePageRef<'a>,
+        target: u64,
+    ) -> Result<(bool, CellIdx), SqliteError> {
+        assert!(page.is_leaf(), "This navigation path works only for leaves");
+        let cell_cnt = page.no_of_cells();
+        if page.page_type() == BTreePageType::LeafTable {
+            let mut l = 0;
+            let mut r = cell_cnt;
+            while l < r {
+                let m: u16 = l + (r - l) / 2;
+                let cell = page.cell(m)?;
+                if cell.row_id() == target {
+                    return Ok((true, m));
+                } else if cell.row_id() > target {
+                    r -= 1;
+                } else {
+                    l += 1;
+                }
+            }
+            return Ok((false, l));
+        }
+        todo!("INDEX LEAF NOT IMPLEMENTED YET")
     }
 }
