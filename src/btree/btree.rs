@@ -288,18 +288,19 @@ impl BTreeCursor {
     ) -> Result<(bool, CellIdx), SqliteError> {
         assert!(page.is_leaf(), "This navigation path works only for leaves");
         let cell_cnt = page.no_of_cells();
+        let header_size = page.header_size();
         if page.page_type() == BTreePageType::LeafTable {
             let mut l = 0;
             let mut r = cell_cnt;
             while l < r {
-                let m: u16 = l + (r - l) / 2;
+                let m: u16 = l + ((r - l) / 2);
                 let cell = page.cell(m)?;
                 if cell.row_id() == target {
                     return Ok((true, m));
                 } else if cell.row_id() > target {
-                    r -= 1;
+                    r = m;
                 } else {
-                    l += 1;
+                    l = m + 1;
                 }
             }
             return Ok((false, l));
