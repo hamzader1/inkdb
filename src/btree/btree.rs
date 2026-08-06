@@ -122,14 +122,23 @@ impl BTreePageHeader {
 struct BTreePageRef<'p> {
     header: BTreePageHeader,
     bytes: &'p [u8],
+    size: usize,
+    usable_size: usize,
     _marker: PhantomData<&'p PageGuard>,
 }
 impl<'p> BTreePageRef<'p> {
-    fn new(bytes: &'p [u8], _guard: &'p PageGuard) -> Result<Self, SqliteError> {
+    fn new(
+        bytes: &'p [u8],
+        _guard: &'p PageGuard,
+        page_size: usize,
+        usable_size: usize,
+    ) -> Result<Self, SqliteError> {
         let header = BTreePageHeader::parse(bytes)?;
         Ok(Self {
             header,
             bytes,
+            size: page_size,
+            usable_size,
             _marker: PhantomData,
         })
     }
@@ -183,24 +192,24 @@ impl BTreeCursor {
         let mut page_no = self.root;
         loop {
             let page_guard = pager.get(page_no)?;
-            let page = BTreePageRef::new(page_guard.bytes(), &page_guard)?;
+            let page = BTreePageRef::new(
+                page_guard.bytes(),
+                &page_guard,
+                pager.metadata.page_size,
+                pager.metadata.usable_size,
+            )?;
             if page.is_leaf() {
                 // move to the next step
                 break;
             }
-            let (child_page, idx) = self.choose_child(page, target, pager.metadata.usable_size);
+            let (child_page, idx) = self.choose_child(page, target);
             self.stack.push((page_no, idx));
             page_no = child_page;
         }
 
         Ok(SeekResult::Exact) // temp for now until we implement
     }
-    fn choose_child<'a>(
-        &self,
-        page: BTreePageRef<'a>,
-        target: u64,
-        usable_size: usize,
-    ) -> (PageNo, CellIdx) {
+    fn choose_child<'a>(&self, page: BTreePageRef<'a>, target: u64) -> (PageNo, CellIdx) {
         debug_assert!(
             page.is_interior(),
             "Navigation path of this works only with interior pages"
@@ -210,7 +219,7 @@ impl BTreeCursor {
         let mut p_cursor = PageCursor::new_offset(bytes, page.header_size() as _);
         for i in 0..page.header.no_of_cells {
             let left_child_page = p_cursor.read_next_u32();
-            let (rowid, _) = p_cursor.read_varint_next(usable_size);
+            let (rowid, _) = p_cursor.read_varint_next(page.usable_size);
             if rowid >= target {
                 return (left_child_page, i);
             }
@@ -218,4 +227,3 @@ impl BTreeCursor {
         return (page.right_most_ptr().unwrap(), cell_count);
     }
 }
-
