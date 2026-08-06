@@ -3,6 +3,7 @@ use crate::decode_varint;
 use crate::to_int;
 use crate::SqliteError;
 
+#[derive(Debug)]
 pub struct SqliteCursor<'a> {
     bytes: &'a [u8],
     offset: u64,
@@ -112,19 +113,21 @@ impl<'a> SqliteCursor<'a> {
         self.read_next_exact(&mut buf);
         buf
     }
+    pub fn read_varint_at(&self, offset: u64, usable_size: usize) -> (u64, usize) {
+        let remaining_bytes = self.remaining_varint_bytes(offset, usable_size);
+        let offset = offset as usize;
+        let bytes = &self.bytes[offset..offset + remaining_bytes];
+        decode_varint(bytes).expect("Failed to read decode varint")
+    }
     pub fn read_next_varint(&mut self, usable_size: usize) -> (u64, usize) {
         let remaining_bytes = self.remaining_varint_bytes(self.offset, usable_size);
-        let bytes = &(&[0u8; 9])[0..remaining_bytes];
+        let offset = self.offset as usize;
+        let bytes = &self.bytes[offset..offset + remaining_bytes];
         let (int, consumed) = decode_varint(bytes).expect("Failed to read decode varint");
         self.offset += consumed as u64;
         (int, consumed)
     }
 
-    pub fn read_varint_at(&self, offset: u64, usable_size: usize) -> (u64, usize) {
-        let remaining_bytes = self.remaining_varint_bytes(offset, usable_size);
-        let bytes = &(&[0u8; 9])[0..remaining_bytes];
-        decode_varint(bytes).expect("Failed to read decode varint")
-    }
     fn remaining_varint_bytes(&self, offset: u64, usable_size: usize) -> usize {
         let offset = offset as usize;
         let remaining = usable_size
