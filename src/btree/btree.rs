@@ -340,7 +340,44 @@ impl BTreeCursor {
         self.state = CursorState::At;
         Ok(())
     }
-    
+    fn descend_to_first<P: SqliteFile>(
+        &mut self,
+        page_no: PageNo,
+        pager: &mut Pager<P>,
+    ) -> Result<(), SqliteError> {
+        let mut page_no = page_no;
+        loop {
+            let page_guard = pager.get(page_no)?;
+            let page = BTreePageRef::new(
+                page_guard.bytes(),
+                &page_guard,
+                pager.metadata.page_size,
+                pager.metadata.usable_size,
+            )?;
+            if page.is_leaf() {
+                break;
+            }
+
+            let child = page.cell(0)?.left_child();
+            self.stack.push((page_no, 0));
+
+            page_no = child;
+        }
+
+        let page_guard = pager.get(page_no)?;
+        let page = BTreePageRef::new(
+            page_guard.bytes(),
+            &page_guard,
+            pager.metadata.page_size,
+            pager.metadata.usable_size,
+        )?;
+        // even if we won't use it right know
+        // this must check if the cell is VALID
+        page.cell(0)?;
+        self.stack.push((page_no, 0));
+        self.state = CursorState::At;
+        Ok(())
+    }
     fn clear_path(&mut self) {
         self.stack.clear();
     }
