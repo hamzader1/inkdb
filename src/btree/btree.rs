@@ -350,6 +350,42 @@ impl BTreeCursor {
         self.state = CursorState::At;
         Ok(())
     }
+    pub fn prev<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
+        while let Some((page_no, cell_idx)) = self.stack.pop() {
+            match Self::with_page(pager, page_no, |page| {
+                if page.is_leaf() {
+                    if cell_idx > 0 {
+                        Ok(NextStep::Previous)
+                    } else {
+                        Ok(NextStep::Pop)
+                    }
+                } else {
+                    if cell_idx > 0 {
+                        let child = page.cell(cell_idx - 1)?.left_child();
+                        Ok(NextStep::Descend {
+                            entry_idx: cell_idx - 1,
+                            child,
+                        })
+                    } else {
+                        Ok(NextStep::Pop)
+                    }
+                }
+            })? {
+                NextStep::Previous => {
+                    self.stack.push((page_no, cell_idx - 1));
+                    return Ok(());
+                }
+                NextStep::Descend { entry_idx, child } => {
+                    self.stack.push((page_no, entry_idx));
+                    self.descend_to_last(pager, child)?;
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        self.state = CursorState::BeforeFirst;
+        Ok(())
+    }
     pub fn last<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
