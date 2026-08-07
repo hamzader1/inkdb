@@ -6,7 +6,7 @@ use crate::errors::SqliteError;
 use super::buffer_pool::{self, BufferPool};
 use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
-use super::guard::{PageGuard, PageGuardMut};
+use super::guard::{BorrowState, PageGuard};
 use super::metadata::SqliteMetadata;
 use super::statistics::SqliteStatistics;
 use crate::format::page::{self, PageNo};
@@ -69,7 +69,7 @@ impl<F: SqliteFile> Pager<F> {
             .expect("page should be present after get_impl"))
     }
 
-    pub fn get_mut(&mut self, page_no: PageNo) -> Result<PageGuardMut, DbError> {
+    pub fn get_mut(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {
         Self::validate_page(
             page_no,
             self.metadata.max_allocated_pages,
@@ -94,7 +94,7 @@ impl<F: SqliteFile> Pager<F> {
         None
     }
 
-    fn try_get_fast_mut(&mut self, page_no: PageNo, was_dirty: bool) -> Option<PageGuardMut> {
+    fn try_get_fast_mut(&mut self, page_no: PageNo, was_dirty: bool) -> Option<PageGuard> {
         if let Some(frame_id) = self.buffer_pool.page_table.get(&page_no) {
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
@@ -251,9 +251,9 @@ impl<F: SqliteFile> Pager<F> {
         };
         let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, self.metadata.page_size);
 
-        PageGuard::new(buffer_pool, frameid, slice)
+        PageGuard::new(buffer_pool, frameid, slice, BorrowState::Ref)
     }
-    fn page_guard_mut(&mut self, frameid: FrameId) -> PageGuardMut {
+    fn page_guard_mut(&mut self, frameid: FrameId) -> PageGuard {
         let start = frameid * self.metadata.page_size;
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
@@ -262,7 +262,7 @@ impl<F: SqliteFile> Pager<F> {
             NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
         };
         let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, self.metadata.page_size);
-        PageGuardMut::new(buffer_pool, frameid, slice)
+        PageGuard::new(buffer_pool, frameid, slice, BorrowState::RefMut)
     }
     fn flush_page(&self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
         let offset = self.get_page_offset(page_no);

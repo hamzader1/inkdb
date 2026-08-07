@@ -4,6 +4,9 @@
 //! (seek / first / last / next / prev / descend / current) against fully
 //! in-memory database images backed by `inkdb::vfs::mem::MemFile` + a
 //! `Pager`. No disk is touched.
+//!
+//! The cursor now pins every page along its path: `stack` holds `Path`
+//! entries that each carry a live `PageGuard` for the page they reference.
 
 mod common;
 
@@ -97,6 +100,23 @@ fn three_level_tree() -> Pager<MemFile> {
     pager_from(data, PAGE_SIZE, 6)
 }
 
+/// The cursor's path flattened into `(page_no, cell_idx)` pairs.
+fn path_parts(cursor: &BTreeCursor) -> Vec<(u32, u16)> {
+    cursor.stack.iter().map(|p| (p.page_no, p.cell_idx)).collect()
+}
+
+/// Seek on a fresh cursor rooted at page 2, returning the result and the
+/// resulting path. Fresh cursors keep each seek independent (a seek no
+/// longer clears a previous path).
+fn fresh_seek_pos(
+    pager: &mut Pager<MemFile>,
+    target: u64,
+) -> (SeekResult, Vec<(u32, u16)>) {
+    let mut cursor = BTreeCursor::new(2);
+    let res = cursor.seek(pager, target).unwrap();
+    (res, path_parts(&cursor))
+}
+
 /// Read the row id of the cell at `(page_no, idx)` on a 512-byte page.
 fn cell_row_id(pager: &mut Pager<MemFile>, page_no: u32, idx: u16) -> u64 {
     cell_row_id_at(pager, page_no, idx, PAGE_SIZE, USABLE)
@@ -111,7 +131,7 @@ fn cell_row_id_at(
     usable: usize,
 ) -> u64 {
     let guard = pager.get(page_no).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, page_size, usable).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, page_size, usable).unwrap();
     page.cell(idx).unwrap().row_id()
 }
 
@@ -129,10 +149,10 @@ fn cell_payload_at(
     usable: usize,
 ) -> Vec<u8> {
     let guard = pager.get(page_no).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, page_size, usable).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, page_size, usable).unwrap();
     let cell = page.cell(idx).unwrap();
     let range = *cell.payload();
-    guard.bytes()[range].to_vec()
+    guard.bytes_as_ref()[range].to_vec()
 }
 
 /// The expected insertion index for a missing `target` in a sorted rowid list.
@@ -140,37 +160,41 @@ fn insert_idx(rowids: &[u64], target: u64) -> u16 {
     rowids.iter().position(|&r| r > target).unwrap_or(rowids.len()) as u16
 }
 
-/// Forward walk: `first()` then `next()` until AfterLast, collecting row ids.
+/// Forward walk: `first()` then `next()` until the stack empties, collecting
+/// row ids. The walk is over when `next()` exhausts the path.
 fn walk_forward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u64> {
     let mut out = Vec::new();
     cursor.first(pager).unwrap();
-    assert_eq!(cursor.state, CursorState::At);
     loop {
-        let &(page_no, idx) = cursor.stack.last().unwrap();
-        out.push(cell_row_id(pager, page_no, idx));
+        let last = cursor.stack.last().expect("cursor positioned");
+        out.push(cell_row_id(pager, last.page_no, last.cell_idx));
         cursor.next(pager).unwrap();
-        if cursor.state == CursorState::AfterLast {
+        if cursor.stack.is_empty() {
             break;
         }
     }
     out
 }
 
-/// Backward walk: `last()` then `prev()` until BeforeFirst, collecting row ids.
+/// Backward walk: `last()` then `prev()` until the stack empties, collecting
+/// row ids.
 fn walk_backward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u64> {
     let mut out = Vec::new();
     cursor.last(pager).unwrap();
-    assert_eq!(cursor.state, CursorState::At);
     loop {
-        let &(page_no, idx) = cursor.stack.last().unwrap();
-        out.push(cell_row_id(pager, page_no, idx));
+        let last = cursor.stack.last().expect("cursor positioned");
+        out.push(cell_row_id(pager, last.page_no, last.cell_idx));
         cursor.prev(pager).unwrap();
-        if cursor.state == CursorState::BeforeFirst {
+        if cursor.stack.is_empty() {
             break;
         }
     }
     out
 }
+
+// ---------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------
 
 #[test]
 fn btree_header_size_constants_are_8_and_12() {
@@ -187,6 +211,10 @@ fn btree_page_type_constants_round_trip() {
     assert_eq!(BTREE_TYPE_PAGE_OFFSET, 0);
     assert_eq!(BTREE_TYPE_PAGE_SIZE, 1);
 }
+
+// ---------------------------------------------------------------------
+// BTreePageRef: header + cell parsing
+// ---------------------------------------------------------------------
 
 #[test]
 fn leaf_table_page_parses_header_and_cells() {
@@ -210,7 +238,7 @@ fn leaf_table_single_cell_parses() {
 fn leaf_table_empty_page_cell_access_errors() {
     let mut pager = leaf_root(&[]);
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     assert!(page.cell(0).is_err());
 }
 
@@ -218,7 +246,7 @@ fn leaf_table_empty_page_cell_access_errors() {
 fn leaf_table_cell_out_of_bounds_errors() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b")]);
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     assert!(page.cell(2).is_err());
     assert!(page.cell(10).is_err());
     assert!(page.cell(20).is_err());
@@ -294,7 +322,7 @@ fn interior_table_page_parses_cells() {
     let mut pager = pager_from(data, PAGE_SIZE, 2);
 
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     let c0 = page.cell(0).unwrap();
     assert_eq!(c0.left_child(), 7);
     assert_eq!(c0.row_id(), 10);
@@ -309,7 +337,7 @@ fn interior_table_page_cell_out_of_bounds_errors() {
     common::write_interior_table_page(&mut data[PAGE_SIZE..], 0, &[(7, 10)], 9);
     let mut pager = pager_from(data, PAGE_SIZE, 2);
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     assert!(page.cell(1).is_err());
 }
 
@@ -319,7 +347,7 @@ fn interior_table_page_large_rowid_boundary_parses() {
     common::write_interior_table_page(&mut data[PAGE_SIZE..], 0, &[(5, u64::MAX)], 6);
     let mut pager = pager_from(data, PAGE_SIZE, 2);
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     let c = page.cell(0).unwrap();
     assert_eq!(c.left_child(), 5);
     assert_eq!(c.row_id(), u64::MAX);
@@ -333,12 +361,12 @@ fn leaf_index_page_parses_payload() {
     let mut pager = pager_from(data, PAGE_SIZE, 2);
 
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     let c = page.cell(0).unwrap();
     assert_eq!(c.cell_payload_len(), 3);
     assert_eq!(c.overflow_page(), None);
     let range = *c.payload();
-    assert_eq!(&guard.bytes()[range], b"idx");
+    assert_eq!(&guard.bytes_as_ref()[range], b"idx");
 }
 
 #[test]
@@ -349,12 +377,12 @@ fn interior_index_page_parses_left_child_and_payload() {
     let mut pager = pager_from(data, PAGE_SIZE, 2);
 
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     let c = page.cell(0).unwrap();
     assert_eq!(c.left_child(), 55);
     assert_eq!(c.cell_payload_len(), 3);
     let range = *c.payload();
-    assert_eq!(&guard.bytes()[range], b"key");
+    assert_eq!(&guard.bytes_as_ref()[range], b"key");
 }
 
 #[test]
@@ -363,7 +391,7 @@ fn invalid_page_type_rejected() {
     data[PAGE_SIZE] = 0x00; // unknown page type
     let mut pager = pager_from(data, PAGE_SIZE, 2);
     let guard = pager.get(2).unwrap();
-    let result = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE);
+    let result = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE);
     match result {
         Err(SqliteError::InvalidPageType(kind)) => assert_eq!(kind, 0x00),
         _ => panic!("expected InvalidPageType"),
@@ -376,7 +404,7 @@ fn invalid_page_type_arbitrary_value_rejected() {
     data[PAGE_SIZE] = 0x99;
     let mut pager = pager_from(data, PAGE_SIZE, 2);
     let guard = pager.get(2).unwrap();
-    let result = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE);
+    let result = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE);
     match result {
         Err(SqliteError::InvalidPageType(kind)) => assert_eq!(kind, 0x99),
         _ => panic!("expected InvalidPageType"),
@@ -391,7 +419,7 @@ fn page_one_with_embedded_sqlite_header_is_rejected_by_page_ref() {
     let data = make_db(PAGE_SIZE, 2);
     let mut pager = pager_from(data, PAGE_SIZE, 2);
     let guard = pager.get(1).unwrap();
-    let result = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE);
+    let result = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE);
     match result {
         Err(SqliteError::InvalidPageType(kind)) => assert_eq!(kind, b'S'),
         _ => panic!("expected InvalidPageType"),
@@ -404,9 +432,13 @@ fn empty_interior_page_with_right_most_child_parses() {
     common::write_interior_table_page(&mut data[PAGE_SIZE..], 0, &[], 9);
     let mut pager = pager_from(data, PAGE_SIZE, 2);
     let guard = pager.get(2).unwrap();
-    let page = BTreePageRef::new(guard.bytes(), &guard, PAGE_SIZE, USABLE).unwrap();
+    let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, PAGE_SIZE, USABLE).unwrap();
     assert!(page.cell(0).is_err());
 }
+
+// ---------------------------------------------------------------------
+// BTreeCursor: state + seek (single leaf root)
+// ---------------------------------------------------------------------
 
 #[test]
 fn new_cursor_starts_invalid_with_empty_stack() {
@@ -418,95 +450,93 @@ fn new_cursor_starts_invalid_with_empty_stack() {
 #[test]
 fn seek_on_empty_leaf_returns_not_found_at_zero() {
     let mut pager = leaf_root(&[]);
-    let mut cursor = BTreeCursor::new(2);
-    let res = cursor.seek(&mut pager, 5).unwrap();
+    let (res, path) = fresh_seek_pos(&mut pager, 5);
     assert_eq!(res, SeekResult::NotFound);
-    assert_eq!(cursor.state, CursorState::At);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
+    assert_eq!(path, vec![(2, 0)]);
 }
 
 #[test]
 fn seek_exact_match() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 2).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.state, CursorState::At);
-    assert_eq!(cursor.stack, vec![(2, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 2);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 1)]);
 }
 
 #[test]
 fn seek_first_cell_is_exact_index_zero() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 1).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 1);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0)]);
 }
 
 #[test]
 fn seek_last_cell_is_exact_at_end() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 3).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 2)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 3);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 2)]);
 }
 
 #[test]
 fn seek_missing_below_first_inserts_at_zero() {
     let mut pager = leaf_root(&[(10, b"a"), (20, b"b")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 5).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 5);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0)]);
 }
 
 #[test]
 fn seek_missing_in_middle_inserts_at_boundary() {
     let mut pager = leaf_root(&[(10, b"a"), (20, b"b"), (30, b"c")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 25).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 2)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 25);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 2)]);
 }
 
 #[test]
 fn seek_missing_above_last_inserts_at_end() {
     let mut pager = leaf_root(&[(10, b"a"), (20, b"b")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 99).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 2)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 99);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 2)]);
 }
 
 #[test]
 fn seek_missing_adjacent_to_existing() {
     let mut pager = leaf_root(&[(10, b"a"), (20, b"b")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 9).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
-    assert_eq!(cursor.seek(&mut pager, 21).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 2)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 9);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 21);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 2)]);
 }
 
 #[test]
 fn seek_single_cell_exact_and_misses() {
     let mut pager = leaf_root(&[(7, b"x")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 7).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
-    assert_eq!(cursor.seek(&mut pager, 0).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
-    assert_eq!(cursor.seek(&mut pager, 8).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 7);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 0);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 8);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 1)]);
 }
 
 #[test]
 fn seek_to_u64_max_rowid() {
     let mut pager = leaf_root(&[(1, b"a"), (u64::MAX, b"z")]);
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(
-        cursor.seek(&mut pager, u64::MAX).unwrap(),
-        SeekResult::Exact
-    );
-    assert_eq!(cursor.stack, vec![(2, 1)]);
-    assert_eq!(cursor.seek(&mut pager, u64::MAX - 1).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, u64::MAX);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, u64::MAX - 1);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 1)]);
 }
 
 #[test]
@@ -515,10 +545,10 @@ fn seek_into_varint_boundary_rowids() {
     let cells: Vec<Vec<u8>> = rowids.iter().map(|&r| enc(r, b"p")).collect();
     let mut pager = leaf_db(PAGE_SIZE, 2, 2, &cells);
 
-    let mut cursor = BTreeCursor::new(2);
     for (i, &rid) in rowids.iter().enumerate() {
-        assert_eq!(cursor.seek(&mut pager, rid).unwrap(), SeekResult::Exact);
-        assert_eq!(cursor.stack, vec![(2, i as u16)]);
+        let (res, path) = fresh_seek_pos(&mut pager, rid);
+        assert_eq!(res, SeekResult::Exact);
+        assert_eq!(path, vec![(2, i as u16)]);
     }
 }
 
@@ -528,12 +558,11 @@ fn seek_into_boundaries_between_varint_rowids() {
     let cells: Vec<Vec<u8>> = rowids.iter().map(|&r| enc(r, b"p")).collect();
     let mut pager = leaf_db(PAGE_SIZE, 2, 2, &cells);
 
-    let mut cursor = BTreeCursor::new(2);
     for target in [1u64, 126, 129, 10_000, 16_385, 5_000_000_000, u64::MAX - 1] {
-        let res = cursor.seek(&mut pager, target).unwrap();
+        let (res, path) = fresh_seek_pos(&mut pager, target);
         assert_eq!(res, SeekResult::NotFound);
         let expected = insert_idx(&rowids, target);
-        assert_eq!(cursor.stack, vec![(2, expected)], "target {target}");
+        assert_eq!(path, vec![(2, expected)], "target {target}");
     }
 }
 
@@ -543,48 +572,25 @@ fn seek_stress_across_sparse_rowids() {
     let cells: Vec<Vec<u8>> = rowids.iter().map(|&r| enc(r, b"x")).collect();
     let mut pager = leaf_db(PAGE_SIZE, 2, 2, &cells);
 
-    let mut cursor = BTreeCursor::new(2);
     for (i, &rid) in rowids.iter().enumerate() {
-        assert_eq!(cursor.seek(&mut pager, rid).unwrap(), SeekResult::Exact);
-        assert_eq!(cursor.stack, vec![(2, i as u16)]);
+        let (res, path) = fresh_seek_pos(&mut pager, rid);
+        assert_eq!(res, SeekResult::Exact);
+        assert_eq!(path, vec![(2, i as u16)]);
 
-        assert_eq!(
-            cursor.seek(&mut pager, rid - 1).unwrap(),
-            SeekResult::NotFound
-        );
-        assert_eq!(cursor.stack, vec![(2, i as u16)], "just below {rid}");
+        let (res, path) = fresh_seek_pos(&mut pager, rid - 1);
+        assert_eq!(res, SeekResult::NotFound);
+        assert_eq!(path, vec![(2, i as u16)], "just below {rid}");
 
-        assert_eq!(
-            cursor.seek(&mut pager, rid + 1).unwrap(),
-            SeekResult::NotFound
-        );
-        assert_eq!(cursor.stack, vec![(2, i as u16 + 1)], "just above {rid}");
+        let (res, path) = fresh_seek_pos(&mut pager, rid + 1);
+        assert_eq!(res, SeekResult::NotFound);
+        assert_eq!(path, vec![(2, i as u16 + 1)], "just above {rid}");
     }
-    assert_eq!(cursor.seek(&mut pager, 0).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
-    assert_eq!(cursor.seek(&mut pager, 351).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 50)]);
-}
-
-#[test]
-fn seek_resets_path_between_calls() {
-    let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
-    let mut cursor = BTreeCursor::new(2);
-    cursor.seek(&mut pager, 1).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0)]);
-    cursor.seek(&mut pager, 3).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 2)]);
-    assert_eq!(cursor.stack.len(), 1);
-}
-
-#[test]
-fn seek_then_seek_same_position_stays_at() {
-    let mut pager = leaf_root(&[(5, b"a")]);
-    let mut cursor = BTreeCursor::new(2);
-    cursor.seek(&mut pager, 5).unwrap();
-    cursor.seek(&mut pager, 5).unwrap();
-    assert_eq!(cursor.state, CursorState::At);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 0);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 351);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 50)]);
 }
 
 #[test]
@@ -601,13 +607,16 @@ fn seek_on_root_zero_errors() {
     assert!(cursor.seek(&mut pager, 1).is_err());
 }
 
+// ---------------------------------------------------------------------
+// BTreeCursor: first / last / next / prev on a leaf root
+// ---------------------------------------------------------------------
+
 #[test]
 fn first_positions_at_first_cell() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
     let mut cursor = BTreeCursor::new(2);
     cursor.first(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::At);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 0)]);
 }
 
 #[test]
@@ -615,8 +624,7 @@ fn last_positions_at_last_cell() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
     let mut cursor = BTreeCursor::new(2);
     cursor.last(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::At);
-    assert_eq!(cursor.stack, vec![(2, 2)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 2)]);
 }
 
 #[test]
@@ -644,12 +652,11 @@ fn last_then_prev_walks_backward() {
 }
 
 #[test]
-fn next_past_last_leaf_enters_after_last() {
+fn next_past_last_leaf_empties_stack() {
     let mut pager = leaf_root(&[(1, b"a")]);
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 1).unwrap();
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
     assert!(cursor.stack.is_empty());
 }
 
@@ -664,36 +671,37 @@ fn prev_before_first_leaf_enters_before_first() {
 }
 
 #[test]
-fn next_from_insertion_point_after_last_cell_enters_after_last() {
+fn next_from_insertion_point_past_end_empties_stack() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b")]);
     let mut cursor = BTreeCursor::new(2);
-    cursor.seek(&mut pager, 25).unwrap(); // NotFound -> stack [(2,2)]
+    cursor.seek(&mut pager, 25).unwrap(); // NotFound -> path [(2,2)]
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
+    assert!(cursor.stack.is_empty());
 }
 
 #[test]
 fn prev_from_insertion_point_before_first_enters_before_first() {
     let mut pager = leaf_root(&[(5, b"a")]);
     let mut cursor = BTreeCursor::new(2);
-    cursor.seek(&mut pager, 0).unwrap(); // NotFound -> stack [(2,0)]
+    cursor.seek(&mut pager, 0).unwrap(); // NotFound -> path [(2,0)]
     cursor.prev(&mut pager).unwrap();
     assert_eq!(cursor.state, CursorState::BeforeFirst);
+    assert!(cursor.stack.is_empty());
 }
 
 #[test]
-fn next_after_after_last_stays_after_last() {
+fn next_when_stack_already_empty_is_a_no_op() {
     let mut pager = leaf_root(&[(1, b"a")]);
     let mut cursor = BTreeCursor::new(2);
     cursor.first(&mut pager).unwrap();
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
+    assert!(cursor.stack.is_empty());
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
+    assert!(cursor.stack.is_empty());
 }
 
 #[test]
-fn prev_after_before_first_stays_before_first() {
+fn prev_when_stack_already_empty_is_a_no_op() {
     let mut pager = leaf_root(&[(1, b"a")]);
     let mut cursor = BTreeCursor::new(2);
     cursor.first(&mut pager).unwrap();
@@ -701,19 +709,6 @@ fn prev_after_before_first_stays_before_first() {
     assert_eq!(cursor.state, CursorState::BeforeFirst);
     cursor.prev(&mut pager).unwrap();
     assert_eq!(cursor.state, CursorState::BeforeFirst);
-}
-
-#[test]
-fn seek_after_after_last_resets_to_at() {
-    let mut pager = leaf_root(&[(1, b"a"), (2, b"b")]);
-    let mut cursor = BTreeCursor::new(2);
-    cursor.first(&mut pager).unwrap();
-    cursor.next(&mut pager).unwrap();
-    cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
-    cursor.seek(&mut pager, 1).unwrap();
-    assert_eq!(cursor.state, CursorState::At);
-    assert_eq!(cursor.stack, vec![(2, 0)]);
 }
 
 #[test]
@@ -724,23 +719,21 @@ fn current_returns_none_when_unpositioned() {
 }
 
 #[test]
-fn current_returns_some_when_positioned() {
+fn current_returns_cell_at_position_after_seek() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 2).unwrap();
     let cell = cursor.current(&mut pager).unwrap().expect("positioned");
-    // current() reads cell(0) of the current page regardless of the stack idx.
-    assert_eq!(cell.row_id(), 1);
+    assert_eq!(cell.row_id(), 2);
 }
 
 #[test]
-fn current_returns_first_cell_even_when_mid_page() {
+fn current_returns_cell_at_position_after_last() {
     let mut pager = leaf_root(&[(1, b"a"), (2, b"b"), (3, b"c")]);
     let mut cursor = BTreeCursor::new(2);
-    cursor.last(&mut pager).unwrap(); // stack [(2,2)] -> last cell
+    cursor.last(&mut pager).unwrap();
     let cell = cursor.current(&mut pager).unwrap().expect("positioned");
-    // Documents the current() behavior: it ignores the stack cell index.
-    assert_eq!(cell.row_id(), 1);
+    assert_eq!(cell.row_id(), 3);
 }
 
 #[test]
@@ -749,48 +742,51 @@ fn current_returns_none_after_next_past_end() {
     let mut cursor = BTreeCursor::new(2);
     cursor.first(&mut pager).unwrap();
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
     assert!(cursor.current(&mut pager).unwrap().is_none());
 }
+
+// ---------------------------------------------------------------------
+// BTreeCursor: multi-level navigation
+// ---------------------------------------------------------------------
 
 #[test]
 fn two_level_seek_left_subtree() {
     let mut pager = two_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 2).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 2);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0), (3, 1)]);
 }
 
 #[test]
 fn two_level_seek_boundary_rowid() {
     let mut pager = two_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 3).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 2)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 3);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0), (3, 2)]);
 }
 
 #[test]
 fn two_level_seek_right_subtree() {
     let mut pager = two_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 5).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 5);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 1), (4, 1)]);
 }
 
 #[test]
 fn two_level_seek_missing_in_right_subtree() {
     let mut pager = two_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 7).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 3)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 7);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 1), (4, 3)]);
 }
 
 #[test]
 fn two_level_seek_missing_below_all() {
     let mut pager = two_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 0).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 0);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0), (3, 0)]);
 }
 
 #[test]
@@ -798,12 +794,12 @@ fn two_level_first_and_last() {
     let mut pager = two_level_tree();
     let mut cursor = BTreeCursor::new(2);
     cursor.first(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 0)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 0), (3, 0)]);
     assert_eq!(cell_row_id(&mut pager, 3, 0), 1);
 
     let mut cursor = BTreeCursor::new(2);
     cursor.last(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 2)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 1), (4, 2)]);
     assert_eq!(cell_row_id(&mut pager, 4, 2), 6);
 }
 
@@ -813,7 +809,7 @@ fn two_level_next_crosses_from_left_to_right_leaf() {
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 3).unwrap(); // last cell of left leaf
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 0)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 1), (4, 0)]);
     assert_eq!(cell_row_id(&mut pager, 4, 0), 4);
 }
 
@@ -823,17 +819,16 @@ fn two_level_prev_crosses_from_right_to_left_leaf() {
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 4).unwrap(); // first cell of right leaf
     cursor.prev(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 2)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 0), (3, 2)]);
     assert_eq!(cell_row_id(&mut pager, 3, 2), 3);
 }
 
 #[test]
-fn two_level_next_from_last_cell_enters_after_last() {
+fn two_level_next_from_last_cell_empties_stack() {
     let mut pager = two_level_tree();
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 6).unwrap();
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.state, CursorState::AfterLast);
     assert!(cursor.stack.is_empty());
 }
 
@@ -864,35 +859,36 @@ fn two_level_full_backward_walk() {
 #[test]
 fn three_level_seek_deep_left() {
     let mut pager = three_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 4).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 1), (6, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 4);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0), (3, 1), (6, 1)]);
 }
 
 #[test]
 fn three_level_seek_deep_left_leaf() {
     let mut pager = three_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 2).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 0), (5, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 2);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0), (3, 0), (5, 1)]);
 }
 
 #[test]
 fn three_level_seek_top_level_right() {
     let mut pager = three_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 5).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 5);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 1), (4, 0)]);
 }
 
 #[test]
 fn three_level_seek_missing_deep() {
     let mut pager = three_level_tree();
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 0).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 0), (5, 0)]);
-    assert_eq!(cursor.seek(&mut pager, 7).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 2)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 0);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0), (3, 0), (5, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 7);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 1), (4, 2)]);
 }
 
 #[test]
@@ -901,11 +897,12 @@ fn three_level_next_crosses_leaf_then_subtree() {
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 2).unwrap(); // last cell of page5
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 1), (6, 0)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 0), (3, 1), (6, 0)]);
 
+    let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 4).unwrap(); // last cell of page6
     cursor.next(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 1), (4, 0)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 1), (4, 0)]);
 }
 
 #[test]
@@ -914,11 +911,12 @@ fn three_level_prev_crosses_leaf_then_subtree() {
     let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 3).unwrap(); // first cell of page6
     cursor.prev(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 0), (5, 1)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 0), (3, 0), (5, 1)]);
 
+    let mut cursor = BTreeCursor::new(2);
     cursor.seek(&mut pager, 5).unwrap(); // first cell of page4
     cursor.prev(&mut pager).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 1), (6, 1)]);
+    assert_eq!(path_parts(&cursor), vec![(2, 0), (3, 1), (6, 1)]);
 }
 
 #[test]
@@ -945,24 +943,29 @@ fn three_level_forward_then_backward_round_trip() {
     assert_eq!(bwd, vec![6, 5, 4, 3, 2, 1]);
 }
 
+// ---------------------------------------------------------------------
+// BTreeCursor: descend helpers
+// ---------------------------------------------------------------------
+
 #[test]
 fn descend_to_first_lands_on_leftmost_leaf_cell() {
     let mut pager = three_level_tree();
     let mut cursor = BTreeCursor::new(2);
-    cursor.stack.push((2, 0));
-    cursor.descend_to_first(&mut pager, 3).unwrap();
-    // assert_eq!(cursor.stack, vec![(2, 0), (3, 0), (5, 0)]);
-    // assert_eq!(cursor.state, CursorState::At);
+    cursor.descend_to_first(&mut pager, 2).unwrap();
+    assert_eq!(path_parts(&cursor), vec![(2, 0), (3, 0), (5, 0)]);
 }
 
 #[test]
 fn descend_to_first_on_leaf_stays() {
     let mut pager = three_level_tree();
     let mut cursor = BTreeCursor::new(2);
-    cursor.stack.push((2, 0));
     cursor.descend_to_first(&mut pager, 5).unwrap();
-    assert_eq!(cursor.stack, vec![(2, 0), (5, 0)]);
+    assert_eq!(path_parts(&cursor), vec![(5, 0)]);
 }
+
+// ---------------------------------------------------------------------
+// BTreeCursor: interior root with no cells (right-most descent)
+// ---------------------------------------------------------------------
 
 #[test]
 fn seek_on_cell_less_interior_root_uses_right_most_child() {
@@ -975,20 +978,25 @@ fn seek_on_cell_less_interior_root_uses_right_most_child() {
     );
     let mut pager = pager_from(data, PAGE_SIZE, 3);
 
-    let mut cursor = BTreeCursor::new(2);
-    assert_eq!(cursor.seek(&mut pager, 5).unwrap(), SeekResult::NotFound);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 1)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 5);
+    assert_eq!(res, SeekResult::NotFound);
+    assert_eq!(path, vec![(2, 0), (3, 1)]);
 
-    assert_eq!(cursor.seek(&mut pager, 1).unwrap(), SeekResult::Exact);
-    assert_eq!(cursor.stack, vec![(2, 0), (3, 0)]);
+    let (res, path) = fresh_seek_pos(&mut pager, 1);
+    assert_eq!(res, SeekResult::Exact);
+    assert_eq!(path, vec![(2, 0), (3, 0)]);
 }
 
-
+// ---------------------------------------------------------------------
+// Pinning stress: many seeks while pages stay pinned in the path
+// ---------------------------------------------------------------------
 
 #[test]
 fn many_seeks_over_dense_leaf_do_not_leak_pins() {
-    // 80 cells (max that fits a 512-byte page with room to spare), 80 exact
-    // seeks + 80 misses, then a full walk.
+    // 80 cells (max that fits a 512-byte page with room to spare). Repeated
+    // seeks pin the same root page over and over; a fresh `first()` then
+    // drops every pinned guard, so the buffer pool must not run out of frames
+    // or leak pins across the whole sequence.
     let cells: Vec<Vec<u8>> = (1..=80).map(|i| enc(i, b"x")).collect();
     let mut pager = leaf_db(PAGE_SIZE, 2, 2, &cells);
 
