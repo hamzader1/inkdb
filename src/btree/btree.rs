@@ -4,12 +4,12 @@ use super::cell::IndexLeafCell;
 use super::cell::TableInteriorCell;
 use super::cell::TableLeafCell;
 use super::sqlite_cursor::SqliteCursor;
+use crate::PageNo;
+use crate::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::page::Pager;
 use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
-use crate::PageNo;
-use crate::SqliteError;
 use std::marker::PhantomData;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
