@@ -433,6 +433,22 @@ impl BTreeCursor {
         Ok(())
     }
 
+    pub fn current<P: SqliteFile>(
+        &mut self,
+        pager: &mut Pager<P>,
+    ) -> Result<Option<BTreeCell>, SqliteError> {
+        if let Some((page_no, cell_idx)) = self.stack.last() {
+            #[rustfmt::skip]
+            match Self::with_page(pager, *page_no, |page| {
+                let cell = page.cell(0)?;
+                Ok(Some(cell))
+            })? {
+                Some(cell) => return Ok(Some(cell)),
+                _ => return Ok(None),
+            };
+        }
+        Ok(None)
+    }
     fn clear_path(&mut self) {
         self.stack.clear();
     }
