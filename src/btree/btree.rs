@@ -429,6 +429,11 @@ impl BTreeCursor {
         Ok(())
     }
 
+    // NOTE: This works for now since [`BTreeCell`]
+    // has no borrowed payload from its [`BTreePage`]
+    //
+    // TODO: Re-make this function after cell borrows
+    // bytes from [`BTreePage`]
     pub fn current<P: SqliteFile>(
         &mut self,
         pager: &mut Pager<P>,
