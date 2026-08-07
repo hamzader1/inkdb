@@ -4,7 +4,7 @@ use super::buffer_pool::BufferPool;
 use super::frame::Frame;
 use std::{marker::PhantomData, ptr::NonNull};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BorrowState {
     Ref,
     RefMut,
@@ -33,8 +33,14 @@ impl PageGuard {
             _marker: PhantomData,
         }
     }
-    pub fn bytes(&self) -> &[u8] {
+    pub fn bytes_as_ref(&self) -> &[u8] {
         unsafe { self.bytes.as_ref() }
+    }
+    pub fn bytes_as_mut(&mut self) -> Option<&mut [u8]> {
+        if self.state == BorrowState::RefMut {
+            unsafe { Some(self.bytes.as_mut()) };
+        }
+        None
     }
     pub fn frame_id(&self) -> FrameId {
         self.frame_id
