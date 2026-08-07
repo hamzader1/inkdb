@@ -257,38 +257,42 @@ impl BTreeCursor {
         Ok(SeekResult::NotFound)
     }
     pub fn next<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
-        while let Some(last_path) = self.stack.pop() {
-            let (page_no, cell_idx) = last_path;
-            let page_guard = pager.get(page_no)?;
-            let page = BTreePageRef::new(
-                page_guard.bytes(),
-                &page_guard,
-                pager.metadata.page_size,
-                pager.metadata.usable_size,
-            )?;
-
-            if page.is_leaf() {
-                if cell_idx + 1 < page.no_of_cells() {
+        while let Some((page_no, cell_idx)) = self.stack.pop() {
+            let step = Self::with_page(pager, page_no, |page| {
+                if page.is_leaf() {
+                    if cell_idx + 1 < page.no_of_cells() {
+                        Ok(NextStep::Advance)
+                    } else {
+                        Ok(NextStep::Pop)
+                    }
+                } else if cell_idx + 1 == page.no_of_cells() {
+                    let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                        "interior page has no right-most child".into(),
+                    ))?;
+                    Ok(NextStep::Descend {
+                        entry_idx: page.no_of_cells(),
+                        child,
+                    })
+                } else {
+                    let child = page.cell(cell_idx + 1)?.left_child();
+                    Ok(NextStep::Descend {
+                        entry_idx: cell_idx + 1,
+                        child,
+                    })
+                }
+            })?;
+            match step {
+                NextStep::Advance => {
                     self.stack.push((page_no, cell_idx + 1));
                     self.state = CursorState::At;
                     return Ok(());
                 }
-            }
-            // Interior
-            //
-            if page.is_interior() {
-                // if true, go to the RMC
-                if cell_idx + 1 == page.no_of_cells() {
-                    self.stack.push((page_no, page.no_of_cells()));
-                    self.descend_to_first(page.right_most_ptr().unwrap(), pager)?;
-                    return Ok(());
-                } else if cell_idx + 1 < page.no_of_cells() {
-                    let next_cell_idx = cell_idx + 1;
-                    let left_child = page.cell(next_cell_idx)?.left_child();
-                    self.stack.push((page_no, next_cell_idx));
-                    self.descend_to_first(left_child, pager)?;
+                NextStep::Descend { entry_idx, child } => {
+                    self.stack.push((page_no, entry_idx));
+                    self.descend_to_first(child, pager)?;
                     return Ok(());
                 }
+                NextStep::Pop => {}
             }
         }
         self.state = CursorState::AfterLast;
