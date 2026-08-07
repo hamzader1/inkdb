@@ -356,6 +356,57 @@ impl BTreeCursor {
         self.state = CursorState::At;
         Ok(())
     }
+    pub fn last<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
+        self.clear_path();
+        let mut page_no = self.root;
+        loop {
+            match Self::with_page(pager, page_no, |page| {
+                if page.is_leaf() {
+                    // last cell
+                    self.stack.push((page_no, page.no_of_cells() - 1));
+                    Ok(None) // to break
+                } else {
+                    let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                        "interior page has no right-most child".into(),
+                    ))?;
+                    self.stack.push((page_no, page.no_of_cells()));
+                    Ok(Some(child))
+                }
+            })? {
+                Some(child) => page_no = child,
+                None => break,
+            }
+        }
+        self.state = CursorState::At;
+        Ok(())
+    }
+    fn descend_to_last<P: SqliteFile>(
+        &mut self,
+        pager: &mut Pager<P>,
+        page_no: PageNo,
+    ) -> Result<(), SqliteError> {
+        let mut page_no = page_no;
+        loop {
+            match Self::with_page(pager, page_no, |page| {
+                if page.is_leaf() {
+                    // last cell
+                    self.stack.push((page_no, page.no_of_cells() - 1));
+                    Ok(None) // to break
+                } else {
+                    let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                        "interior page has no right-most child".into(),
+                    ))?;
+                    self.stack.push((page_no, page.no_of_cells()));
+                    Ok(Some(child))
+                }
+            })? {
+                Some(child) => page_no = child,
+                None => break,
+            }
+        }
+        self.state = CursorState::At;
+        Ok(())
+    }
 
     fn clear_path(&mut self) {
         self.stack.clear();
