@@ -519,7 +519,29 @@ impl BTreeCursor {
             pager.metadata.page_size,
             pager.metadata.usable_size,
         )?;
-        let res = f(&page)?;
-        Ok(res)
+        f(&page)
+    }
+    pub fn with_current<P, F, R>(&mut self, pager: &mut Pager<P>, f: F) -> Result<R, SqliteError>
+    where
+        P: SqliteFile,
+        F: for<'a> FnOnce(&'a BTreePageRef<'a>, &BTreeCell) -> Result<R, SqliteError>,
+    {
+        let (page_no, cell_idx) = *self.stack.last().unwrap();
+        Self::with_page(pager, page_no, |page| {
+            let cell = page.cell(cell_idx)?;
+            f(page, &cell)
+        })
+    }
+
+    fn page_as_ref<'a, P: SqliteFile>(
+        guard: &'a PageGuard,
+        pager: &Pager<P>,
+    ) -> Result<BTreePageRef<'a>, SqliteError> {
+        Ok(BTreePageRef::new(
+            guard.bytes(),
+            guard,
+            pager.metadata.page_size,
+            pager.metadata.usable_size,
+        )?)
     }
 }
