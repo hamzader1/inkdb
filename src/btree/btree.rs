@@ -241,6 +241,7 @@ impl BTreeCursor {
         pager: &mut Pager<P>,
         target: u64,
     ) -> Result<SeekResult, SqliteError> {
+        self.clear_path();
         let mut page_no = self.root;
         loop {
             let guard = pager.get(page_no)?;
@@ -271,6 +272,7 @@ impl BTreeCursor {
             if page.is_leaf() {
                 if cell_idx + 1 < page.no_of_cells() {
                     self.stack.push(Path::new(page_no, cell_idx + 1, guard));
+                    return Ok(());
                 }
             } else if cell_idx + 1 == page.no_of_cells() {
                 let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
@@ -511,12 +513,12 @@ impl BTreeCursor {
         guard: &'a PageGuard,
         pager: &Pager<P>,
     ) -> Result<BTreePageRef<'a>, SqliteError> {
-        Ok(BTreePageRef::new(
+        BTreePageRef::new(
             guard.bytes_as_ref(),
             guard,
             pager.metadata.page_size,
             pager.metadata.usable_size,
-        )?)
+        )
     }
 
     fn add_path(&mut self, page_no: PageNo, cell_idx: CellIdx, guard: PageGuard) {
