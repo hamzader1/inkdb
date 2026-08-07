@@ -4,7 +4,7 @@ use std::io::Write;
 
 use inkdb::pager::buffer_pool::BufferPool;
 use inkdb::pager::frame::{Frame, FrameId, CLEAN, DIRTY, FREE, REFERENCED};
-use inkdb::pager::guard::{PageGuard, PageGuardMut};
+use inkdb::pager::guard::PageGuard;
 use inkdb::pager::metadata::SqliteMetadata;
 use inkdb::pager::page::Pager;
 use inkdb::pager::statistics::SqliteStatistics;
@@ -418,7 +418,7 @@ fn pager_get_loads_page_into_cache() {
     let mut pager = Pager::with_cache(file, 512, 512, 3, 2);
     let guard = pager.get(2).unwrap();
     assert_eq!(pager.cached_page_count(), 1);
-    let bytes = guard.bytes();
+    let bytes = guard.bytes_as_ref();
     assert_eq!(bytes.len(), 512);
     assert!(bytes.iter().all(|&b| b == 0));
 }
@@ -429,7 +429,7 @@ fn pager_get_mut_loads_page_into_cache() {
     let mut pager = Pager::with_cache(file, 512, 512, 3, 2);
     let mut guard = pager.get_mut(2).unwrap();
     assert_eq!(pager.cached_page_count(), 1);
-    let bytes = guard.bytes();
+    let bytes = guard.bytes_as_ref();
     assert_eq!(bytes.len(), 512);
 }
 
@@ -526,7 +526,7 @@ fn pager_eviction_flushes_dirty_page() {
 
     {
         let mut guard = pager.get_mut(2).unwrap();
-        guard.bytes()[0] = 0xAB;
+        guard.bytes_as_mut().unwrap()[0] = 0xAB;
     }
 
     {
@@ -546,7 +546,7 @@ fn pager_eviction_flushes_dirty_page_to_source() {
 
     {
         let mut guard = pager.get_mut(2).unwrap();
-        guard.bytes()[10] = 0xCD;
+        guard.bytes_as_mut().unwrap()[10] = 0xCD;
     }
 
     {
@@ -619,7 +619,7 @@ fn page_guard_bytes_returns_page_slice() {
     let file = make_mem_db(512, 3);
     let mut pager = Pager::with_cache(file, 512, 512, 3, 2);
     let guard = pager.get(2).unwrap();
-    let bytes = guard.bytes();
+    let bytes = guard.bytes_as_ref();
     assert_eq!(bytes.len(), 512);
 }
 
@@ -628,7 +628,7 @@ fn page_guard_bytes_reads_correct_page_data() {
     let file = make_mem_db(512, 3);
     let mut pager = Pager::with_cache(file, 512, 512, 3, 2);
     let guard = pager.get(2).unwrap();
-    let bytes = guard.bytes();
+    let bytes = guard.bytes_as_ref();
     assert!(bytes.iter().all(|&b| b == 0));
 }
 
@@ -648,7 +648,7 @@ fn page_guard_mut_bytes_returns_mutable_slice() {
     let file = make_mem_db(512, 3);
     let mut pager = Pager::with_cache(file, 512, 512, 3, 2);
     let mut guard = pager.get_mut(2).unwrap();
-    let bytes = guard.bytes();
+    let bytes = guard.bytes_as_ref();
     assert_eq!(bytes.len(), 512);
 }
 
@@ -657,8 +657,8 @@ fn page_guard_mut_bytes_can_modify_page() {
     let file = make_mem_db(512, 3);
     let mut pager = Pager::with_cache(file, 512, 512, 3, 2);
     let mut guard = pager.get_mut(2).unwrap();
-    guard.bytes()[0] = 0xFF;
-    assert_eq!(guard.bytes()[0], 0xFF);
+    guard.bytes_as_mut().unwrap()[0] = 0xFF;
+    assert_eq!(guard.bytes_as_ref()[0], 0xFF);
 }
 
 #[test]
@@ -827,11 +827,11 @@ fn pager_get_mut_then_get_reads_modified_data() {
 
     {
         let mut guard = pager.get_mut(2).unwrap();
-        guard.bytes()[0] = 0xAB;
+        guard.bytes_as_mut().unwrap()[0] = 0xAB;
     }
 
     let guard = pager.get(2).unwrap();
-    assert_eq!(guard.bytes()[0], 0xAB);
+    assert_eq!(guard.bytes_as_ref()[0], 0xAB);
 }
 
 #[test]
@@ -841,7 +841,7 @@ fn pager_dirty_page_flushed_on_eviction() {
 
     {
         let mut guard = pager.get_mut(2).unwrap();
-        guard.bytes()[20] = 0xDE;
+        guard.bytes_as_mut().unwrap()[20] = 0xDE;
     }
 
     {
@@ -850,7 +850,7 @@ fn pager_dirty_page_flushed_on_eviction() {
     }
 
     let guard = pager.get(2).unwrap();
-    assert_eq!(guard.bytes()[20], 0xDE);
+    assert_eq!(guard.bytes_as_ref()[20], 0xDE);
 }
 
 #[test]
@@ -896,7 +896,7 @@ fn pager_get_page_one_reads_header() {
     assert_eq!(&buf[0..16], b"SQLite format 3\0");
     let mut pager = Pager::with_cache(file, page_size, page_size, 2, 2);
     let guard = pager.get(1).unwrap();
-    let bytes = guard.bytes();
+    let bytes = guard.bytes_as_ref();
     // // dbg!(&guard.bytes());
     assert_eq!(bytes.len(), page_size);
     assert_eq!(&bytes[0..16], b"SQLite format 3\0");
