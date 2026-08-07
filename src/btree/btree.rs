@@ -79,7 +79,7 @@ pub struct BTreePageHeader {
 impl BTreePageHeader {
     fn parse(bytes: &[u8]) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::new(bytes);
-        let page_kind_byte = cursor.read_next_u8();
+        let page_kind_byte = cursor.read_next_u8()?;
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
             _ => return Err(SqliteError::InvalidPageType(page_kind_byte)),
@@ -91,13 +91,13 @@ impl BTreePageHeader {
         cursor: &mut SqliteCursor,
         page_kind: BTreePageType,
     ) -> Result<Self, SqliteError> {
-        let first_freeblock: u16 = cursor.read_next_u16();
-        let no_of_cells: u16 = cursor.read_next_u16();
-        let cell_content_area: u16 = cursor.read_next_u16();
-        let frag_cnt: u8 = cursor.read_next_u8();
+        let first_freeblock: u16 = cursor.read_next_u16()?;
+        let no_of_cells: u16 = cursor.read_next_u16()?;
+        let cell_content_area: u16 = cursor.read_next_u16()?;
+        let frag_cnt: u8 = cursor.read_next_u8()?;
         let is_interior = page_kind.is_interior();
         let right_most_ptr: Option<PageNo> = if is_interior {
-            Some(cursor.read_next_u32())
+            Some(cursor.read_next_u32()?)
         } else {
             None
         };
@@ -151,32 +151,30 @@ impl<'p> BTreePageRef<'p> {
 
         let cell_offset = (cell_idx * 2) + self.header_size() as u16;
         sqlite_assert_with_corrupt_err(
-            cell_offset >= start && cell_offset < end && (cell_offset - start) % 2 == 0,
+            cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
             "Cell Index Out of Bounds",
         )?;
 
-        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _);
-        let cell_ptr = cursor.read_next_u16();
+        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
+        let cell_ptr = cursor.read_next_u16()?;
 
         let bytes = self.bytes;
 
         match self.header.page_kind {
             BTreePageType::InteriorTable => {
-                return TableInteriorCell::parse(bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableInterior);
+                TableInteriorCell::parse(bytes, cell_ptr, self.usable_size)
+                    .map(BTreeCell::TableInterior)
             }
             BTreePageType::LeafTable => {
-                return TableLeafCell::parse(bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableLeaf);
+                TableLeafCell::parse(bytes, cell_ptr, self.usable_size).map(BTreeCell::TableLeaf)
             }
 
             BTreePageType::InteriorIndex => {
-                return IndexInteriorCell::parse(bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexInterior);
+                IndexInteriorCell::parse(bytes, cell_ptr, self.usable_size)
+                    .map(BTreeCell::IndexInterior)
             }
             BTreePageType::LeafIndex => {
-                return IndexLeafCell::parse(bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexLeaf)
+                IndexLeafCell::parse(bytes, cell_ptr, self.usable_size).map(BTreeCell::IndexLeaf)
             }
         }
     }
@@ -206,6 +204,7 @@ pub enum CursorState {
     At,
     Invalid,
     AfterLast,
+    BeforeFirst,
 }
 
 #[derive(Debug, PartialEq)]
@@ -223,11 +222,7 @@ enum NextStep {
     Advance,
     Descend { entry_idx: CellIdx, child: PageNo },
     Pop,
-}
-
-enum First {
-    Descend(PageNo),
-    Leaf,
+    Previous,
 }
 
 #[derive(Debug)]
@@ -289,12 +284,14 @@ impl BTreeCursor {
                         entry_idx: page.no_of_cells(),
                         child,
                     })
-                } else {
+                } else if cell_idx + 1 < page.no_of_cells() {
                     let child = page.cell(cell_idx + 1)?.left_child();
                     Ok(NextStep::Descend {
                         entry_idx: cell_idx + 1,
                         child,
                     })
+                } else {
+                    Ok(NextStep::Pop)
                 }
             })?;
             match step {
@@ -305,10 +302,10 @@ impl BTreeCursor {
                 }
                 NextStep::Descend { entry_idx, child } => {
                     self.stack.push((page_no, entry_idx));
-                    self.descend_to_first(child, pager)?;
+                    self.descend_to_first(pager, child)?;
                     return Ok(());
                 }
-                NextStep::Pop => {}
+                _ => {}
             }
         }
         self.state = CursorState::AfterLast;
@@ -317,49 +314,143 @@ impl BTreeCursor {
     pub fn first<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
-        loop {
-            match Self::with_page(pager, page_no, |page| {
-                if page.is_leaf() {
-                    self.stack.push((page_no, 0));
-                    Ok(Option::None)
-                } else {
-                    let child = page.cell(0)?.left_child();
-                    self.stack.push((page_no, 0));
-                    Ok(Option::Some(child))
-                }
-            })? {
-                Some(child) => page_no = child,
-                None => break,
+        while let Some(child) = Self::with_page(pager, page_no, |page| {
+            if page.is_leaf() {
+                self.stack.push((page_no, 0));
+                Ok(Option::None)
+            } else {
+                let child = page.cell(0)?.left_child();
+                self.stack.push((page_no, 0));
+                Ok(Option::Some(child))
             }
+        })? {
+            page_no = child
         }
+
         self.state = CursorState::At;
         Ok(())
     }
     pub fn descend_to_first<P: SqliteFile>(
         &mut self,
-        page_no: PageNo,
         pager: &mut Pager<P>,
+        page_no: PageNo,
     ) -> Result<(), SqliteError> {
         let mut page_no = page_no;
-        loop {
+        while let Some(child) = Self::with_page(pager, page_no, |page| {
+            if page.is_leaf() {
+                self.stack.push((page_no, 0));
+                Ok(Option::None)
+            } else {
+                let child = page.cell(0)?.left_child();
+                self.stack.push((page_no, 0));
+                Ok(Option::Some(child))
+            }
+        })? {
+            page_no = child
+        }
+
+        self.state = CursorState::At;
+        Ok(())
+    }
+    pub fn prev<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
+        while let Some((page_no, cell_idx)) = self.stack.pop() {
             match Self::with_page(pager, page_no, |page| {
                 if page.is_leaf() {
-                    self.stack.push((page_no, 0));
-                    Ok(Option::None)
+                    if cell_idx > 0 {
+                        Ok(NextStep::Previous)
+                    } else {
+                        Ok(NextStep::Pop)
+                    }
                 } else {
-                    let child = page.cell(0)?.left_child();
-                    self.stack.push((page_no, 0));
-                    Ok(Option::Some(child))
+                    if cell_idx > 0 {
+                        let child = page.cell(cell_idx - 1)?.left_child();
+                        Ok(NextStep::Descend {
+                            entry_idx: cell_idx - 1,
+                            child,
+                        })
+                    } else {
+                        Ok(NextStep::Pop)
+                    }
                 }
             })? {
-                Some(child) => page_no = child,
-                None => break,
+                NextStep::Previous => {
+                    self.stack.push((page_no, cell_idx - 1));
+                    return Ok(());
+                }
+                NextStep::Descend { entry_idx, child } => {
+                    self.stack.push((page_no, entry_idx));
+                    self.descend_to_last(pager, child)?;
+                    return Ok(());
+                }
+                _ => {}
             }
         }
+        self.state = CursorState::BeforeFirst;
+        Ok(())
+    }
+    pub fn last<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
+        self.clear_path();
+        let mut page_no = self.root;
+        while let Some(child) = Self::with_page(pager, page_no, |page| {
+            if page.is_leaf() {
+                // last cell
+                self.stack.push((page_no, page.no_of_cells() - 1));
+                Ok(None) // to break
+            } else {
+                let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                    "interior page has no right-most child".into(),
+                ))?;
+                self.stack.push((page_no, page.no_of_cells()));
+                Ok(Some(child))
+            }
+        })? {
+            page_no = child
+        }
+
+        self.state = CursorState::At;
+        Ok(())
+    }
+    fn descend_to_last<P: SqliteFile>(
+        &mut self,
+        pager: &mut Pager<P>,
+        page_no: PageNo,
+    ) -> Result<(), SqliteError> {
+        let mut page_no = page_no;
+        while let Some(child) = Self::with_page(pager, page_no, |page| {
+            if page.is_leaf() {
+                self.stack.push((page_no, page.no_of_cells() - 1));
+                Ok(None)
+            } else {
+                let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                    "interior page has no right-most child".into(),
+                ))?;
+                self.stack.push((page_no, page.no_of_cells()));
+                Ok(Some(child))
+            }
+        })? {
+            page_no = child
+        }
+
         self.state = CursorState::At;
         Ok(())
     }
 
+    pub fn current<P: SqliteFile>(
+        &mut self,
+        pager: &mut Pager<P>,
+    ) -> Result<Option<BTreeCell>, SqliteError> {
+        if let Some((page_no, cell_idx)) = self.stack.last() {
+            #[rustfmt::skip]
+            match Self::with_page(pager, *page_no, |page| {
+                let cell = page.cell(0)?;
+                Ok(Some(cell))
+            })? {
+                Some(cell) => return Ok(Some(cell)),
+                _ => return Ok(None),
+            };
+        }
+        Ok(None)
+    }
     fn clear_path(&mut self) {
         self.stack.clear();
     }
@@ -375,10 +466,17 @@ impl BTreeCursor {
         let bytes = page.bytes;
         let cell_count = page.no_of_cells();
         if page.page_type() == BTreePageType::InteriorTable {
-            for i in 0..cell_count {
-                let cell = page.cell(i)?;
+            let mut l = 0;
+            let mut r = cell_count;
+            while l < r {
+                let m = l + (r - l) / 2;
+                let cell = page.cell(m)?;
                 if cell.row_id() >= target {
-                    return Ok((cell.left_child(), i));
+                    return Ok((cell.left_child(), m));
+                } else if cell.row_id() > target {
+                    r = m;
+                } else {
+                    l = m + 1
                 }
             }
             return Ok((page.right_most_ptr().unwrap(), cell_count));
