@@ -38,7 +38,7 @@ impl PageGuard {
     }
     pub fn bytes_as_mut(&mut self) -> Option<&mut [u8]> {
         if self.state == BorrowState::RefMut {
-            unsafe { Some(self.bytes.as_mut()) };
+            return unsafe { Some(self.bytes.as_mut()) };
         }
         None
     }
