@@ -225,11 +225,6 @@ enum NextStep {
     Pop,
 }
 
-enum First {
-    Descend(PageNo),
-    Leaf,
-}
-
 #[derive(Debug)]
 pub struct BTreeCursor {
     root: PageNo,
@@ -289,12 +284,14 @@ impl BTreeCursor {
                         entry_idx: page.no_of_cells(),
                         child,
                     })
-                } else {
+                } else if cell_idx + 1 < page.no_of_cells() {
                     let child = page.cell(cell_idx + 1)?.left_child();
                     Ok(NextStep::Descend {
                         entry_idx: cell_idx + 1,
                         child,
                     })
+                } else {
+                    Ok(NextStep::Pop)
                 }
             })?;
             match step {
@@ -375,10 +372,17 @@ impl BTreeCursor {
         let bytes = page.bytes;
         let cell_count = page.no_of_cells();
         if page.page_type() == BTreePageType::InteriorTable {
-            for i in 0..cell_count {
-                let cell = page.cell(i)?;
+            let mut l = 0;
+            let mut r = cell_count;
+            while l < r {
+                let m = l + (r - l) / 2;
+                let cell = page.cell(m)?;
                 if cell.row_id() >= target {
-                    return Ok((cell.left_child(), i));
+                    return Ok((cell.left_child(), m));
+                } else if cell.row_id() > target {
+                    r = m;
+                } else {
+                    l = m + 1
                 }
             }
             return Ok((page.right_most_ptr().unwrap(), cell_count));
