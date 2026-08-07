@@ -42,7 +42,7 @@ impl<S: SqliteFile> SqliteDatabase<S> {
         while current_page > 0 {
             // self.read_raw_page_into(current_page, &mut buf)?;
             let page = self.pager.get(current_page)?;
-            let buf = page.bytes();
+            let buf = page.bytes_as_ref();
             let mut cursor = Cursor::new(buf);
             trunk_pages.push(current_page);
             let next_freelist_trunk = read_u32_be(&mut cursor)?;
