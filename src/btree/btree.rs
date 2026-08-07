@@ -4,14 +4,14 @@ use super::cell::IndexLeafCell;
 use super::cell::TableInteriorCell;
 use super::cell::TableLeafCell;
 use super::sqlite_cursor::SqliteCursor;
-use crate::PageNo;
-use crate::SqliteError;
 use crate::bytes::*;
 use crate::pager::guard::PageGuard;
 use crate::pager::page::Pager;
 use crate::to_int;
 use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
+use crate::PageNo;
+use crate::SqliteError;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
@@ -79,7 +79,7 @@ pub struct BTreePageHeader {
 impl BTreePageHeader {
     fn parse(bytes: &[u8]) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::new(bytes);
-        let page_kind_byte = cursor.read_next_u8();
+        let page_kind_byte = cursor.read_next_u8()?;
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
             _ => return Err(SqliteError::InvalidPageType(page_kind_byte)),
@@ -91,13 +91,13 @@ impl BTreePageHeader {
         cursor: &mut SqliteCursor,
         page_kind: BTreePageType,
     ) -> Result<Self, SqliteError> {
-        let first_freeblock: u16 = cursor.read_next_u16();
-        let no_of_cells: u16 = cursor.read_next_u16();
-        let cell_content_area: u16 = cursor.read_next_u16();
-        let frag_cnt: u8 = cursor.read_next_u8();
+        let first_freeblock: u16 = cursor.read_next_u16()?;
+        let no_of_cells: u16 = cursor.read_next_u16()?;
+        let cell_content_area: u16 = cursor.read_next_u16()?;
+        let frag_cnt: u8 = cursor.read_next_u8()?;
         let is_interior = page_kind.is_interior();
         let right_most_ptr: Option<PageNo> = if is_interior {
-            Some(cursor.read_next_u32())
+            Some(cursor.read_next_u32()?)
         } else {
             None
         };
@@ -155,8 +155,8 @@ impl<'p> BTreePageRef<'p> {
             "Cell Index Out of Bounds",
         )?;
 
-        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _);
-        let cell_ptr = cursor.read_next_u16();
+        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
+        let cell_ptr = cursor.read_next_u16()?;
 
         let bytes = self.bytes;
 
@@ -204,6 +204,7 @@ pub enum CursorState {
     At,
     Invalid,
     AfterLast,
+    BeforeFirst,
 }
 
 #[derive(Debug, PartialEq)]
@@ -221,6 +222,7 @@ enum NextStep {
     Advance,
     Descend { entry_idx: CellIdx, child: PageNo },
     Pop,
+    Previous,
 }
 
 #[derive(Debug)]
@@ -303,7 +305,7 @@ impl BTreeCursor {
                     self.descend_to_first(pager, child)?;
                     return Ok(());
                 }
-                NextStep::Pop => {}
+                _ => {}
             }
         }
         self.state = CursorState::AfterLast;
