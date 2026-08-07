@@ -233,33 +233,22 @@ impl BTreeCursor {
         pager: &mut Pager<P>,
         target: u64,
     ) -> Result<SeekResult, SqliteError> {
+        self.clear_path();
         let mut page_no = self.root;
-        loop {
-            let page_guard = pager.get(page_no)?;
-            let page = BTreePageRef::new(
-                page_guard.bytes(),
-                &page_guard,
-                pager.metadata.page_size,
-                pager.metadata.usable_size,
-            )?;
-            if page.is_leaf() {
-                // move to the next step
-                break;
+        let (found, cell_idx) = loop {
+            match Self::with_page(pager, page_no, |page| {
+                if page.is_leaf() {
+                    self.choose_target(page, target).map(Step::Leaf)
+                } else {
+                    let (child, idx) = self.choose_child(page, target)?;
+                    self.stack.push((page_no, idx));
+                    Ok(Step::Descend(child))
+                }
+            })? {
+                Step::Leaf(r) => break r,
+                Step::Descend(child) => page_no = child,
             }
-            let (child_page, idx) = self.choose_child(page, target)?;
-            self.stack.push((page_no, idx));
-            page_no = child_page;
-        }
-
-        let page_guard = pager.get(page_no)?;
-        let page = BTreePageRef::new(
-            page_guard.bytes(),
-            &page_guard,
-            pager.metadata.page_size,
-            pager.metadata.usable_size,
-        )?;
-
-        let (found, cell_idx) = self.choose_target(page, target)?;
+        };
         self.stack.push((page_no, cell_idx));
         self.state = CursorState::At;
         if found {
