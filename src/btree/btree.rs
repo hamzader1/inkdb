@@ -429,4 +429,23 @@ impl BTreeCursor {
         }
         todo!("INDEX LEAF NOT IMPLEMENTED YET")
     }
+
+    fn with_page<P: SqliteFile, T, F>(
+        pager: &mut Pager<P>,
+        page_no: PageNo,
+        f: F,
+    ) -> Result<T, SqliteError>
+    where
+        F: for<'a> FnOnce(&'a BTreePageRef<'a>) -> Result<T, SqliteError>,
+    {
+        let page_guard = pager.get(page_no)?;
+        let page = BTreePageRef::new(
+            page_guard.bytes(),
+            &page_guard,
+            pager.metadata.page_size,
+            pager.metadata.usable_size,
+        )?;
+        let res = f(&page)?;
+        Ok(res)
+    }
 }
