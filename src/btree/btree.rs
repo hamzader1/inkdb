@@ -383,7 +383,7 @@ impl BTreeCursor {
     }
     fn choose_child<'a>(
         &self,
-        page: BTreePageRef<'a>,
+        page: &BTreePageRef<'a>,
         target: u64,
     ) -> Result<(PageNo, CellIdx), SqliteError> {
         debug_assert!(
@@ -406,7 +406,7 @@ impl BTreeCursor {
 
     fn choose_target<'a>(
         &self,
-        page: BTreePageRef<'a>,
+        page: &BTreePageRef<'a>,
         target: u64,
     ) -> Result<(bool, CellIdx), SqliteError> {
         assert!(page.is_leaf(), "This navigation path works only for leaves");
