@@ -3,13 +3,15 @@ use super::cell::IndexInteriorCell;
 use super::cell::IndexLeafCell;
 use super::cell::TableInteriorCell;
 use super::cell::TableLeafCell;
+use super::records::Value;
 use super::sqlite_cursor::SqliteCursor;
-use crate::PageNo;
-use crate::SqliteError;
+use crate::btree::records::SqlType;
 use crate::pager::guard::PageGuard;
 use crate::pager::page::Pager;
 use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
+use crate::PageNo;
+use crate::SqliteError;
 use std::marker::PhantomData;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
@@ -236,10 +238,10 @@ impl BTreeCursor {
             state: CursorState::Invalid,
         }
     }
-    pub fn seek<P: SqliteFile>(
+    pub fn seek<'a, P: SqliteFile>(
         &mut self,
         pager: &mut Pager<P>,
-        target: u64,
+        target: Value<'a>,
     ) -> Result<SeekResult, SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
@@ -247,14 +249,14 @@ impl BTreeCursor {
             let guard = pager.get(page_no)?;
             let page = Self::page_as_ref(&guard, pager)?;
             if page.is_leaf() {
-                let (found, cell_idx) = self.choose_target(&page, target)?;
+                let (found, cell_idx) = self.choose_target(&page, &target)?;
                 self.stack.push(Path::new(page_no, cell_idx, guard));
                 if found {
                     return Ok(SeekResult::Exact);
                 }
                 return Ok(SeekResult::NotFound);
             }
-            let (child, cell_idx) = self.choose_child(&page, target)?;
+            let (child, cell_idx) = self.choose_child(&page, &target)?;
             self.stack.push(Path::new(page_no, cell_idx, guard));
             page_no = child;
         }
@@ -422,7 +424,7 @@ impl BTreeCursor {
     fn choose_child<'a>(
         &self,
         page: &BTreePageRef<'a>,
-        target: u64,
+        target: &Value,
     ) -> Result<(PageNo, CellIdx), SqliteError> {
         debug_assert!(
             page.is_interior(),
@@ -436,9 +438,10 @@ impl BTreeCursor {
             while l < r {
                 let m = l + (r - l) / 2;
                 let cell = page.cell(m)?;
-                if cell.row_id() >= target {
+                let row_id = &cell.row_id().convert();
+                if row_id >= target {
                     return Ok((cell.left_child(), m));
-                } else if cell.row_id() > target {
+                } else if row_id > target {
                     r = m;
                 } else {
                     l = m + 1
@@ -452,7 +455,7 @@ impl BTreeCursor {
     fn choose_target<'a>(
         &self,
         page: &BTreePageRef<'a>,
-        target: u64,
+        target: &Value,
     ) -> Result<(bool, CellIdx), SqliteError> {
         assert!(page.is_leaf(), "This navigation path works only for leaves");
         let cell_cnt = page.no_of_cells();
@@ -462,9 +465,10 @@ impl BTreeCursor {
             while l < r {
                 let m: u16 = l + ((r - l) / 2);
                 let cell = page.cell(m)?;
-                if cell.row_id() == target {
+                let row_id = &cell.row_id().convert();
+                if row_id == target {
                     return Ok((true, m));
-                } else if cell.row_id() > target {
+                } else if row_id > target {
                     r = m;
                 } else {
                     l = m + 1;

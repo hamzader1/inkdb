@@ -27,7 +27,7 @@ pub const SERIAL_TEXT_MIN: u8 = 13;
 // pub const SIZE_INT0: usize = 0;
 
 // EXPERIMENTAL
-trait SqlType {
+pub trait SqlType {
     fn convert<'a>(self) -> Value<'a>;
 }
 #[macro_export]
