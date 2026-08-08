@@ -32,6 +32,15 @@ impl<'a> SqliteCursor<'a> {
             offset,
         })
     }
+    pub fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes,
+            offset: self.offset,
+        }
+    }
+    pub fn clone_with_offset(&self, offset: u64) -> Result<Self, SqliteError> {
+        Self::with_offset(self.bytes, offset)
+    }
     pub fn set_offset(&mut self, offset: u64) {
         self.offset = offset;
     }
@@ -92,6 +101,37 @@ impl<'a> SqliteCursor<'a> {
     pub fn read_next_array<const N: usize>(&mut self) -> Result<[u8; N], SqliteError> {
         let mut buf = [0u8; N];
         self.read_next_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], SqliteError> {
+        let ahead_by = ahead_by as usize;
+        sqlite_assert_with_corrupt_err(
+            ahead_by <= self.bytes.len(),
+            &format!(
+                "Cursor advanced past the end of the buffer: attempted offset {} exceeds buffer length {}",
+                ahead_by,
+                self.bytes.len()
+            ),
+        )?;
+        let offset = self.offset as usize;
+        let buf = &self.bytes[offset..offset + ahead_by];
+        self.offset += ahead_by as u64;
+        Ok(buf)
+    }
+
+    pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], SqliteError> {
+        let ahead_by = ahead_by as usize;
+        sqlite_assert_with_corrupt_err(
+            ahead_by <= self.bytes.len(),
+            &format!(
+                "Cursor peeked past the end of the buffer: attempted offset {} exceeds buffer length {}",
+                ahead_by,
+                self.bytes.len()
+            ),
+        )?;
+        let offset = self.offset as usize;
+        let buf = &self.bytes[offset..offset + ahead_by];
         Ok(buf)
     }
 

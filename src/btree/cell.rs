@@ -169,7 +169,7 @@ impl BTreeCell {
             _ => unreachable!(),
         }
     }
-    pub fn payload(&self) -> &Range<usize> {
+    pub fn payload_range(&self) -> &Range<usize> {
         match self {
             BTreeCell::IndexInterior(x) => x.payload_range(),
             BTreeCell::IndexLeaf(x) => x.payload_range(),
