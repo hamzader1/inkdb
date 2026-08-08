@@ -13,7 +13,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use inkdb::btree::btree::{BTreeCursor, BTreePageRef, CursorState, SeekResult};
+use inkdb::storage::btree::{BTreeCursor, BTreePageRef, CursorState, SeekResult};
 use inkdb::errors::SqliteError;
 use inkdb::pager::page::Pager;
 use inkdb::vfs::mem::MemFile;
@@ -198,7 +198,7 @@ fn walk_backward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u6
 
 #[test]
 fn btree_header_size_constants_are_8_and_12() {
-    use inkdb::btree::btree::{
+    use inkdb::storage::btree::{
         INTERIOR_BTREE_PAGE_HEADER_SIZE, LEAF_BTREE_PAGE_HEADER_SIZE,
     };
     assert_eq!(LEAF_BTREE_PAGE_HEADER_SIZE, 8);
@@ -207,7 +207,7 @@ fn btree_header_size_constants_are_8_and_12() {
 
 #[test]
 fn btree_page_type_constants_round_trip() {
-    use inkdb::btree::btree::{BTREE_TYPE_PAGE_OFFSET, BTREE_TYPE_PAGE_SIZE};
+    use inkdb::storage::btree::{BTREE_TYPE_PAGE_OFFSET, BTREE_TYPE_PAGE_SIZE};
     assert_eq!(BTREE_TYPE_PAGE_OFFSET, 0);
     assert_eq!(BTREE_TYPE_PAGE_SIZE, 1);
 }

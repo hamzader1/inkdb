@@ -5,7 +5,7 @@ use super::cell::TableInteriorCell;
 use super::cell::TableLeafCell;
 use super::records::{Record, RecordMetadata, Value};
 use super::sqlite_cursor::SqliteCursor;
-use crate::btree::records::SqlType;
+use crate::storage::records::SqlType;
 use crate::pager::guard::PageGuard;
 use crate::pager::page::Pager;
 use crate::util::sqlite_assert_with_corrupt_err;
