@@ -174,7 +174,6 @@ impl<'p> BTreePageRef<'p> {
             }
         }
     }
-    // LIMITED FOR NON-OVERFLOW CELLS
     pub fn record_of_cell<'a, P: SqliteFile>(
         &'a self,
         cell_idx: CellIdx,
@@ -194,15 +193,6 @@ impl<'p> BTreePageRef<'p> {
         self.get_cell_record(pager, cell, &mut records)?;
         Ok(records)
     }
-    /*
-           pager: &mut Pager<P>,
-       local_payload_bytes: &[u8],
-       total_payload_length: usize,
-       usable_size: usize,
-       first_overflow_page: PageNo,
-       current_page_no: PageNo,
-
-    */
     fn get_cell_record<'a, P: SqliteFile>(
         &'a self,
         pager: &mut Pager<P>,
@@ -221,27 +211,23 @@ impl<'p> BTreePageRef<'p> {
             )?;
             return self.decode_loop_owned(vec, collector);
         } else {
-            return self.decode_loop_borrowed(self.bytes, collector);
+            return self.decode_loop_borrowed(&self.bytes[*cell.payload_range()], collector);
         }
-
-        Ok(())
     }
     fn decode_loop_owned<'a>(
         &self,
         bytes: Vec<u8>,
         collector: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        // let bytes = bytes.as_ref();
         let mut header_cursor = SqliteCursor::new(bytes.as_slice());
         let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
         let mut remaining = (header_size as usize) - consumed;
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
-        // the vec holds the bytes
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(self.usable_size)?;
             let record_metadata = Record::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
-            collector.push(Record::decode_sqltype_owned(data, &record_metadata)); // key change
+            collector.push(Record::decode_sqltype_owned(data, &record_metadata));
             remaining -= consumed;
         }
         Ok(())
@@ -251,12 +237,10 @@ impl<'p> BTreePageRef<'p> {
         bytes: &'a [u8],
         collector: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        // let bytes = bytes.as_ref();
         let mut header_cursor = SqliteCursor::new(bytes);
         let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
         let mut remaining = (header_size as usize) - consumed;
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
-        // the vec holds the bytes
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(self.usable_size)?;
             let record_metadata = Record::content_size(serial_type);
