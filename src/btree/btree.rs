@@ -3,7 +3,7 @@ use super::cell::IndexInteriorCell;
 use super::cell::IndexLeafCell;
 use super::cell::TableInteriorCell;
 use super::cell::TableLeafCell;
-use super::records::Value;
+use super::records::{Record, RecordMetadata, Value};
 use super::sqlite_cursor::SqliteCursor;
 use crate::btree::records::SqlType;
 use crate::pager::guard::PageGuard;
@@ -319,13 +319,13 @@ impl BTreeCursor {
             let page = Self::page_as_ref(&guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, 0, guard);
+                self.state = CursorState::At;
                 return Ok(());
             }
             let child = page.cell(0)?.left_child();
             self.add_path(page_no, 0, guard);
             page_no = child;
         }
-        self.state = CursorState::At;
         Ok(())
     }
     pub fn descend_to_first<P: SqliteFile>(
@@ -338,6 +338,7 @@ impl BTreeCursor {
             let guard = pager.get(page_no)?;
             let page = Self::page_as_ref(&guard, pager)?;
             if page.is_leaf() {
+                self.state = CursorState::At;
                 self.add_path(page_no, 0, guard);
                 return Ok(());
             }
@@ -345,7 +346,6 @@ impl BTreeCursor {
             self.add_path(page_no, 0, guard);
             page_no = child;
         }
-        self.state = CursorState::At;
         Ok(())
     }
     pub fn prev<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
@@ -381,6 +381,7 @@ impl BTreeCursor {
             let page = Self::page_as_ref(&guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, page.no_of_cells() - 1, guard);
+                self.state = CursorState::At;
                 return Ok(());
             }
             let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
@@ -389,7 +390,6 @@ impl BTreeCursor {
             self.add_path(page_no, page.no_of_cells(), guard);
             page_no = child;
         }
-        self.state = CursorState::At;
         Ok(())
     }
     fn descend_to_last<P: SqliteFile>(
@@ -403,6 +403,7 @@ impl BTreeCursor {
             let page = Self::page_as_ref(&guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, page.no_of_cells() - 1, guard);
+                self.state = CursorState::At;
                 return Ok(());
             }
             let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
@@ -411,7 +412,6 @@ impl BTreeCursor {
             self.add_path(page_no, page.no_of_cells(), guard);
             page_no = child;
         }
-        self.state = CursorState::At;
         Ok(())
     }
 
@@ -457,7 +457,7 @@ impl BTreeCursor {
             while l < r {
                 let m = l + (r - l) / 2;
                 let cell = page.cell(m)?;
-                let row_id = &cell.row_id().convert();
+                let row_id = &cell.row_id().into_sqlite_value();
                 if row_id >= target {
                     return Ok((cell.left_child(), m));
                 } else if row_id > target {
@@ -484,7 +484,7 @@ impl BTreeCursor {
             while l < r {
                 let m: u16 = l + ((r - l) / 2);
                 let cell = page.cell(m)?;
-                let row_id = &cell.row_id().convert();
+                let row_id = &cell.row_id().into_sqlite_value();
                 if row_id == target {
                     return Ok((true, m));
                 } else if row_id > target {
@@ -532,7 +532,7 @@ impl BTreeCursor {
         })
     }
 
-    fn page_as_ref<'a, P: SqliteFile>(
+    pub fn page_as_ref<'a, P: SqliteFile>(
         guard: &'a PageGuard,
         pager: &Pager<P>,
     ) -> Result<BTreePageRef<'a>, SqliteError> {
