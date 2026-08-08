@@ -6,7 +6,7 @@ use inkdb::pager::buffer_pool::BufferPool;
 use inkdb::pager::frame::{Frame, FrameId, CLEAN, DIRTY, FREE, REFERENCED};
 use inkdb::pager::guard::PageGuard;
 use inkdb::pager::metadata::SqliteMetadata;
-use inkdb::pager::page::Pager;
+use inkdb::pager::pager::Pager;
 use inkdb::pager::statistics::SqliteStatistics;
 use inkdb::vfs::disk::{DiskFile, DiskVfs};
 use inkdb::vfs::file::SqliteFile;

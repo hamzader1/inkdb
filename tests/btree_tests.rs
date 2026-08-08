@@ -15,7 +15,7 @@ use std::rc::Rc;
 
 use inkdb::storage::btree::{BTreeCursor, BTreePageRef, CursorState, SeekResult};
 use inkdb::errors::SqliteError;
-use inkdb::pager::page::Pager;
+use inkdb::pager::pager::Pager;
 use inkdb::vfs::mem::MemFile;
 
 const PAGE_SIZE: usize = 512;

@@ -1,5 +1,5 @@
 use crate::bytes::read_u32_be;
-use crate::pager::page::Pager;
+use crate::pager::pager::Pager;
 use crate::util::sqlite_assert_one;
 use crate::vfs::file::SqliteFile;
 use crate::{DbError, SqliteDatabase};

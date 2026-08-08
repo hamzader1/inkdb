@@ -21,7 +21,7 @@ use self::vfs::Vfs;
 use self::vfs::cursor::FileCursor;
 use self::vfs::disk::{DiskFile, DiskVfs};
 use self::vfs::file::SqliteFile;
-use crate::pager::page::Pager;
+use crate::pager::pager::Pager;
 
 pub struct SqliteDatabase<S: SqliteFile> {
     pub pager: Pager<S>,

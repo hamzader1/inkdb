@@ -7,7 +7,7 @@ use super::records::{Record, RecordMetadata, Value};
 use super::sqlite_cursor::SqliteCursor;
 use crate::storage::records::SqlType;
 use crate::pager::guard::PageGuard;
-use crate::pager::page::Pager;
+use crate::pager::pager::Pager;
 use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
 use crate::PageNo;
