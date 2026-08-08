@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+use std::cmp::Ordering;
+
 pub const SERIAL_NULL: u8 = 0;
 pub const SERIAL_INT8: u8 = 1;
 pub const SERIAL_INT16: u8 = 2;
@@ -42,15 +45,13 @@ macro_rules! impl_ints {
 }
 impl_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
 
-use std::cmp::Ordering;
-
 #[derive(Debug)]
 pub enum Value<'a> {
     Null,
     Integer(i64),
     Real(f64),
-    Text(&'a str),
-    Blob(&'a [u8]),
+    Text(Cow<'a, str>),
+    Blob(Cow<'a, [u8]>),
 }
 
 #[derive(Debug)]
@@ -146,7 +147,7 @@ impl Record {
         }
     }
 
-    pub fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RM) -> Value<'a> {
+    pub fn decode_sqltype_borrowed<'a>(bytes: &'a [u8], record_metadata: &RM) -> Value<'a> {
         let mut buf = [0u8; 8];
         match record_metadata.serial_type {
             0 => return Value::Null,
@@ -186,11 +187,63 @@ impl Record {
             }
             8 => return Value::Integer(0),
             9 => return Value::Integer(1),
-            12 => return Value::Blob(bytes),
+            12 => Value::Blob(Cow::Borrowed(bytes)),
             13 => {
                 let text =
                     str::from_utf8(bytes).expect("Error while parsing string from the bytes");
-                return Value::Text(text);
+
+                return Value::Text(Cow::Borrowed(text));
+            }
+            _ => unreachable!(),
+        }
+    }
+    pub fn decode_sqltype_owned(bytes: &[u8], record_metadata: &RM) -> Value<'static> {
+        let mut buf = [0u8; 8];
+        match record_metadata.serial_type {
+            0 => return Value::Null,
+            1 => {
+                buf[7..8].copy_from_slice(bytes);
+                let int = i64::from_be_bytes(buf);
+                return Value::Integer(int);
+            }
+            2 => {
+                buf[6..8].copy_from_slice(bytes);
+                let int = i64::from_be_bytes(buf);
+                return Value::Integer(int);
+            }
+            3 => {
+                buf[5..8].copy_from_slice(bytes);
+                let int = i64::from_be_bytes(buf);
+                return Value::Integer(int);
+            }
+            4 => {
+                buf[4..8].copy_from_slice(bytes);
+                let int = i64::from_be_bytes(buf);
+                return Value::Integer(int);
+            }
+            5 => {
+                buf[2..8].copy_from_slice(bytes);
+                let int = i64::from_be_bytes(buf);
+                return Value::Integer(int);
+            }
+            6 => {
+                buf.copy_from_slice(bytes);
+                let int = i64::from_be_bytes(buf);
+                return Value::Integer(int);
+            }
+            7 => {
+                let float = f64::from_be_bytes(bytes.try_into().unwrap());
+                return Value::Real(float);
+            }
+            8 => return Value::Integer(0),
+            9 => return Value::Integer(1),
+            12 => {
+                return Value::Blob(Cow::Owned(bytes.to_owned()));
+            }
+            13 => {
+                let text =
+                    str::from_utf8(bytes).expect("Error while parsing string from the bytes");
+                return Value::Text(Cow::Owned(text.to_owned()));
             }
             _ => unreachable!(),
         }
