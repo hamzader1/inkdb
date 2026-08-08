@@ -151,7 +151,7 @@ fn cell_payload_at(
     let guard = pager.get(page_no).unwrap();
     let page = BTreePageRef::new(guard.bytes_as_ref(), &guard, page_size, usable).unwrap();
     let cell = page.cell(idx).unwrap();
-    let range = *cell.payload();
+    let range = *cell.payload_range();
     guard.bytes_as_ref()[range].to_vec()
 }
 
@@ -365,7 +365,7 @@ fn leaf_index_page_parses_payload() {
     let c = page.cell(0).unwrap();
     assert_eq!(c.cell_payload_len(), 3);
     assert_eq!(c.overflow_page(), None);
-    let range = *c.payload();
+    let range = *c.payload_range();
     assert_eq!(&guard.bytes_as_ref()[range], b"idx");
 }
 
@@ -381,7 +381,7 @@ fn interior_index_page_parses_left_child_and_payload() {
     let c = page.cell(0).unwrap();
     assert_eq!(c.left_child(), 55);
     assert_eq!(c.cell_payload_len(), 3);
-    let range = *c.payload();
+    let range = *c.payload_range();
     assert_eq!(&guard.bytes_as_ref()[range], b"key");
 }
 
