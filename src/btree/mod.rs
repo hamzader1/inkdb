@@ -1,4 +1,4 @@
 pub mod btree;
 mod cell;
-mod records;
+pub mod records;
 mod sqlite_cursor;
