@@ -178,9 +178,7 @@ impl<'p> BTreePageRef<'p> {
     pub fn record_of_cell<'a>(&'a self, cell_idx: CellIdx) -> Result<Vec<Value<'a>>, SqliteError> {
         let mut records = Vec::new();
         let cell = self.cell(cell_idx)?;
-        dbg!(&cell);
         let mut header_cursor = SqliteCursor::new(&self.bytes[*cell.payload_range()]);
-        // dbg!(&header_cursor);
         let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
         let mut remaining = (header_size as usize) - consumed;
         let mut data_cursor = header_cursor.clone_with_offset(header_size)?;
@@ -275,6 +273,7 @@ impl BTreeCursor {
                 }
                 return Ok(SeekResult::NotFound);
             }
+            self.state = CursorState::At;
             let (child, cell_idx) = self.choose_child(&page, &target)?;
             self.stack.push(Path::new(page_no, cell_idx, guard));
             page_no = child;
@@ -293,6 +292,7 @@ impl BTreeCursor {
             if page.is_leaf() {
                 if cell_idx + 1 < page.no_of_cells() {
                     self.stack.push(Path::new(page_no, cell_idx + 1, guard));
+                    self.state = CursorState::At;
                     return Ok(());
                 }
             } else if cell_idx + 1 == page.no_of_cells() {
@@ -301,14 +301,17 @@ impl BTreeCursor {
                 ))?;
                 self.add_path(page_no, cell_idx + 1, guard);
                 self.descend_to_first(pager, child)?;
+                self.state = CursorState::At;
                 return Ok(());
             } else if cell_idx + 1 < page.no_of_cells() {
                 let child = page.cell(cell_idx + 1)?.left_child();
                 self.add_path(page_no, cell_idx + 1, guard);
                 self.descend_to_first(pager, child)?;
+                self.state = CursorState::At;
                 return Ok(());
             }
         }
+        self.state = CursorState::AfterLast;
         Ok(())
     }
     pub fn first<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
@@ -326,7 +329,6 @@ impl BTreeCursor {
             self.add_path(page_no, 0, guard);
             page_no = child;
         }
-        Ok(())
     }
     pub fn descend_to_first<P: SqliteFile>(
         &mut self,
@@ -338,15 +340,14 @@ impl BTreeCursor {
             let guard = pager.get(page_no)?;
             let page = Self::page_as_ref(&guard, pager)?;
             if page.is_leaf() {
-                self.state = CursorState::At;
                 self.add_path(page_no, 0, guard);
+                self.state = CursorState::At;
                 return Ok(());
             }
             let child = page.cell(0)?.left_child();
             self.add_path(page_no, 0, guard);
             page_no = child;
         }
-        Ok(())
     }
     pub fn prev<P: SqliteFile>(&mut self, pager: &mut Pager<P>) -> Result<(), SqliteError> {
         while let Some(path) = self.stack.pop() {
@@ -359,6 +360,7 @@ impl BTreeCursor {
             if page.is_leaf() {
                 if cell_idx > 0 {
                     self.add_path(page_no, cell_idx - 1, guard);
+                    self.state = CursorState::At;
                     return Ok(());
                 }
             } else {
@@ -366,6 +368,7 @@ impl BTreeCursor {
                     let child = page.cell(cell_idx - 1)?.left_child();
                     self.add_path(page_no, cell_idx - 1, guard);
                     self.descend_to_last(pager, child)?;
+                    self.state = CursorState::At;
                     return Ok(());
                 }
             }
@@ -390,7 +393,6 @@ impl BTreeCursor {
             self.add_path(page_no, page.no_of_cells(), guard);
             page_no = child;
         }
-        Ok(())
     }
     fn descend_to_last<P: SqliteFile>(
         &mut self,
@@ -412,7 +414,6 @@ impl BTreeCursor {
             self.add_path(page_no, page.no_of_cells(), guard);
             page_no = child;
         }
-        Ok(())
     }
 
     // NOTE: This works for now since [`BTreeCell`]
