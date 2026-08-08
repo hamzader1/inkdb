@@ -101,27 +101,29 @@ impl<'a> Ord for Value<'a> {
     }
 }
 
-pub fn content_size(serial_type: u64) -> RecordMetadata {
-    match serial_type {
-        0 => RM::new(SERIAL_NULL, 0),
-        1 => RM::new(SERIAL_INT8, 1),
-        2 => RM::new(SERIAL_INT16, 2),
-        3 => RM::new(SERIAL_INT24, 3),
-        4 => RM::new(SERIAL_INT32, 4),
-        5 => RM::new(SERIAL_INT48, 6),
-        6 => RM::new(SERIAL_INT64, 8),
-        7 => RM::new(SERIAL_FLOAT64, 8),
-        8 => RM::new(SERIAL_INT0, 0),
-        9 => RM::new(SERIAL_INT1, 0),
+pub struct Record;
+impl Record {
+    pub fn content_size(serial_type: u64) -> RecordMetadata {
+        match serial_type {
+            0 => RM::new(SERIAL_NULL, 0),
+            1 => RM::new(SERIAL_INT8, 1),
+            2 => RM::new(SERIAL_INT16, 2),
+            3 => RM::new(SERIAL_INT24, 3),
+            4 => RM::new(SERIAL_INT32, 4),
+            5 => RM::new(SERIAL_INT48, 6),
+            6 => RM::new(SERIAL_INT64, 8),
+            7 => RM::new(SERIAL_FLOAT64, 8),
+            8 => RM::new(SERIAL_INT0, 0),
+            9 => RM::new(SERIAL_INT1, 0),
 
-        // 10 and 11 are reserved.
-        10 | 11 => unreachable!(),
+            // 10 and 11 are reserved.
+            10 | 11 => unreachable!(),
 
-        // BLOB
-        n if n >= 12 && n % 2 == 0 => RM::new(SERIAL_BLOB_MIN, ((n - 12) / 2) as usize),
+            // BLOB
+            n if n >= 12 && n % 2 == 0 => RM::new(SERIAL_BLOB_MIN, ((n - 12) / 2) as usize),
 
-        // TEXT
-        n if n >= 13 && n % 2 == 1 => RM::new(SERIAL_TEXT_MIN, ((n - 13) / 2) as usize),
+            // TEXT
+            n if n >= 13 && n % 2 == 1 => RM::new(SERIAL_TEXT_MIN, ((n - 13) / 2) as usize),
 
             _ => unreachable!(),
         }
