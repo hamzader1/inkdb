@@ -28,13 +28,13 @@ pub const SERIAL_TEXT_MIN: u8 = 13;
 
 // EXPERIMENTAL
 pub trait SqlType {
-    fn convert<'a>(self) -> Value<'a>;
+    fn into_sqlite_value<'a>(self) -> Value<'a>;
 }
 #[macro_export]
 macro_rules! impl_ints {
     ($($t:ty),*) => {
         $(impl SqlType for $t {
-            fn convert<'a>(self) -> Value<'a> {
+            fn into_sqlite_value<'a>(self) -> Value<'a> {
                 Value::Integer(self as i64)
             }
         })*
@@ -53,14 +53,15 @@ pub enum Value<'a> {
     Blob(&'a [u8]),
 }
 
+#[derive(Debug)]
 pub struct RecordMetadata {
-    col_type: u8,
-    col_size: usize,
+    pub serial_type: u8,
+    pub size: usize,
 }
 
 impl RecordMetadata {
-    fn new(col_type: u8, col_size: usize) -> Self {
-        Self { col_type, col_size }
+    fn new(serial_type: u8, size: usize) -> Self {
+        Self { serial_type, size }
     }
 }
 pub type RM = RecordMetadata;
