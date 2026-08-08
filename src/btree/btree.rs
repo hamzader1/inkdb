@@ -174,6 +174,25 @@ impl<'p> BTreePageRef<'p> {
             }
         }
     }
+    // LIMITED FOR NON-OVERFLOW CELLS
+    pub fn record_of_cell<'a>(&'a self, cell_idx: CellIdx) -> Result<Vec<Value<'a>>, SqliteError> {
+        let mut records = Vec::new();
+        let cell = self.cell(cell_idx)?;
+        dbg!(&cell);
+        let mut header_cursor = SqliteCursor::new(&self.bytes[*cell.payload_range()]);
+        // dbg!(&header_cursor);
+        let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
+        let mut remaining = (header_size as usize) - consumed;
+        let mut data_cursor = header_cursor.clone_with_offset(header_size)?;
+        while remaining > 0 {
+            let (serial_type, consumed) = header_cursor.read_next_varint(self.usable_size)?;
+            let record_metadata = Record::content_size(serial_type);
+            let data = data_cursor.read_to(record_metadata.size as _)?;
+            records.push(Record::decode_sqltype(data, &record_metadata));
+            remaining -= consumed;
+        }
+        Ok(records)
+    }
     fn page_type(&self) -> BTreePageType {
         self.header.page_kind
     }
