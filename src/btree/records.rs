@@ -102,6 +102,22 @@ impl<'a> Ord for Value<'a> {
     }
 }
 
+/*
+   SQLite serial type codes:
+   0       -> NULL
+   1       -> i8
+   2       -> BE i16
+   3       -> BE i24
+   4       -> BE i32
+   5       -> BE i48
+   6       -> BE i64
+   7       -> BE f64 (IEEE 754)
+   8       -> integer 0
+   9       -> integer 1
+   10,11    -> reserved/internal
+   N>=12 even -> BLOB, (N-12)/2 bytes
+   N>=13 odd  -> TEXT, (N-13)/2 bytes
+*/
 pub struct Record;
 impl Record {
     pub fn content_size(serial_type: u64) -> RecordMetadata {
