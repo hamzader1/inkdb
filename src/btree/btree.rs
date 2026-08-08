@@ -178,6 +178,19 @@ impl<'p> BTreePageRef<'p> {
     pub fn record_of_cell<'a>(&'a self, cell_idx: CellIdx) -> Result<Vec<Value<'a>>, SqliteError> {
         let mut records = Vec::new();
         let cell = self.cell(cell_idx)?;
+        self.get_cell_record(&cell, &mut records)?;
+        Ok(records)
+    }
+    pub fn record_of<'a>(&'a self, cell: &BTreeCell) -> Result<Vec<Value<'a>>, SqliteError> {
+        let mut records = Vec::new();
+        self.get_cell_record(cell, &mut records);
+        Ok(records)
+    }
+    fn get_cell_record<'a>(
+        &'a self,
+        cell: &BTreeCell,
+        collector: &mut Vec<Value<'a>>,
+    ) -> Result<(), SqliteError> {
         let mut header_cursor = SqliteCursor::new(&self.bytes[*cell.payload_range()]);
         let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
         let mut remaining = (header_size as usize) - consumed;
@@ -186,10 +199,10 @@ impl<'p> BTreePageRef<'p> {
             let (serial_type, consumed) = header_cursor.read_next_varint(self.usable_size)?;
             let record_metadata = Record::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
-            records.push(Record::decode_sqltype(data, &record_metadata));
+            collector.push(Record::decode_sqltype(data, &record_metadata));
             remaining -= consumed;
         }
-        Ok(records)
+        Ok(())
     }
     fn page_type(&self) -> BTreePageType {
         self.header.page_kind
@@ -422,7 +435,7 @@ impl BTreeCursor {
     // TODO: Re-make this function after cell borrows
     // bytes from [`BTreePage`]
     pub fn current<P: SqliteFile>(
-        &mut self,
+        &self,
         pager: &mut Pager<P>,
     ) -> Result<Option<BTreeCell>, SqliteError> {
         if let Some(path) = self.stack.last() {
@@ -499,6 +512,16 @@ impl BTreeCursor {
         todo!("INDEX LEAF NOT IMPLEMENTED YET")
     }
 
+    pub fn current_page_as_ref<'a, P: SqliteFile>(
+        &'a self,
+        pager: &mut Pager<P>,
+    ) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
+        if let Some(path) = self.stack.last() {
+            let page = Self::page_as_ref(&path.guard, &pager)?;
+            return Ok(Some(page));
+        }
+        Ok(None)
+    }
     fn with_page<P: SqliteFile, T, F>(
         pager: &mut Pager<P>,
         page_no: PageNo,
