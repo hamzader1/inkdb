@@ -29,6 +29,9 @@ pub const SERIAL_TEXT_MIN: u8 = 13;
 // pub const SIZE_FLOAT64: usize = 8;
 // pub const SIZE_INT0: usize = 0;
 
+const MAX_SAFE_INT: i64 = 9_007_199_254_740_992; //  2^53
+const MIN_SAFE_INT: i64 = -9_007_199_254_740_992; // -2^53
+
 // EXPERIMENTAL
 pub trait SqlType {
     fn into_sqlite_value<'a>(self) -> Value<'a>;
@@ -84,21 +87,49 @@ impl<'a> PartialOrd for Value<'a> {
 impl<'a> Ord for Value<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
+            // NULL
             (Value::Null, Value::Null) => Ordering::Equal,
 
+            (Value::Null, _) => Ordering::Less,
+            (_, Value::Null) => Ordering::Greater,
+
+            // INTEGER / REAL
             (Value::Integer(a), Value::Integer(b)) => a.cmp(b),
 
             (Value::Real(a), Value::Real(b)) => a.total_cmp(b),
 
+            (Value::Integer(a), Value::Real(b)) => compare_sqlite_num(*a, *b),
+
+            (Value::Real(a), Value::Integer(b)) => compare_sqlite_num(*b, *a).reverse(),
+
+            // Numeric < TEXT
+            (Value::Integer(_), Value::Text(_)) | (Value::Real(_), Value::Text(_)) => {
+                Ordering::Less
+            }
+
+            (Value::Text(_), Value::Integer(_)) | (Value::Text(_), Value::Real(_)) => {
+                Ordering::Greater
+            }
+
+            // Numeric < BLOB
+            (Value::Integer(_), Value::Blob(_)) | (Value::Real(_), Value::Blob(_)) => {
+                Ordering::Less
+            }
+
+            (Value::Blob(_), Value::Integer(_)) | (Value::Blob(_), Value::Real(_)) => {
+                Ordering::Greater
+            }
+
+            // TEXT
             (Value::Text(a), Value::Text(b)) => a.cmp(b),
 
-            (Value::Blob(a), Value::Blob(b)) => a.cmp(b),
+            // TEXT < BLOB
+            (Value::Text(_), Value::Blob(_)) => Ordering::Less,
 
-            _ => panic!(
-                "Comparing {} to {} is not allowed",
-                std::any::type_name_of_val(self),
-                std::any::type_name_of_val(other)
-            ),
+            (Value::Blob(_), Value::Text(_)) => Ordering::Greater,
+
+            // BLOB
+            (Value::Blob(a), Value::Blob(b)) => a.cmp(b),
         }
     }
 }
@@ -245,5 +276,45 @@ impl Record {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+pub fn compare_sqlite_num(i: i64, f: f64) -> Ordering {
+    // Safe Window Optimization: If the integer safely fits in 53 bits,
+    // casting to f64 is mathematically lossless.
+    if (MIN_SAFE_INT..=MAX_SAFE_INT).contains(&i) {
+        return (i as f64).total_cmp(&f);
+    }
+
+    // Beyond the Safe Window: The integer requires real 64-bit accuracy.
+    // We check if the float falls outside the physical numeric bounds of an i64.
+    // Note: We use strict boundaries to bypass casting edge cases at 2^63 - 1.
+    if f >= 9223372036854775808.0 {
+        // 2^63
+        return Ordering::Less; // i is completely smaller than f
+    }
+    if f < -9223372036854775808.0 {
+        // -2^63
+        return Ordering::Greater; // i is completely larger than f
+    }
+
+    // Safe Float to Int Downcast: Since the float falls inside the i64 boundary,
+    // we can safely truncate its fraction to extract the whole number.
+    let f_as_i64 = f as i64;
+
+    match i.cmp(&f_as_i64) {
+        Ordering::Equal => {
+            // Tie breaker: The integer matches the truncated float whole number part.
+            // We calculate the remaining decimal fraction on the float side.
+            let fraction = f - (f_as_i64 as f64);
+            if fraction > 0.0 {
+                Ordering::Less
+            } else if fraction < 0.0 {
+                Ordering::Greater
+            } else {
+                Ordering::Equal // Perfect arithmetic match
+            }
+        }
+        any => any,
     }
 }
