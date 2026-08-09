@@ -150,49 +150,49 @@ impl Record {
     pub fn decode_sqltype_borrowed<'a>(bytes: &'a [u8], record_metadata: &RM) -> Value<'a> {
         let mut buf = [0u8; 8];
         match record_metadata.serial_type {
-            0 => return Value::Null,
+            0 => Value::Null,
             1 => {
                 buf[7..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             2 => {
                 buf[6..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             3 => {
                 buf[5..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             4 => {
                 buf[4..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             5 => {
                 buf[2..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             6 => {
                 buf.copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             7 => {
                 let float = f64::from_be_bytes(bytes.try_into().unwrap());
-                return Value::Real(float);
+                Value::Real(float)
             }
-            8 => return Value::Integer(0),
-            9 => return Value::Integer(1),
+            8 => Value::Integer(0),
+            9 => Value::Integer(1),
             12 => Value::Blob(Cow::Borrowed(bytes)),
             13 => {
                 let text =
                     str::from_utf8(bytes).expect("Error while parsing string from the bytes");
 
-                return Value::Text(Cow::Borrowed(text));
+                Value::Text(Cow::Borrowed(text))
             }
             _ => unreachable!(),
         }
@@ -200,50 +200,48 @@ impl Record {
     pub fn decode_sqltype_owned(bytes: &[u8], record_metadata: &RM) -> Value<'static> {
         let mut buf = [0u8; 8];
         match record_metadata.serial_type {
-            0 => return Value::Null,
+            0 => Value::Null,
             1 => {
                 buf[7..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             2 => {
                 buf[6..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             3 => {
                 buf[5..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             4 => {
                 buf[4..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             5 => {
                 buf[2..8].copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             6 => {
                 buf.copy_from_slice(bytes);
                 let int = i64::from_be_bytes(buf);
-                return Value::Integer(int);
+                Value::Integer(int)
             }
             7 => {
                 let float = f64::from_be_bytes(bytes.try_into().unwrap());
-                return Value::Real(float);
+                Value::Real(float)
             }
-            8 => return Value::Integer(0),
-            9 => return Value::Integer(1),
-            12 => {
-                return Value::Blob(Cow::Owned(bytes.to_owned()));
-            }
+            8 => Value::Integer(0),
+            9 => Value::Integer(1),
+            12 => Value::Blob(Cow::Owned(bytes.to_owned())),
             13 => {
                 let text =
                     str::from_utf8(bytes).expect("Error while parsing string from the bytes");
-                return Value::Text(Cow::Owned(text.to_owned()));
+                Value::Text(Cow::Owned(text.to_owned()))
             }
             _ => unreachable!(),
         }

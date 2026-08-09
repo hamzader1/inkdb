@@ -1,20 +1,13 @@
 use super::cell::BTreeCell;
-use super::cell::IndexInteriorCell;
-use super::cell::IndexLeafCell;
-use super::cell::TableInteriorCell;
-use super::cell::TableLeafCell;
 use super::page::BTreePageRef;
-use super::records::{Record, RecordMetadata, Value};
-use super::sqlite_cursor::SqliteCursor;
+use super::records::Value;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::storage::page::BTreePageType;
 use crate::storage::records::SqlType;
-use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
 use crate::PageNo;
 use crate::SqliteError;
-use std::marker::PhantomData;
 
 pub type CellIdx = u16;
 
@@ -222,20 +215,13 @@ impl BTreeCursor {
         }
     }
 
-    // NOTE: This works for now since [`BTreeCell`]
-    // has no borrowed payload from its [`BTreePage`]
-    //
-    // TODO: Re-make this function after cell borrows
-    // bytes from [`BTreePage`]
     pub fn current<P: SqliteFile>(
         &self,
         pager: &mut Pager<P>,
     ) -> Result<Option<BTreeCell>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let Path {
-                page_no,
-                cell_idx,
-                guard,
+                cell_idx, guard, ..
             } = path;
 
             let page = Self::page_as_ref(guard, pager)?;
@@ -256,7 +242,6 @@ impl BTreeCursor {
             page.is_interior(),
             "Navigation path of this works only with interior pages"
         );
-        let bytes = page.bytes;
         let cell_count = page.no_of_cells();
         if page.page_type() == BTreePageType::InteriorTable {
             let mut l = 0;
@@ -310,7 +295,7 @@ impl BTreeCursor {
         pager: &mut Pager<P>,
     ) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
         if let Some(path) = self.stack.last() {
-            let page = Self::page_as_ref(&path.guard, &pager)?;
+            let page = Self::page_as_ref(&path.guard, pager)?;
             return Ok(Some(page));
         }
         Ok(None)
@@ -339,9 +324,7 @@ impl BTreeCursor {
     {
         let path = self.stack.last().unwrap();
         let Path {
-            page_no,
-            cell_idx,
-            guard,
+            page_no, cell_idx, ..
         } = path;
         Self::with_page(pager, *page_no, |page| {
             let cell = page.cell(*cell_idx)?;

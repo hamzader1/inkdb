@@ -114,10 +114,6 @@ impl BTreePageHeader {
     }
 }
 
-enum DecodeMode {
-    Borrowed,
-    Owned,
-}
 pub struct BTreePageRef<'p> {
     header: BTreePageHeader,
     pub bytes: &'p [u8],
@@ -199,8 +195,6 @@ impl<'p> BTreePageRef<'p> {
         cell: &BTreeCell,
         collector: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        let bytes: &[u8];
-        let mut vec: Option<Vec<u8>> = None;
         if let Some(overflow_page) = cell.overflow_page() {
             let vec = OverflowPageRef::get_total_payload(
                 pager,
@@ -209,9 +203,9 @@ impl<'p> BTreePageRef<'p> {
                 self.usable_size,
                 overflow_page,
             )?;
-            return self.decode_loop_owned(vec, collector);
+            self.decode_loop_owned(vec, collector)
         } else {
-            return self.decode_loop_borrowed(&self.bytes[*cell.payload_range()], collector);
+            self.decode_loop_borrowed(&self.bytes[*cell.payload_range()], collector)
         }
     }
     fn decode_loop_owned<'a>(
@@ -317,7 +311,6 @@ impl<'a> OverflowPageRef<'a> {
                 "local payload exceeds total payload length".into(),
             ))?;
         let mut current_page = first_overflow_page;
-        let usable_size = usable_size;
         let mut total_collected_payload: Vec<u8> = Vec::new();
         total_collected_payload.extend_from_slice(local_payload_bytes);
         while remaining > 0 {
