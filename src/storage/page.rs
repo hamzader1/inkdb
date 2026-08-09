@@ -32,6 +32,8 @@ pub const FRAGMENTED_FREE_BYTES_SIZE: usize = 1;
 pub const RIGHT_MOST_POINTER_OFFSET: usize = 8;
 pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
+pub const SQLITE3_HEADER_SIZE: usize = 100;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BTreePageType {
     InteriorIndex = 0x02,
@@ -69,8 +71,8 @@ pub struct BTreePageHeader {
     right_most_ptr: Option<PageNo>,
 }
 impl BTreePageHeader {
-    pub fn parse(bytes: &[u8]) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::new(bytes);
+    pub fn parse(bytes: &[u8], header_offsert: u8) -> Result<Self, SqliteError> {
+        let mut cursor = SqliteCursor::with_offset(bytes, header_offsert as _)?;
         let page_kind_byte = cursor.read_next_u8()?;
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
@@ -114,7 +116,10 @@ impl BTreePageHeader {
     }
 }
 
+#[derive(Debug)]
 pub struct BTreePageRef<'p> {
+    pub page_no: PageNo,
+    header_offset: u8,
     header: BTreePageHeader,
     pub bytes: &'p [u8],
     size: usize,
@@ -123,13 +128,17 @@ pub struct BTreePageRef<'p> {
 }
 impl<'p> BTreePageRef<'p> {
     pub fn new(
+        page_no: PageNo,
         bytes: &'p [u8],
         _guard: &'p PageGuard,
         page_size: usize,
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
-        let header = BTreePageHeader::parse(bytes)?;
+        let header_offset = if page_no == 1 { 100 } else { 0 };
+        let header = BTreePageHeader::parse(bytes, header_offset)?;
         Ok(Self {
+            page_no,
+            header_offset,
             header,
             bytes,
             size: page_size,
@@ -214,11 +223,11 @@ impl<'p> BTreePageRef<'p> {
         collector: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
         let mut header_cursor = SqliteCursor::new(bytes.as_slice());
-        let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
+        let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
         let mut remaining = (header_size as usize) - consumed;
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
-            let (serial_type, consumed) = header_cursor.read_next_varint(self.usable_size)?;
+            let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
             let record_metadata = Record::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
             collector.push(Record::decode_sqltype_owned(data, &record_metadata));
@@ -232,11 +241,11 @@ impl<'p> BTreePageRef<'p> {
         collector: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
         let mut header_cursor = SqliteCursor::new(bytes);
-        let (header_size, consumed) = header_cursor.read_next_varint(self.usable_size)?;
+        let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
         let mut remaining = (header_size as usize) - consumed;
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
-            let (serial_type, consumed) = header_cursor.read_next_varint(self.usable_size)?;
+            let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
             let record_metadata = Record::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
             collector.push(Record::decode_sqltype_borrowed(data, &record_metadata));
@@ -248,7 +257,7 @@ impl<'p> BTreePageRef<'p> {
         self.header.page_kind
     }
     pub fn header_size(&self) -> u8 {
-        self.header.header_size()
+        self.header.header_size() + self.header_offset
     }
     pub fn is_leaf(&self) -> bool {
         self.header.page_kind.is_leaf()
