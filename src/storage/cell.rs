@@ -107,7 +107,7 @@ impl IndexInteriorCell {
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size = Range::from(current_pos..current_pos + payload_size as usize);
+        let local_payload_size = Range::from(current_pos..current_pos + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             cursor.move_forward_by(payload_size as _)?;
@@ -138,7 +138,7 @@ impl IndexLeafCell {
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size = Range::from(current_pos..current_pos + payload_size as usize);
+        let local_payload_size = Range::from(current_pos..current_pos + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             cursor.move_forward_by(payload_size as _)?;
