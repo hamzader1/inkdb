@@ -204,7 +204,7 @@ impl<'p> BTreePageRef<'p> {
         if let Some(overflow_page) = cell.overflow_page() {
             let vec = OverflowPageRef::get_total_payload(
                 pager,
-                self.bytes,
+                &self.bytes[*cell.payload_range()],
                 cell.cell_payload_len() as usize,
                 self.usable_size,
                 overflow_page,
@@ -319,7 +319,7 @@ impl<'a> OverflowPageRef<'a> {
         let mut current_page = first_overflow_page;
         let usable_size = usable_size;
         let mut total_collected_payload: Vec<u8> = Vec::new();
-        total_collected_payload.copy_from_slice(local_payload_bytes);
+        total_collected_payload.extend_from_slice(local_payload_bytes);
         while remaining > 0 {
             let page = pager.get(current_page)?;
             let buffer = page.bytes_as_ref();
@@ -346,7 +346,7 @@ impl<'a> OverflowPageRef<'a> {
         }
 
         sqlite_assert_one(
-            local_payload_bytes.len() == total_payload_length,
+            total_collected_payload.len() == total_payload_length,
             SqliteError::Corrupt("assembled payload length mismatch".into()),
         )?;
 
