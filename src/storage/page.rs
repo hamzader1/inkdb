@@ -283,6 +283,16 @@ impl<'p> BTreePageRef<'p> {
             index: 0,
         }
     }
+    pub fn records<P: SqliteFile>(
+        &self,
+        pager: &mut Pager<P>,
+    ) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
+        let mut all = Vec::with_capacity(self.no_of_cells() as usize);
+        for cell_idx in 0..self.no_of_cells() {
+            all.push(self.record_of_cell(cell_idx, pager)?);
+        }
+        Ok(all)
+    }
 }
 
 pub struct OverflowPageRef<'a> {
