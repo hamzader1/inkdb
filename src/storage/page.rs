@@ -273,7 +273,7 @@ impl<'p> BTreePageRef<'p> {
         self.header.no_of_cells
     }
 
-    pub fn iter<'a, P>(&'a self, pager: &'a mut Pager<P>) -> PageIterator<'a, P>
+    pub fn iter<'r, P>(&'r self, pager: &'r mut Pager<P>) -> PageIterator<'r, 'p, P>
     where
         P: SqliteFile,
     {
@@ -367,14 +367,14 @@ impl<'a> OverflowPageRef<'a> {
     }
 }
 
-pub struct PageIterator<'a, P: SqliteFile> {
-    page: &'a BTreePageRef<'a>,
-    pager: &'a mut Pager<P>,
+pub struct PageIterator<'r, 'p, P: SqliteFile> {
+    page: &'r BTreePageRef<'p>,
+    pager: &'r mut Pager<P>,
     index: CellIdx,
 }
 
-impl<'a, P: SqliteFile> Iterator for PageIterator<'a, P> {
-    type Item = Vec<Value<'a>>;
+impl<'r, 'p, P: SqliteFile> Iterator for PageIterator<'r, 'p, P> {
+    type Item = Vec<Value<'p>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.page.no_of_cells() {
             return None;
