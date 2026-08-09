@@ -1,6 +1,7 @@
 use super::cell::BTreeCell;
 use super::page::BTreePageRef;
 use super::records::Value;
+use crate::format::page;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::storage::page::BTreePageType;
@@ -63,7 +64,7 @@ impl BTreeCursor {
         let mut page_no = self.root;
         loop {
             let guard = pager.get(page_no)?;
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 let (found, cell_idx) = self.choose_target(&page, &target)?;
                 self.stack.push(Path::new(page_no, cell_idx, guard));
@@ -87,7 +88,7 @@ impl BTreeCursor {
                 guard,
             } = path;
 
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 if cell_idx + 1 < page.no_of_cells() {
                     self.stack.push(Path::new(page_no, cell_idx + 1, guard));
@@ -118,7 +119,7 @@ impl BTreeCursor {
         let mut page_no = self.root;
         loop {
             let guard = pager.get(page_no)?;
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, 0, guard);
                 self.state = CursorState::At;
@@ -137,7 +138,7 @@ impl BTreeCursor {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, 0, guard);
                 self.state = CursorState::At;
@@ -155,7 +156,7 @@ impl BTreeCursor {
                 cell_idx,
                 guard,
             } = path;
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 if cell_idx > 0 {
                     self.add_path(page_no, cell_idx - 1, guard);
@@ -180,7 +181,7 @@ impl BTreeCursor {
         let mut page_no = self.root;
         loop {
             let guard = pager.get(page_no)?;
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, page.no_of_cells() - 1, guard);
                 self.state = CursorState::At;
@@ -201,7 +202,7 @@ impl BTreeCursor {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
-            let page = Self::page_as_ref(&guard, pager)?;
+            let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
                 self.add_path(page_no, page.no_of_cells() - 1, guard);
                 self.state = CursorState::At;
@@ -221,10 +222,12 @@ impl BTreeCursor {
     ) -> Result<Option<BTreeCell>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let Path {
-                cell_idx, guard, ..
+                page_no,
+                cell_idx,
+                guard,
             } = path;
 
-            let page = Self::page_as_ref(guard, pager)?;
+            let page = Self::page_as_ref(*page_no, guard, pager)?;
             let cell = page.cell(*cell_idx)?;
             return Ok(Some(cell));
         }
@@ -295,7 +298,7 @@ impl BTreeCursor {
         pager: &mut Pager<P>,
     ) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
         if let Some(path) = self.stack.last() {
-            let page = Self::page_as_ref(&path.guard, pager)?;
+            let page = Self::page_as_ref(path.page_no, &path.guard, pager)?;
             return Ok(Some(page));
         }
         Ok(None)
@@ -310,6 +313,7 @@ impl BTreeCursor {
     {
         let page_guard = pager.get(page_no)?;
         let page = BTreePageRef::new(
+            page_no,
             page_guard.bytes_as_ref(),
             &page_guard,
             pager.metadata.page_size,
@@ -333,10 +337,12 @@ impl BTreeCursor {
     }
 
     pub fn page_as_ref<'a, P: SqliteFile>(
+        page_no: PageNo,
         guard: &'a PageGuard,
         pager: &Pager<P>,
     ) -> Result<BTreePageRef<'a>, SqliteError> {
         BTreePageRef::new(
+            page_no,
             guard.bytes_as_ref(),
             guard,
             pager.metadata.page_size,
