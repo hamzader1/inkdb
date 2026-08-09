@@ -179,30 +179,30 @@ impl<'p> BTreePageRef<'p> {
             }
         }
     }
-    pub fn record_of_cell<'a, P: SqliteFile>(
-        &'a self,
+    pub fn record_of_cell<P: SqliteFile>(
+        &self,
         cell_idx: CellIdx,
         pager: &mut Pager<P>,
-    ) -> Result<Vec<Value<'a>>, SqliteError> {
+    ) -> Result<Vec<Value<'p>>, SqliteError> {
         let mut records = Vec::new();
         let cell = self.cell(cell_idx)?;
         self.get_cell_record(pager, &cell, &mut records)?;
         Ok(records)
     }
-    pub fn record_of<'a, P: SqliteFile>(
-        &'a self,
+    pub fn record_of<P: SqliteFile>(
+        &self,
         cell: &BTreeCell,
         pager: &mut Pager<P>,
-    ) -> Result<Vec<Value<'a>>, SqliteError> {
+    ) -> Result<Vec<Value<'p>>, SqliteError> {
         let mut records = Vec::new();
         self.get_cell_record(pager, cell, &mut records)?;
         Ok(records)
     }
-    fn get_cell_record<'a, P: SqliteFile>(
-        &'a self,
+    fn get_cell_record<P: SqliteFile>(
+        &self,
         pager: &mut Pager<P>,
         cell: &BTreeCell,
-        collector: &mut Vec<Value<'a>>,
+        collector: &mut Vec<Value<'p>>,
     ) -> Result<(), SqliteError> {
         if let Some(overflow_page) = cell.overflow_page() {
             let vec = OverflowPageRef::get_total_payload(
@@ -217,10 +217,10 @@ impl<'p> BTreePageRef<'p> {
             self.decode_loop_borrowed(&self.bytes[*cell.payload_range()], collector)
         }
     }
-    fn decode_loop_owned<'a>(
+    fn decode_loop_owned(
         &self,
         bytes: Vec<u8>,
-        collector: &mut Vec<Value<'a>>,
+        collector: &mut Vec<Value<'_>>,
     ) -> Result<(), SqliteError> {
         let mut header_cursor = SqliteCursor::new(bytes.as_slice());
         let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
@@ -235,10 +235,10 @@ impl<'p> BTreePageRef<'p> {
         }
         Ok(())
     }
-    fn decode_loop_borrowed<'a>(
+    fn decode_loop_borrowed(
         &self,
-        bytes: &'a [u8],
-        collector: &mut Vec<Value<'a>>,
+        bytes: &'p [u8],
+        collector: &mut Vec<Value<'p>>,
     ) -> Result<(), SqliteError> {
         let mut header_cursor = SqliteCursor::new(bytes);
         let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
