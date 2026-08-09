@@ -1,11 +1,11 @@
 use super::cell::BTreeCell;
 use super::page::BTreePageRef;
-use super::records::Value;
+use crate::record::Value;
 use crate::format::page;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::storage::page::BTreePageType;
-use crate::storage::records::SqlType;
+use crate::record::SqlType;
 use crate::vfs::file::SqliteFile;
 use crate::PageNo;
 use crate::SqliteError;

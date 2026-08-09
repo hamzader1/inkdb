@@ -2,12 +2,12 @@ use std::marker::PhantomData;
 
 use super::btree::CellIdx;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
-use super::records::{Record, RecordMetadata, Value};
 use super::sqlite_cursor::SqliteCursor;
 use crate::errors::SqliteError;
 use crate::format::page::PageNo;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
+use crate::record::{Record, RecordMetadata, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::vfs::file::SqliteFile;
 
