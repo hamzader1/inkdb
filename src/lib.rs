@@ -1,5 +1,7 @@
 #![allow(unused, dead_code)] // temp for now
 mod bytes;
+pub mod record;
+mod sql;
 pub mod storage;
 pub mod errors;
 pub mod format;
