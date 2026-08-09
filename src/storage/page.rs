@@ -272,6 +272,17 @@ impl<'p> BTreePageRef<'p> {
     pub fn no_of_cells(&self) -> u16 {
         self.header.no_of_cells
     }
+
+    pub fn iter<'a, P>(&'a self, pager: &'a mut Pager<P>) -> PageIterator<'a, P>
+    where
+        P: SqliteFile,
+    {
+        PageIterator {
+            page: self,
+            pager,
+            index: 0,
+        }
+    }
 }
 
 pub struct OverflowPageRef<'a> {
@@ -353,5 +364,25 @@ impl<'a> OverflowPageRef<'a> {
         )?;
 
         Ok(total_collected_payload)
+    }
+}
+
+pub struct PageIterator<'a, P: SqliteFile> {
+    page: &'a BTreePageRef<'a>,
+    pager: &'a mut Pager<P>,
+    index: CellIdx,
+}
+
+impl<'a, P: SqliteFile> Iterator for PageIterator<'a, P> {
+    type Item = Vec<Value<'a>>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.page.no_of_cells() {
+            return None;
+        }
+        if let Ok(record) = self.page.record_of_cell(self.index, self.pager) {
+            self.index += 1;
+            return Some(record);
+        }
+        None
     }
 }
