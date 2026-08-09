@@ -303,6 +303,17 @@ impl BTreeCursor {
         }
         Ok(None)
     }
+    pub fn current_record<'a, P: SqliteFile>(
+        &'a self,
+        pager: &mut Pager<P>,
+    ) -> Result<Option<Vec<Value<'a>>>, SqliteError> {
+        if let Some(page) = self.current_page_as_ref(pager)? && let Some(cell) = self.current(pager)? {
+            let cell = page.record_of(&cell, pager)?;
+            return Ok(Some(cell));
+        }
+        Ok(None)
+    }
+
     fn with_page<P: SqliteFile, T, F>(
         pager: &mut Pager<P>,
         page_no: PageNo,
