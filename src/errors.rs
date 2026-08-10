@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum SqliteError {
@@ -63,4 +64,29 @@ pub enum SqliteError {
 
     #[error("{0}")]
     OverFlow(String),
+
+    #[error("Invalid number from position {start} to {end}: Number too large or malformed")]
+    InvalidNumber {
+        input: String,
+        start: usize,
+        end: usize,
+    },
+
+    #[error(
+            "Unexpected Character '{character}' at position {position}: Expected alphanumeric, operator, or keyword"
+        )]
+    UnexpectedChar {
+        input: String,
+        character: char,
+        position: usize,
+    },
+
+    #[error("Unterminated string at position {position}: Expected closing quote")]
+    UnterminatedString { input: String, position: usize },
+
+    #[error("Unclosed parenthesis at position {position}: Expected ')'")]
+    UnterminatedParenthsis { input: String, position: usize },
+
+    #[error("Unmatched ')' at position {position}: No matching '(' found")]
+    UnmatchedClosingParenthesis { input: String, position: usize },
 }
