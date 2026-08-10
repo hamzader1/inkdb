@@ -356,8 +356,14 @@ impl<'a> Lexer<'a> {
                         "NULL" => TokenKind::Null,
 
                         // Boolean literals
-                        "TRUE" => TokenKind::Bool(true),
-                        "FALSE" => TokenKind::Bool(false),
+                        "TRUE" => TokenKind::BoolVar(true),
+                        "FALSE" => TokenKind::BoolVar(false),
+
+                        "BOOL" => TokenKind::Bool,
+                        "INT" | "INTEGER" => TokenKind::Integer,
+                        "TEXT" => TokenKind::Text,
+                        "FLOAT"| "DOUBLE" |"REAL" => TokenKind::Float,
+                        "BLOB" => TokenKind::Blob,
 
                         // Anything else is an identifier
                         _ => TokenKind::Identifier(word),
