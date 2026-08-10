@@ -1,3 +1,5 @@
+use super::tokens::TokenKind;
+
 pub struct CreateTable {
     name: String,
     columns: Vec<Column>,
@@ -23,4 +25,16 @@ pub enum Constraint {
 pub enum Ast {
     CreateTable { name: String, columns: Vec<Column> },
     Null,
+}
+
+impl From<TokenKind> for Affinity {
+    fn from(value: TokenKind) -> Self {
+        match value {
+           TokenKind::Integer => Self::Int,
+           TokenKind::Text => Self::Text,
+           TokenKind::Float => Self::Float,
+           TokenKind::Blob => Self::Blob,
+           _ => unreachable!()
+        }
+    }
 }
