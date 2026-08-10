@@ -5,10 +5,7 @@ pub struct Token {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-}
+pub struct Span(pub usize, pub usize);
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 
@@ -77,8 +74,9 @@ pub enum TokenKind {
 
     // values / literals
     Identifier(String),
-    Number(String), // integer or float literal
-    String(String), // 'quoted'
+    Bool(bool),
+    Number(String),
+    String(String),
     Blob(String),
     Null,
 
