@@ -52,7 +52,7 @@ impl_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
 pub enum Value<'a> {
     Null,
     Integer(i64),
-    Real(f64),
+    Float(f64),
     Text(Cow<'a, str>),
     Blob(Cow<'a, [u8]>),
 }
@@ -96,27 +96,27 @@ impl<'a> Ord for Value<'a> {
             // INTEGER / REAL
             (Value::Integer(a), Value::Integer(b)) => a.cmp(b),
 
-            (Value::Real(a), Value::Real(b)) => a.total_cmp(b),
+            (Value::Float(a), Value::Float(b)) => a.total_cmp(b),
 
-            (Value::Integer(a), Value::Real(b)) => compare_sqlite_num(*a, *b),
+            (Value::Integer(a), Value::Float(b)) => compare_sqlite_num(*a, *b),
 
-            (Value::Real(a), Value::Integer(b)) => compare_sqlite_num(*b, *a).reverse(),
+            (Value::Float(a), Value::Integer(b)) => compare_sqlite_num(*b, *a).reverse(),
 
             // Numeric < TEXT
-            (Value::Integer(_), Value::Text(_)) | (Value::Real(_), Value::Text(_)) => {
+            (Value::Integer(_), Value::Text(_)) | (Value::Float(_), Value::Text(_)) => {
                 Ordering::Less
             }
 
-            (Value::Text(_), Value::Integer(_)) | (Value::Text(_), Value::Real(_)) => {
+            (Value::Text(_), Value::Integer(_)) | (Value::Text(_), Value::Float(_)) => {
                 Ordering::Greater
             }
 
             // Numeric < BLOB
-            (Value::Integer(_), Value::Blob(_)) | (Value::Real(_), Value::Blob(_)) => {
+            (Value::Integer(_), Value::Blob(_)) | (Value::Float(_), Value::Blob(_)) => {
                 Ordering::Less
             }
 
-            (Value::Blob(_), Value::Integer(_)) | (Value::Blob(_), Value::Real(_)) => {
+            (Value::Blob(_), Value::Integer(_)) | (Value::Blob(_), Value::Float(_)) => {
                 Ordering::Greater
             }
 
@@ -214,7 +214,7 @@ impl Record {
             }
             7 => {
                 let float = f64::from_be_bytes(bytes.try_into().unwrap());
-                Value::Real(float)
+                Value::Float(float)
             }
             8 => Value::Integer(0),
             9 => Value::Integer(1),
@@ -264,7 +264,7 @@ impl Record {
             }
             7 => {
                 let float = f64::from_be_bytes(bytes.try_into().unwrap());
-                Value::Real(float)
+                Value::Float(float)
             }
             8 => Value::Integer(0),
             9 => Value::Integer(1),
