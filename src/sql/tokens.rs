@@ -74,10 +74,10 @@ pub enum TokenKind {
 
     // values / literals
     Identifier(String),
-    Bool(bool),
+    BoolVar(bool),
     Number(String),
     String(String),
-    Blob(String),
+    Blob,
     Null,
 
     // punctuation / operators
@@ -104,4 +104,9 @@ pub enum TokenKind {
     Dot,
     Tilde,
     EmptyIdentifier,
+
+    Integer,
+    Text,
+    Float,
+    Bool,
 }
