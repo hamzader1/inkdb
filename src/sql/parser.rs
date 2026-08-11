@@ -1,19 +1,21 @@
 use super::ast::Ast;
+use crate::errors::SqliteError::{self, *};
+
 use super::tokens::{
-    Span, Token,
+    Token,
     TokenKind::{self, *},
 };
 use std::string::String;
 
 pub struct Parser {
-    tokens: Vec<Token>,
-    pos: usize,
+    pub tokens: Vec<Token>,
+    pub pos: usize,
 }
 
 impl Parser {
-    pub fn parse(tokens: Vec<Token>) -> Ast {
+    pub fn parse(tokens: Vec<Token>) -> Result<Ast, SqliteError> {
         let mut parser = Parser { tokens, pos: 0 };
-        Ast::Null
+        parser.parse_statement()
     }
     pub fn at(&self, t_kind: &TokenKind) -> bool {
         if let Some(t) = self.tokens.get(self.pos)
@@ -45,54 +47,31 @@ impl Parser {
         t
     }
 
-    pub fn expect(&self, t_kind: &TokenKind) {
+    pub fn expect(&mut self, t_kind: &TokenKind) -> Result<(), SqliteError> {
         if !self.at(t_kind) {
-            panic!("Token Mismatch") // temporary panic for now
+            return Err(RuntimeError("Given token does not match the current token".into()))
         }
+        self.pos+=1;
+        Ok(())
     }
-    pub fn expect_ident(&mut self) -> String {
+    pub fn expect_ident(&mut self) ->Result< String,SqliteError> {
         match self.next() {
             Some(t) => match t.kind {
-                String(x) => x,
-                _ => panic!(),
+                Identifier(x) =>
+                {
+                 Ok(x)
+                }
+                any =>{
+                    Err(RuntimeError("Expected identifier".into()))
+                },
             },
-            None => panic!(),
+            None =>  Err(RuntimeError("Unexpected end of input, Expected identifier".into()))
         }
     }
-
-    // pub fn peek_ahead_by(&self, n: usize) -> Option<&TokenKind> {
-    //     if let Some(t) = self.tokens.get(self.pos + n) {
-    //         return Some(&t.kind);
-    //     }
-    //     None
-    // }
-
-    // pub fn advance(&mut self) -> Option<&TokenKind> {
-    //     if let Some(t) = self.tokens.get(self.pos) {
-    //         return Some(&t.kind);
-    //     }
-    //     None
-    // }
-
-    // pub fn verify_and_advance(&mut self, t_kind: TokenKind) -> Option<&TokenKind> {
-    //     if let Some(t) = self.tokens.get(self.pos) && t_kind == t.kind {
-    //         self.pos+=1;
-    //         return Some(&t.kind)
-    //     }
-    //     None
-    // }
-    // pub fn span(&self) -> Option<&Span> {
-    //     if let Some(t) = self.tokens.get(self.pos) {
-    //         return Some(&t.span);
-    //     }
-    //     None
-    // }
-
-    // pub fn parse_statment(&mut self) -> Ast {
-    //     // match self.advance() {
-    //         Some(Create) => {}
-    //         _ => unreachable!(),
-    //     }
-    //     Ast::Null
-    // }
+    pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {
+        match self.peek() {
+            Some(Create) => self.parse_create(),
+            _ => todo!(),
+        }
+    }
 }
