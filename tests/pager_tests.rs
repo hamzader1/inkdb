@@ -2,8 +2,10 @@ mod common;
 
 use std::io::Write;
 
+use inkdb::DbError;
+use inkdb::SqliteDatabase;
 use inkdb::pager::buffer_pool::BufferPool;
-use inkdb::pager::frame::{Frame, FrameId, CLEAN, DIRTY, FREE, REFERENCED};
+use inkdb::pager::frame::{CLEAN, DIRTY, FREE, Frame, FrameId, REFERENCED};
 use inkdb::pager::guard::PageGuard;
 use inkdb::pager::metadata::SqliteMetadata;
 use inkdb::pager::pager::Pager;
@@ -12,8 +14,6 @@ use inkdb::vfs::disk::{DiskFile, DiskVfs};
 use inkdb::vfs::file::SqliteFile;
 use inkdb::vfs::mem::{MemFile, MemVfs};
 use inkdb::vfs::{SqliteOptions, Vfs};
-use inkdb::DbError;
-use inkdb::SqliteDatabase;
 
 fn rc_vec(data: Vec<u8>) -> std::rc::Rc<std::cell::RefCell<Vec<u8>>> {
     std::rc::Rc::new(std::cell::RefCell::new(data))
@@ -1114,7 +1114,7 @@ fn clock_eviction_evicts_clean_unpinned_page_ignoring_pinned_dirty() {
     let mut pager = Pager::with_cache(file, 512, 512, 4, 2);
 
     let _g1 = pager.get_mut(1).unwrap(); // dirty, pin_count=1
-                                         // page 2 is loaded and immediately dropped — clean, pin_count=0
+    // page 2 is loaded and immediately dropped — clean, pin_count=0
     pager.get(2).unwrap();
 
     // page 1 is pinned (dirty), page 2 is clean and unpinned

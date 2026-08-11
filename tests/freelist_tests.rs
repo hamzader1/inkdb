@@ -20,7 +20,11 @@ use std::io::Write;
 
 fn temp_db_path(name: &str) -> std::path::PathBuf {
     let mut p = std::env::temp_dir();
-    p.push(format!("inkdb_freelist_test_{}_{}.db", std::process::id(), name));
+    p.push(format!(
+        "inkdb_freelist_test_{}_{}.db",
+        std::process::id(),
+        name
+    ));
     p
 }
 

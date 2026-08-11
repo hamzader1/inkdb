@@ -144,24 +144,16 @@ mod via_btree_page {
     #[test]
     fn table_leaf_large_payload() {
         let payload = vec![0x55; 400];
-    
-        let cell = encode_table_leaf_cell(
-            payload.len() as u64,
-            1,
-            &payload,
-            None,
-        );
-    
+
+        let cell = encode_table_leaf_cell(payload.len() as u64, 1, &payload, None);
+
         let page = leaf_table_page_with_cell(cell);
-    
+
         let cell = page.cell(0).unwrap();
-    
+
         let range = cell.payload();
-    
-        assert_eq!(
-            &page.bytes()[range.start..range.end],
-            payload.as_slice()
-        );
+
+        assert_eq!(&page.bytes()[range.start..range.end], payload.as_slice());
     }
     #[test]
     fn table_leaf_all_rowid_varint_boundaries() {

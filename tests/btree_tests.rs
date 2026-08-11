@@ -13,9 +13,9 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use inkdb::storage::btree::{BTreeCursor, BTreePageRef, CursorState, SeekResult};
 use inkdb::errors::SqliteError;
 use inkdb::pager::pager::Pager;
+use inkdb::storage::btree::{BTreeCursor, BTreePageRef, CursorState, SeekResult};
 use inkdb::vfs::mem::MemFile;
 
 const PAGE_SIZE: usize = 512;
@@ -63,12 +63,7 @@ fn leaf_root(cells: &[(u64, &[u8])]) -> Pager<MemFile> {
 ///   page 4: leaf (4,d) (5,e) (6,f)
 fn two_level_tree() -> Pager<MemFile> {
     let mut data = make_db(PAGE_SIZE, 4);
-    common::write_interior_table_page(
-        &mut data[PAGE_SIZE..2 * PAGE_SIZE],
-        0,
-        &[(3, 3)],
-        4,
-    );
+    common::write_interior_table_page(&mut data[PAGE_SIZE..2 * PAGE_SIZE], 0, &[(3, 3)], 4);
     let left = [enc(1, b"a"), enc(2, b"b"), enc(3, b"c")];
     common::write_leaf_table_page(&mut data[2 * PAGE_SIZE..3 * PAGE_SIZE], 0, &left);
     let right = [enc(4, b"d"), enc(5, b"e"), enc(6, b"f")];
@@ -85,12 +80,7 @@ fn two_level_tree() -> Pager<MemFile> {
 fn three_level_tree() -> Pager<MemFile> {
     let mut data = make_db(PAGE_SIZE, 6);
     common::write_interior_table_page(&mut data[PAGE_SIZE..2 * PAGE_SIZE], 0, &[(3, 4)], 4);
-    common::write_interior_table_page(
-        &mut data[2 * PAGE_SIZE..3 * PAGE_SIZE],
-        0,
-        &[(5, 2)],
-        6,
-    );
+    common::write_interior_table_page(&mut data[2 * PAGE_SIZE..3 * PAGE_SIZE], 0, &[(5, 2)], 6);
     let p5 = [enc(1, b"a"), enc(2, b"b")];
     common::write_leaf_table_page(&mut data[4 * PAGE_SIZE..5 * PAGE_SIZE], 0, &p5);
     let p6 = [enc(3, b"c"), enc(4, b"d")];
@@ -102,16 +92,17 @@ fn three_level_tree() -> Pager<MemFile> {
 
 /// The cursor's path flattened into `(page_no, cell_idx)` pairs.
 fn path_parts(cursor: &BTreeCursor) -> Vec<(u32, u16)> {
-    cursor.stack.iter().map(|p| (p.page_no, p.cell_idx)).collect()
+    cursor
+        .stack
+        .iter()
+        .map(|p| (p.page_no, p.cell_idx))
+        .collect()
 }
 
 /// Seek on a fresh cursor rooted at page 2, returning the result and the
 /// resulting path. Fresh cursors keep each seek independent (a seek no
 /// longer clears a previous path).
-fn fresh_seek_pos(
-    pager: &mut Pager<MemFile>,
-    target: u64,
-) -> (SeekResult, Vec<(u32, u16)>) {
+fn fresh_seek_pos(pager: &mut Pager<MemFile>, target: u64) -> (SeekResult, Vec<(u32, u16)>) {
     let mut cursor = BTreeCursor::new(2);
     let res = cursor.seek(pager, target).unwrap();
     (res, path_parts(&cursor))
@@ -157,7 +148,10 @@ fn cell_payload_at(
 
 /// The expected insertion index for a missing `target` in a sorted rowid list.
 fn insert_idx(rowids: &[u64], target: u64) -> u16 {
-    rowids.iter().position(|&r| r > target).unwrap_or(rowids.len()) as u16
+    rowids
+        .iter()
+        .position(|&r| r > target)
+        .unwrap_or(rowids.len()) as u16
 }
 
 /// Forward walk: `first()` then `next()` until the stack empties, collecting
@@ -198,9 +192,7 @@ fn walk_backward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u6
 
 #[test]
 fn btree_header_size_constants_are_8_and_12() {
-    use inkdb::storage::btree::{
-        INTERIOR_BTREE_PAGE_HEADER_SIZE, LEAF_BTREE_PAGE_HEADER_SIZE,
-    };
+    use inkdb::storage::btree::{INTERIOR_BTREE_PAGE_HEADER_SIZE, LEAF_BTREE_PAGE_HEADER_SIZE};
     assert_eq!(LEAF_BTREE_PAGE_HEADER_SIZE, 8);
     assert_eq!(INTERIOR_BTREE_PAGE_HEADER_SIZE, 12);
 }
@@ -262,15 +254,7 @@ fn leaf_table_cell_high_index_on_large_page_parses() {
 
 #[test]
 fn leaf_table_varint_boundary_rowids_parse() {
-    let rowids: [u64; 7] = [
-        0,
-        127,
-        128,
-        16_383,
-        16_384,
-        u32::MAX as u64,
-        u64::MAX,
-    ];
+    let rowids: [u64; 7] = [0, 127, 128, 16_383, 16_384, u32::MAX as u64, u64::MAX];
     let cells: Vec<Vec<u8>> = rowids.iter().map(|&r| enc(r, b"p")).collect();
     let mut pager = leaf_db(PAGE_SIZE, 2, 2, &cells);
     for (i, &rid) in rowids.iter().enumerate() {
@@ -306,13 +290,19 @@ fn leaf_table_big_page_many_cells_and_large_payloads() {
     }
     let mut pager = leaf_db(page_size, 2, 2, &cells);
     for i in 0..200u16 {
-        assert_eq!(cell_row_id_at(&mut pager, 2, i, page_size, page_size), i as u64 + 1);
+        assert_eq!(
+            cell_row_id_at(&mut pager, 2, i, page_size, page_size),
+            i as u64 + 1
+        );
     }
 
     let big = vec![0xABu8; 1500];
     let cells2 = vec![enc(1, &big), enc(2, &big)];
     let mut pager2 = leaf_db(page_size, 2, 2, &cells2);
-    assert_eq!(cell_payload_at(&mut pager2, 2, 1, page_size, page_size), big);
+    assert_eq!(
+        cell_payload_at(&mut pager2, 2, 1, page_size, page_size),
+        big
+    );
 }
 
 #[test]
@@ -846,14 +836,20 @@ fn two_level_prev_from_first_cell_enters_before_first() {
 fn two_level_full_forward_walk() {
     let mut pager = two_level_tree();
     let mut cursor = BTreeCursor::new(2);
-    assert_eq!(walk_forward(&mut pager, &mut cursor), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(
+        walk_forward(&mut pager, &mut cursor),
+        vec![1, 2, 3, 4, 5, 6]
+    );
 }
 
 #[test]
 fn two_level_full_backward_walk() {
     let mut pager = two_level_tree();
     let mut cursor = BTreeCursor::new(2);
-    assert_eq!(walk_backward(&mut pager, &mut cursor), vec![6, 5, 4, 3, 2, 1]);
+    assert_eq!(
+        walk_backward(&mut pager, &mut cursor),
+        vec![6, 5, 4, 3, 2, 1]
+    );
 }
 
 #[test]
@@ -923,14 +919,20 @@ fn three_level_prev_crosses_leaf_then_subtree() {
 fn three_level_full_forward_walk() {
     let mut pager = three_level_tree();
     let mut cursor = BTreeCursor::new(2);
-    assert_eq!(walk_forward(&mut pager, &mut cursor), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(
+        walk_forward(&mut pager, &mut cursor),
+        vec![1, 2, 3, 4, 5, 6]
+    );
 }
 
 #[test]
 fn three_level_full_backward_walk() {
     let mut pager = three_level_tree();
     let mut cursor = BTreeCursor::new(2);
-    assert_eq!(walk_backward(&mut pager, &mut cursor), vec![6, 5, 4, 3, 2, 1]);
+    assert_eq!(
+        walk_backward(&mut pager, &mut cursor),
+        vec![6, 5, 4, 3, 2, 1]
+    );
 }
 
 #[test]
@@ -971,11 +973,7 @@ fn descend_to_first_on_leaf_stays() {
 fn seek_on_cell_less_interior_root_uses_right_most_child() {
     let mut data = make_db(PAGE_SIZE, 3);
     common::write_interior_table_page(&mut data[PAGE_SIZE..2 * PAGE_SIZE], 0, &[], 3);
-    common::write_leaf_table_page(
-        &mut data[2 * PAGE_SIZE..3 * PAGE_SIZE],
-        0,
-        &[enc(1, b"a")],
-    );
+    common::write_leaf_table_page(&mut data[2 * PAGE_SIZE..3 * PAGE_SIZE], 0, &[enc(1, b"a")]);
     let mut pager = pager_from(data, PAGE_SIZE, 3);
 
     let (res, path) = fresh_seek_pos(&mut pager, 5);
@@ -1003,7 +1001,10 @@ fn many_seeks_over_dense_leaf_do_not_leak_pins() {
     let mut cursor = BTreeCursor::new(2);
     for i in 1..=80u64 {
         assert_eq!(cursor.seek(&mut pager, i).unwrap(), SeekResult::Exact);
-        assert_eq!(cursor.seek(&mut pager, i + 80).unwrap(), SeekResult::NotFound);
+        assert_eq!(
+            cursor.seek(&mut pager, i + 80).unwrap(),
+            SeekResult::NotFound
+        );
     }
     let rowids = walk_forward(&mut pager, &mut cursor);
     assert_eq!(rowids.len(), 80);

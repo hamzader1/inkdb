@@ -45,7 +45,7 @@ fn decode_ninth_byte_uses_full_8_bits_no_continuation_check() {
     // should be taken as a full 8-bit value regardless of its high bit.
     let mut bytes = [0x81u8; 9];
     bytes[8] = 0xFF; // full 8 bits, would look like "continue" if the
-                      // continuation-bit rule were (wrongly) applied here.
+    // continuation-bit rule were (wrongly) applied here.
     let result = decode_varint(&bytes);
     assert!(result.is_some());
     let (_, used) = result.unwrap();

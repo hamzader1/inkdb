@@ -2,11 +2,11 @@
 
 mod common;
 
-use common::{build_db_image, build_overflow_page, set_page_count, valid_header_bytes, MemFile};
+use common::{MemFile, build_db_image, build_overflow_page, set_page_count, valid_header_bytes};
+use inkdb::SqliteDatabase;
 use inkdb::errors::SqliteError;
-use inkdb::format::overflow::{compute_local_payload_size, OverflowPageRef};
-use inkdb::vfs::disk::DiskFile;
-use inkdb::SqliteDatabase; // only for type inference where needed
+use inkdb::format::overflow::{OverflowPageRef, compute_local_payload_size};
+use inkdb::vfs::disk::DiskFile; // only for type inference where needed
 
 // ---------------------------------------------------------------------
 // compute_local_payload_size

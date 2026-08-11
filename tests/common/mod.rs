@@ -9,8 +9,8 @@
 
 #![allow(dead_code)]
 
-use inkdb::vfs::file::SqliteFile;
 use inkdb::DbError;
+use inkdb::vfs::file::SqliteFile;
 use std::cell::RefCell;
 
 /// Minimal in-memory file for testing, backed by a growable byte vector.
@@ -110,7 +110,7 @@ pub fn valid_header_bytes(page_size: u16, reserved_space: u8) -> Vec<u8> {
     h[60..64].copy_from_slice(&0u32.to_be_bytes()); // user_version
     h[64..68].copy_from_slice(&0u32.to_be_bytes()); // incremental_vacuum_mode
     h[68..72].copy_from_slice(&0u32.to_be_bytes()); // application_id
-                                                    // 72..92 reserved for expansion -> already zeroed
+    // 72..92 reserved for expansion -> already zeroed
     h[92..96].copy_from_slice(&0u32.to_be_bytes()); // version_valid_for_number
     h[96..100].copy_from_slice(&0u32.to_be_bytes()); // sqlite_version_number
     h

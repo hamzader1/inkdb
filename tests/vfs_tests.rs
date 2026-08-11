@@ -3,16 +3,16 @@
 
 mod common;
 
+use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
-use std::cell::RefCell;
 
+use inkdb::DbError;
 use inkdb::vfs::cursor::FileCursor;
 use inkdb::vfs::disk::{DiskFile, DiskVfs};
 use inkdb::vfs::file::SqliteFile;
 use inkdb::vfs::mem::{MemFile, MemVfs};
 use inkdb::vfs::{SqliteOptions, Vfs};
-use inkdb::DbError;
 
 fn rc_vec(data: Vec<u8>) -> Rc<RefCell<Vec<u8>>> {
     Rc::new(RefCell::new(data))
@@ -393,7 +393,9 @@ fn disk_file_write_all_at_writes_at_offset() {
     let path = temp_path("disk_write_at_offset");
     write_temp_file(&path, &[0u8; 10]);
     let mut vfs = DiskVfs;
-    let file = vfs.open(&path, SqliteOptions::new().read(true).write(true)).unwrap();
+    let file = vfs
+        .open(&path, SqliteOptions::new().read(true).write(true))
+        .unwrap();
     file.write_all_at(3, &[1, 2, 3]).unwrap();
     let mut buf = [0u8; 10];
     file.read_exact_at(0, &mut buf).unwrap();
@@ -406,7 +408,9 @@ fn disk_file_set_len_truncates() {
     let path = temp_path("disk_set_len_truncate");
     write_temp_file(&path, &[1, 2, 3, 4, 5]);
     let mut vfs = DiskVfs;
-    let file = vfs.open(&path, SqliteOptions::new().read(true).write(true)).unwrap();
+    let file = vfs
+        .open(&path, SqliteOptions::new().read(true).write(true))
+        .unwrap();
     file.set_len(3).unwrap();
     assert_eq!(file.len().unwrap(), 3);
     let _ = std::fs::remove_file(&path);
@@ -417,7 +421,9 @@ fn disk_file_set_len_extends() {
     let path = temp_path("disk_set_len_extend");
     write_temp_file(&path, &[1, 2, 3]);
     let mut vfs = DiskVfs;
-    let file = vfs.open(&path, SqliteOptions::new().read(true).write(true)).unwrap();
+    let file = vfs
+        .open(&path, SqliteOptions::new().read(true).write(true))
+        .unwrap();
     file.set_len(6).unwrap();
     assert_eq!(file.len().unwrap(), 6);
     let mut buf = [0u8; 6];
@@ -432,7 +438,9 @@ fn disk_file_sync_succeeds() {
     let path = temp_path("disk_sync");
     write_temp_file(&path, b"data");
     let mut vfs = DiskVfs;
-    let file = vfs.open(&path, SqliteOptions::new().read(true).write(true)).unwrap();
+    let file = vfs
+        .open(&path, SqliteOptions::new().read(true).write(true))
+        .unwrap();
     file.sync().unwrap();
     let _ = std::fs::remove_file(&path);
 }
@@ -442,7 +450,9 @@ fn disk_file_write_then_read_consistent() {
     let path = temp_path("disk_write_then_read");
     write_temp_file(&path, &[0u8; 8]);
     let mut vfs = DiskVfs;
-    let file = vfs.open(&path, SqliteOptions::new().read(true).write(true)).unwrap();
+    let file = vfs
+        .open(&path, SqliteOptions::new().read(true).write(true))
+        .unwrap();
     file.write_all_at(2, &[5, 6, 7]).unwrap();
     let mut buf = [0u8; 8];
     file.read_exact_at(0, &mut buf).unwrap();

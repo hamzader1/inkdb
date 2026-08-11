@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{valid_header_bytes, MemFile};
+use common::{MemFile, valid_header_bytes};
 use inkdb::errors::SqliteError;
 use inkdb::format::header::SqliteDatabaseHeader;
 
@@ -81,10 +81,7 @@ fn bad_magic_string_is_rejected() {
     let mut bytes = valid_header_bytes(4096, 0);
     bytes[0] = b'X'; // corrupt the magic string
     let err = parse(bytes).unwrap_err();
-    assert!(matches!(
-        err,
-        SqliteError::InvalidDatabaseHeader
-    ));
+    assert!(matches!(err, SqliteError::InvalidDatabaseHeader));
 }
 
 #[test]
@@ -177,7 +174,8 @@ fn schema_format_number_1_through_4_are_all_valid() {
     for n in 1u32..=4 {
         let mut bytes = valid_header_bytes(4096, 0);
         bytes[44..48].copy_from_slice(&n.to_be_bytes());
-        let header = parse(bytes).unwrap_or_else(|e| panic!("schema_format {n} should be valid: {e:?}"));
+        let header =
+            parse(bytes).unwrap_or_else(|e| panic!("schema_format {n} should be valid: {e:?}"));
         assert_eq!(header.schema_format_number, n);
     }
 }
