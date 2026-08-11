@@ -49,16 +49,6 @@ macro_rules! impl_ints {
     };
 }
 impl_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
-
-#[derive(Debug)]
-pub enum Value<'a> {
-    Null,
-    Integer(i64),
-    Float(f64),
-    Text(Cow<'a, str>),
-    Blob(Cow<'a, [u8]>),
-}
-
 #[derive(Debug)]
 pub struct RecordMetadata {
     pub serial_type: u8,
@@ -71,6 +61,15 @@ impl RecordMetadata {
     }
 }
 pub type RM = RecordMetadata;
+
+#[derive(Debug)]
+pub enum Value<'a> {
+    Null,
+    Integer(i64),
+    Float(f64),
+    Text(Cow<'a, str>),
+    Blob(Cow<'a, [u8]>),
+}
 
 impl<'a> PartialEq for Value<'a> {
     fn eq(&self, other: &Self) -> bool {
@@ -133,6 +132,201 @@ impl<'a> Ord for Value<'a> {
             // BLOB
             (Value::Blob(a), Value::Blob(b)) => a.cmp(b),
         }
+    }
+}
+impl<'a> PartialEq<Value<'a>> for i64 {
+    fn eq(&self, other: &Value<'a>) -> bool {
+        compare_i64_value(*self, other) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<Value<'a>> for i64 {
+    fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
+        Some(compare_i64_value(*self, other))
+    }
+}
+
+impl<'a> PartialEq<i64> for Value<'a> {
+    fn eq(&self, other: &i64) -> bool {
+        compare_i64_value(*other, self) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<i64> for Value<'a> {
+    fn partial_cmp(&self, other: &i64) -> Option<Ordering> {
+        Some(compare_i64_value(*other, self).reverse())
+    }
+}
+
+fn compare_i64_value(a: i64, b: &Value<'_>) -> Ordering {
+    match b {
+        Value::Null => Ordering::Greater,
+
+        Value::Integer(v) => a.cmp(v),
+
+        Value::Float(v) => compare_sqlite_num(a, *v),
+
+        Value::Text(_) => Ordering::Less,
+
+        Value::Blob(_) => Ordering::Less,
+    }
+}
+
+impl<'a> PartialEq<Value<'a>> for f64 {
+    fn eq(&self, other: &Value<'a>) -> bool {
+        compare_f64_value(*self, other) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<Value<'a>> for f64 {
+    fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
+        Some(compare_f64_value(*self, other))
+    }
+}
+
+impl<'a> PartialEq<f64> for Value<'a> {
+    fn eq(&self, other: &f64) -> bool {
+        compare_f64_value(*other, self) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<f64> for Value<'a> {
+    fn partial_cmp(&self, other: &f64) -> Option<Ordering> {
+        Some(compare_f64_value(*other, self).reverse())
+    }
+}
+
+fn compare_f64_value(a: f64, b: &Value<'_>) -> Ordering {
+    match b {
+        Value::Null => Ordering::Greater,
+
+        Value::Integer(v) => compare_sqlite_num(*v, a).reverse(),
+
+        Value::Float(v) => a.total_cmp(v),
+
+        Value::Text(_) => Ordering::Less,
+
+        Value::Blob(_) => Ordering::Less,
+    }
+}
+
+impl<'a, 'b> PartialEq<Value<'a>> for &'b str {
+    fn eq(&self, other: &Value<'a>) -> bool {
+        compare_str_value(self, other) == Ordering::Equal
+    }
+}
+
+impl<'a, 'b> PartialOrd<Value<'a>> for &'b str {
+    fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
+        Some(compare_str_value(self, other))
+    }
+}
+
+impl<'a, 'b> PartialEq<&'b str> for Value<'a> {
+    fn eq(&self, other: &&'b str) -> bool {
+        compare_str_value(other, self) == Ordering::Equal
+    }
+}
+
+impl<'a, 'b> PartialOrd<&'b str> for Value<'a> {
+    fn partial_cmp(&self, other: &&'b str) -> Option<Ordering> {
+        Some(compare_str_value(other, self).reverse())
+    }
+}
+
+fn compare_str_value(a: &str, b: &Value<'_>) -> Ordering {
+    match b {
+        Value::Null => Ordering::Greater,
+
+        Value::Integer(_) | Value::Float(_) => Ordering::Greater,
+
+        Value::Text(v) => a.cmp(v.as_ref()),
+
+        Value::Blob(_) => Ordering::Less,
+    }
+}
+
+impl<'a> PartialEq<Value<'a>> for String {
+    fn eq(&self, other: &Value<'a>) -> bool {
+        compare_str_value(self, other) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<Value<'a>> for String {
+    fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
+        Some(compare_str_value(self, other))
+    }
+}
+
+impl<'a> PartialEq<String> for Value<'a> {
+    fn eq(&self, other: &String) -> bool {
+        compare_str_value(other, self) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<String> for Value<'a> {
+    fn partial_cmp(&self, other: &String) -> Option<Ordering> {
+        Some(compare_str_value(other, self).reverse())
+    }
+}
+
+impl<'a, 'b> PartialEq<Value<'a>> for &'b [u8] {
+    fn eq(&self, other: &Value<'a>) -> bool {
+        compare_bytes_value(self, other) == Ordering::Equal
+    }
+}
+
+impl<'a, 'b> PartialOrd<Value<'a>> for &'b [u8] {
+    fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
+        Some(compare_bytes_value(self, other))
+    }
+}
+
+impl<'a, 'b> PartialEq<&'b [u8]> for Value<'a> {
+    fn eq(&self, other: &&'b [u8]) -> bool {
+        compare_bytes_value(*other, self) == Ordering::Equal
+    }
+}
+
+impl<'a, 'b> PartialOrd<&'b [u8]> for Value<'a> {
+    fn partial_cmp(&self, other: &&'b [u8]) -> Option<Ordering> {
+        Some(compare_bytes_value(*other, self).reverse())
+    }
+}
+
+fn compare_bytes_value(a: &[u8], b: &Value<'_>) -> Ordering {
+    match b {
+        Value::Null => Ordering::Greater,
+
+        Value::Integer(_) | Value::Float(_) => Ordering::Greater,
+
+        Value::Text(_) => Ordering::Greater,
+
+        Value::Blob(v) => a.cmp(v.as_ref()),
+    }
+}
+
+impl<'a> PartialEq<Value<'a>> for Vec<u8> {
+    fn eq(&self, other: &Value<'a>) -> bool {
+        compare_bytes_value(self, other) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<Value<'a>> for Vec<u8> {
+    fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
+        Some(compare_bytes_value(self, other))
+    }
+}
+
+impl<'a> PartialEq<Vec<u8>> for Value<'a> {
+    fn eq(&self, other: &Vec<u8>) -> bool {
+        compare_bytes_value(other, self) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialOrd<Vec<u8>> for Value<'a> {
+    fn partial_cmp(&self, other: &Vec<u8>) -> Option<Ordering> {
+        Some(compare_bytes_value(other, self).reverse())
     }
 }
 
