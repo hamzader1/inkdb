@@ -49,23 +49,22 @@ impl Parser {
 
     pub fn expect(&mut self, t_kind: &TokenKind) -> Result<(), SqliteError> {
         if !self.at(t_kind) {
-            return Err(RuntimeError("Given token does not match the current token".into()))
+            return Err(RuntimeError(
+                "Given token does not match the current token".into(),
+            ));
         }
-        self.pos+=1;
+        self.pos += 1;
         Ok(())
     }
-    pub fn expect_ident(&mut self) ->Result< String,SqliteError> {
+    pub fn expect_ident(&mut self) -> Result<String, SqliteError> {
         match self.next() {
             Some(t) => match t.kind {
-                Identifier(x) =>
-                {
-                 Ok(x)
-                }
-                any =>{
-                    Err(RuntimeError("Expected identifier".into()))
-                },
+                Identifier(x) => Ok(x),
+                any => Err(RuntimeError("Expected identifier".into())),
             },
-            None =>  Err(RuntimeError("Unexpected end of input, Expected identifier".into()))
+            None => Err(RuntimeError(
+                "Unexpected end of input, Expected identifier".into(),
+            )),
         }
     }
     pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {

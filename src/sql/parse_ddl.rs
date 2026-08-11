@@ -149,7 +149,7 @@ impl Parser {
                 _ => {
                     return Err(SqliteError::RuntimeError(
                         "invalid token in type size".into(),
-                    ))
+                    ));
                 }
             }
             if !self.eat(&Comma) && !self.at(&RightParen) {
