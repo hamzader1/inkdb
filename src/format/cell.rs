@@ -1,6 +1,6 @@
 use crate::{
-    compute_local_payload_size, format::page::BTreePage, util::sqlite_assert_one,
-    vfs::file::SqliteFile, DbError, SqliteDatabase,
+    DbError, SqliteDatabase, compute_local_payload_size, format::page::BTreePage,
+    util::sqlite_assert_one, vfs::file::SqliteFile,
 };
 use std::io::{
     Read, Seek,

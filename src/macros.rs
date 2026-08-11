@@ -23,24 +23,14 @@ macro_rules! seek_s {
 
 #[macro_export]
 macro_rules! to_int {
-    (u8, $x:expr) => {{
-        u8::from_be_bytes($x)
-    }};
-    (u16, $x:expr) => {{
-        u16::from_be_bytes($x)
-    }};
-    (u32, $x:expr) => {{
-        u32::from_be_bytes($x)
-    }};
-    (u64, $x:expr) => {{
-        u64::from_be_bytes($x)
-    }};
+    (u8, $x:expr) => {{ u8::from_be_bytes($x) }};
+    (u16, $x:expr) => {{ u16::from_be_bytes($x) }};
+    (u32, $x:expr) => {{ u32::from_be_bytes($x) }};
+    (u64, $x:expr) => {{ u64::from_be_bytes($x) }};
 }
 
 // short for std::mem::size_of::<T>();
 #[macro_export]
 macro_rules! size_of {
-    ($t: ty) => {{
-        std::mem::size_of::<$t>()
-    }};
+    ($t: ty) => {{ std::mem::size_of::<$t>() }};
 }

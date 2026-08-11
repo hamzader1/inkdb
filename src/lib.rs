@@ -1,12 +1,15 @@
 #![allow(unused, dead_code)] // temp for now
 mod bytes;
 pub mod record;
-mod sql;
-pub mod storage;
+pub mod sql;
+use sql::parse_ddl;
+mod schema;
+pub use schema::SqliteMaster;
 pub mod errors;
 pub mod format;
 mod macros;
 pub mod pager;
+pub mod storage;
 mod util;
 pub mod vfs;
 use errors::SqliteError;

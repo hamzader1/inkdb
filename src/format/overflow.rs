@@ -54,7 +54,7 @@ impl<'a> OverflowPageRef<'a> {
             _ => {
                 return Err(DbError::Corrupt(
                     "Failed to parse next overflow page from overflow page".into(),
-                ))
+                ));
             }
         };
         let next_page = u32::from_be_bytes(*next_page_buffer);

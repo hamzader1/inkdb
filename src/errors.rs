@@ -73,8 +73,8 @@ pub enum SqliteError {
     },
 
     #[error(
-            "Unexpected Character '{character}' at position {position}: Expected alphanumeric, operator, or keyword"
-        )]
+        "Unexpected Character '{character}' at position {position}: Expected alphanumeric, operator, or keyword"
+    )]
     UnexpectedChar {
         input: String,
         character: char,
@@ -89,7 +89,7 @@ pub enum SqliteError {
 
     #[error("Unmatched ')' at position {position}: No matching '(' found")]
     UnmatchedClosingParenthesis { input: String, position: usize },
-    
+
     #[error("{0}")]
     RuntimeError(String),
 

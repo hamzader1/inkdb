@@ -36,7 +36,7 @@ pub struct SqliteMaster {
 }
 
 impl SqliteMaster {
-    pub fn new<P: SqliteFile>(pager: &mut Pager<P>) -> Result<Self, SqliteError> {
+    pub fn new<F: SqliteFile>(pager: &mut Pager<F>) -> Result<Self, SqliteError> {
         let mut sqlite_master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),

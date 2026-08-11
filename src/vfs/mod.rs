@@ -20,7 +20,7 @@ pub trait Vfs {
     type File: SqliteFile;
 
     fn open<F: AsRef<Path>>(&mut self, f: F, options: SqliteOptions)
-        -> Result<Self::File, DbError>;
+    -> Result<Self::File, DbError>;
 }
 impl SqliteOptions {
     pub fn new() -> Self {

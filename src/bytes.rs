@@ -1,4 +1,4 @@
-use crate::{to_int, SqliteError};
+use crate::{SqliteError, to_int};
 use std::io::Read;
 
 pub fn read_u8<R: Read>(r: &mut R) -> Result<u8, SqliteError> {

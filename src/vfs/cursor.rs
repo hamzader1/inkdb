@@ -1,4 +1,4 @@
-use crate::{to_int, DbError};
+use crate::{DbError, to_int};
 
 use super::file::SqliteFile;
 

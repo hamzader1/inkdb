@@ -233,7 +233,7 @@ impl<'a> BTreePage {
             }
             BTreePageType::LeafIndex => {
                 return IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexLeaf)
+                    .map(BTreeCell::IndexLeaf);
             }
         }
     }
