@@ -72,6 +72,11 @@ pub enum Value<'a> {
     Tuple(Vec<Value<'a>>),
 }
 
+impl<'a> Value<'a> {
+    pub fn text(txt: &str) -> Self {
+        Self::Text(Cow::Owned(txt.into()))
+    }
+}
 impl<'a> Eq for Value<'a> {}
 
 impl<'a, 'b> PartialEq<Value<'b>> for Value<'a> {
