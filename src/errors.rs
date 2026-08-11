@@ -92,4 +92,10 @@ pub enum SqliteError {
     
     #[error("{0}")]
     RuntimeError(String),
+
+    #[error("cannot convert {actual} value to {expected}")]
+    TypeMismatch {
+        expected: &'static str,
+        actual: &'static str,
+    },
 }
