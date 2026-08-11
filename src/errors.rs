@@ -89,4 +89,7 @@ pub enum SqliteError {
 
     #[error("Unmatched ')' at position {position}: No matching '(' found")]
     UnmatchedClosingParenthesis { input: String, position: usize },
+    
+    #[error("{0}")]
+    RuntimeError(String),
 }
