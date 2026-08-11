@@ -69,71 +69,97 @@ pub enum Value<'a> {
     Float(f64),
     Text(Cow<'a, str>),
     Blob(Cow<'a, [u8]>),
-}
-
-impl<'a> PartialEq for Value<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
+    Tuple(Vec<Value<'a>>),
 }
 
 impl<'a> Eq for Value<'a> {}
 
-impl<'a> PartialOrd for Value<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl<'a, 'b> PartialEq<Value<'b>> for Value<'a> {
+    fn eq(&self, other: &Value<'b>) -> bool {
+        compare_values(self, other) == Ordering::Equal
+    }
+}
+
+impl<'a, 'b> PartialOrd<Value<'b>> for Value<'a> {
+    fn partial_cmp(&self, other: &Value<'b>) -> Option<Ordering> {
+        Some(compare_values(self, other))
     }
 }
 
 impl<'a> Ord for Value<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            // NULL
-            (Value::Null, Value::Null) => Ordering::Equal,
+        compare_values(self, other)
+    }
+}
 
-            (Value::Null, _) => Ordering::Less,
-            (_, Value::Null) => Ordering::Greater,
+fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
+    match (a, b) {
+        // NULL
+        (Value::Null, Value::Null) => Ordering::Equal,
 
-            // INTEGER / REAL
-            (Value::Integer(a), Value::Integer(b)) => a.cmp(b),
+        (Value::Null, _) => Ordering::Less,
+        (_, Value::Null) => Ordering::Greater,
 
-            (Value::Float(a), Value::Float(b)) => a.total_cmp(b),
+        // INTEGER / REAL
+        (Value::Integer(a), Value::Integer(b)) => a.cmp(b),
 
-            (Value::Integer(a), Value::Float(b)) => compare_sqlite_num(*a, *b),
+        (Value::Float(a), Value::Float(b)) => a.total_cmp(b),
 
-            (Value::Float(a), Value::Integer(b)) => compare_sqlite_num(*b, *a).reverse(),
+        (Value::Integer(a), Value::Float(b)) => compare_sqlite_num(*a, *b),
 
-            // Numeric < TEXT
-            (Value::Integer(_), Value::Text(_)) | (Value::Float(_), Value::Text(_)) => {
-                Ordering::Less
+        (Value::Float(a), Value::Integer(b)) => compare_sqlite_num(*b, *a).reverse(),
+
+        // Numeric < TEXT
+        (Value::Integer(_), Value::Text(_)) | (Value::Float(_), Value::Text(_)) => Ordering::Less,
+
+        (Value::Text(_), Value::Integer(_)) | (Value::Text(_), Value::Float(_)) => {
+            Ordering::Greater
+        }
+
+        // Numeric < BLOB
+        (Value::Integer(_), Value::Blob(_)) | (Value::Float(_), Value::Blob(_)) => Ordering::Less,
+
+        (Value::Blob(_), Value::Integer(_)) | (Value::Blob(_), Value::Float(_)) => {
+            Ordering::Greater
+        }
+
+        // TEXT
+        (Value::Text(a), Value::Text(b)) => a.cmp(b),
+
+        // TEXT < BLOB
+        (Value::Text(_), Value::Blob(_)) => Ordering::Less,
+
+        (Value::Blob(_), Value::Text(_)) => Ordering::Greater,
+
+        // BLOB
+        (Value::Blob(a), Value::Blob(b)) => a.cmp(b),
+
+        // Everything else < TUPLE
+        (
+            Value::Null | Value::Integer(_) | Value::Float(_) | Value::Text(_) | Value::Blob(_),
+            Value::Tuple(_),
+        ) => Ordering::Less,
+
+        // TUPLE > everything else
+        (
+            Value::Tuple(_),
+            Value::Null | Value::Integer(_) | Value::Float(_) | Value::Text(_) | Value::Blob(_),
+        ) => Ordering::Greater,
+
+        // TUPLE <=> TUPLE
+        (Value::Tuple(a), Value::Tuple(b)) => {
+            for (a, b) in a.iter().zip(b.iter()) {
+                match compare_values(a, b) {
+                    Ordering::Equal => continue,
+                    ordering => return ordering,
+                }
             }
 
-            (Value::Text(_), Value::Integer(_)) | (Value::Text(_), Value::Float(_)) => {
-                Ordering::Greater
-            }
-
-            // Numeric < BLOB
-            (Value::Integer(_), Value::Blob(_)) | (Value::Float(_), Value::Blob(_)) => {
-                Ordering::Less
-            }
-
-            (Value::Blob(_), Value::Integer(_)) | (Value::Blob(_), Value::Float(_)) => {
-                Ordering::Greater
-            }
-
-            // TEXT
-            (Value::Text(a), Value::Text(b)) => a.cmp(b),
-
-            // TEXT < BLOB
-            (Value::Text(_), Value::Blob(_)) => Ordering::Less,
-
-            (Value::Blob(_), Value::Text(_)) => Ordering::Greater,
-
-            // BLOB
-            (Value::Blob(a), Value::Blob(b)) => a.cmp(b),
+            a.len().cmp(&b.len())
         }
     }
 }
+
 impl<'a> PartialEq<Value<'a>> for i64 {
     fn eq(&self, other: &Value<'a>) -> bool {
         compare_i64_value(*self, other) == Ordering::Equal
@@ -169,6 +195,8 @@ fn compare_i64_value(a: i64, b: &Value<'_>) -> Ordering {
         Value::Text(_) => Ordering::Less,
 
         Value::Blob(_) => Ordering::Less,
+
+        Value::Tuple(_) => Ordering::Less,
     }
 }
 
@@ -207,6 +235,8 @@ fn compare_f64_value(a: f64, b: &Value<'_>) -> Ordering {
         Value::Text(_) => Ordering::Less,
 
         Value::Blob(_) => Ordering::Less,
+
+        Value::Tuple(_) => Ordering::Less,
     }
 }
 
@@ -243,30 +273,32 @@ fn compare_str_value(a: &str, b: &Value<'_>) -> Ordering {
         Value::Text(v) => a.cmp(v.as_ref()),
 
         Value::Blob(_) => Ordering::Less,
+
+        Value::Tuple(_) => Ordering::Less,
     }
 }
 
 impl<'a> PartialEq<Value<'a>> for String {
     fn eq(&self, other: &Value<'a>) -> bool {
-        compare_str_value(self, other) == Ordering::Equal
+        compare_str_value(self.as_str(), other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialOrd<Value<'a>> for String {
     fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
-        Some(compare_str_value(self, other))
+        Some(compare_str_value(self.as_str(), other))
     }
 }
 
 impl<'a> PartialEq<String> for Value<'a> {
     fn eq(&self, other: &String) -> bool {
-        compare_str_value(other, self) == Ordering::Equal
+        compare_str_value(other.as_str(), self) == Ordering::Equal
     }
 }
 
 impl<'a> PartialOrd<String> for Value<'a> {
     fn partial_cmp(&self, other: &String) -> Option<Ordering> {
-        Some(compare_str_value(other, self).reverse())
+        Some(compare_str_value(other.as_str(), self).reverse())
     }
 }
 
@@ -303,6 +335,8 @@ fn compare_bytes_value(a: &[u8], b: &Value<'_>) -> Ordering {
         Value::Text(_) => Ordering::Greater,
 
         Value::Blob(v) => a.cmp(v.as_ref()),
+
+        Value::Tuple(_) => Ordering::Less,
     }
 }
 
@@ -523,6 +557,7 @@ impl<'a> Value<'a> {
             Value::Float(_) => "REAL",
             Value::Text(_) => "TEXT",
             Value::Blob(_) => "BLOB",
+            Value::Tuple(_) => "TUPLE",
         }
     }
     pub fn to_string(&self) -> Result<String, SqliteError> {
@@ -532,6 +567,11 @@ impl<'a> Value<'a> {
             Value::Float(n) => Ok(n.to_string()),
             Value::Text(txt) => Ok(txt.to_string()),
             Value::Blob(_) => Err(SqliteError::TypeMismatch {
+                expected: "TEXT",
+                actual: self.type_name(),
+            }),
+
+            Value::Tuple(_) => Err(SqliteError::TypeMismatch {
                 expected: "TEXT",
                 actual: self.type_name(),
             }),
