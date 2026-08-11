@@ -53,8 +53,8 @@ pub enum Constraint {
 
 #[derive(Debug)]
 pub enum Ast {
-    CreateTable(CreateTable),
-    CreateIndex(CreateIndex),
+    CreateTableAst(CreateTable),
+    CreateIndexAst(CreateIndex),
 }
 
 impl From<TokenKind> for Affinity {
