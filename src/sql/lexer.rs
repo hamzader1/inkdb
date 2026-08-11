@@ -147,6 +147,7 @@ impl<'a> Lexer<'a> {
 
                 // >
                 // >=
+                // >>
                 '>' => {
                     let start = self.pos;
                     self.next_char();
@@ -155,6 +156,10 @@ impl<'a> Lexer<'a> {
                         self.next_char();
 
                         push_token(&mut tokens, TokenKind::Ge, start, self.pos);
+                    } else if let Some('>') = self.chars.peek() {
+                        self.next_char();
+
+                        push_token(&mut tokens, TokenKind::ShiftRight, start, self.pos);
                     } else {
                         push_token(&mut tokens, TokenKind::Gt, start, self.pos);
                     }
@@ -177,24 +182,6 @@ impl<'a> Lexer<'a> {
                         push_token(&mut tokens, TokenKind::ShiftLeft, start, self.pos);
                     } else {
                         push_token(&mut tokens, TokenKind::Lt, start, self.pos);
-                    }
-                }
-
-                // >>
-                '>' => {
-                    let start = self.pos;
-                    self.next_char();
-
-                    if let Some('=') = self.chars.peek() {
-                        self.next_char();
-
-                        push_token(&mut tokens, TokenKind::Ge, start, self.pos);
-                    } else if let Some('>') = self.chars.peek() {
-                        self.next_char();
-
-                        push_token(&mut tokens, TokenKind::ShiftRight, start, self.pos);
-                    } else {
-                        push_token(&mut tokens, TokenKind::Gt, start, self.pos);
                     }
                 }
 
@@ -362,7 +349,7 @@ impl<'a> Lexer<'a> {
                         "BOOL" => TokenKind::Bool,
                         "INT" | "INTEGER" => TokenKind::Integer,
                         "TEXT" => TokenKind::Text,
-                        "FLOAT"| "DOUBLE" |"REAL" => TokenKind::Float,
+                        "FLOAT" | "DOUBLE" | "REAL" => TokenKind::Float,
                         "BLOB" => TokenKind::Blob,
 
                         // Anything else is an identifier
@@ -390,8 +377,6 @@ impl<'a> Lexer<'a> {
                 position: start,
             });
         }
-
-        dbg!(&tokens);
 
         Ok(tokens)
     }
