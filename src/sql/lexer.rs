@@ -185,6 +185,11 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
+                '*' => {
+                    let start = self.pos;
+                    self.next_char();
+                    push_token(&mut tokens, TokenKind::Star, start, self.pos);
+                }
                 // +
                 '+' => {
                     let start = self.pos;

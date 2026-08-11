@@ -94,7 +94,7 @@ pub enum TokenKind {
     Plus,
     Minus,
     Slash,
-    Astrisk,
+    Star,
     Modulus,
     Concat,
     BitAnd,
