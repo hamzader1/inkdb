@@ -36,7 +36,7 @@ impl Parser {
             }
         }
         self.expect(&RightParen)?;
-        Ok(Ast::CreateTable(CreateTable { name, columns }))
+        Ok(Ast::CreateTableAst(CreateTable { name, columns }))
     }
 
     fn parse_create_index(&mut self, unique: bool) -> Result<Ast, SqliteError> {
@@ -57,7 +57,7 @@ impl Parser {
             }
         }
         self.expect(&RightParen)?;
-        Ok(Ast::CreateIndex(CreateIndex {
+        Ok(Ast::CreateIndexAst(CreateIndex {
             unique,
             name,
             table,
@@ -79,6 +79,7 @@ impl Parser {
                 }
                 // Affinity from any other type name (VARCHAR, DECIMAL, ...),
                 // including an optional size suffix like (255) or (10, 2)
+                // TODO: Fix this later
                 Some(Identifier(type_name)) => {
                     let type_name = type_name.clone();
                     self.next();
