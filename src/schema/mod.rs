@@ -16,7 +16,7 @@ use crate::vfs::file::SqliteFile;
 #[derive(Debug)]
 pub struct Table {
     name: String,
-    root_page: u32,
+    pub root_page: u32,
     columns: Vec<Column>,
 }
 
@@ -24,7 +24,7 @@ pub struct Table {
 pub struct Index {
     name: String,  // name of the index
     table: String, // name of the table
-    root_page: u32,
+    pub root_page: u32,
     columns: Vec<String>, // single/multi col index
     unique: bool,         // is unique
 }
