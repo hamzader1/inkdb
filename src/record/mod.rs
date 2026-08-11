@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
+use crate::errors::SqliteError;
+
 pub const SERIAL_NULL: u8 = 0;
 pub const SERIAL_INT8: u8 = 1;
 pub const SERIAL_INT16: u8 = 2;
@@ -318,21 +320,46 @@ pub fn compare_sqlite_num(i: i64, f: f64) -> Ordering {
         any => any,
     }
 }
-// #[macro_export]
-// macro_rules! impl_from_ints {
-//     ($($t:ty),*) => {
-//         $(impl<'a> From<$t> for Value<'a> {
-//             fn from(value: $t) -> Self {
-//                 Value::Integer(value as i64)
-//             }
-//         })*
-//     };
-// }
-//
-// impl_from_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
 
-// impl<'a> From<&'a str> for Value<'a> {
-//     fn from(value: &'a str) -> Self {
-//         Value::Text(Cow::Borrowed(value))
-//     }
-// }
+impl<'a> Value<'a> {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Null => "NULL",
+            Value::Integer(_) => "INTEGER",
+            Value::Float(_) => "REAL",
+            Value::Text(_) => "TEXT",
+            Value::Blob(_) => "BLOB",
+        }
+    }
+    pub fn to_string(&self) -> Result<String, SqliteError> {
+        match self {
+            Value::Null => Ok("NULL".to_string()),
+            Value::Integer(n) => Ok(n.to_string()),
+            Value::Float(n) => Ok(n.to_string()),
+            Value::Text(txt) => Ok(txt.to_string()),
+            Value::Blob(_) => Err(SqliteError::TypeMismatch {
+                expected: "TEXT",
+                actual: self.type_name(),
+            }),
+        }
+    }
+    pub fn get_int(&self) -> Result<i64, SqliteError> {
+        match self {
+            Value::Integer(n) => Ok(*n),
+            other => Err(SqliteError::TypeMismatch {
+                expected: "INTEGER",
+                actual: other.type_name(),
+            }),
+        }
+    }
+    pub fn get_float(&self) -> Result<f64, SqliteError> {
+        match self {
+            Value::Float(n) => Ok(*n),
+            Value::Integer(n) => Ok(*n as f64),
+            other => Err(SqliteError::TypeMismatch {
+                expected: "REAL",
+                actual: other.type_name(),
+            }),
+        }
+    }
+}
