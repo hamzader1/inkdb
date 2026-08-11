@@ -1,6 +1,7 @@
+use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
 use super::{btree::CellIdx, sqlite_cursor::SqliteCursor};
 use crate::errors::SqliteError;
-use crate::{compute_local_payload_size, format::page::PageNo};
+use crate::format::page::PageNo;
 use std::range::Range;
 
 #[derive(Debug)]
@@ -67,7 +68,8 @@ impl TableLeafCell {
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let (row_id, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;
-        let local_payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let local_payload_size =
+            compute_table_local_payload_size(usable_size, payload_len as usize);
         let local_payload_range = Range::from(current_pos..current_pos + local_payload_size);
         let mut overflow_page: Option<u32> = None;
         if local_payload_size < payload_len as usize {
@@ -106,7 +108,7 @@ impl IndexInteriorCell {
         }
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;
-        let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size = Range::from(current_pos..current_pos + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
@@ -137,7 +139,7 @@ impl IndexLeafCell {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;
-        let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size = Range::from(current_pos..current_pos + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {

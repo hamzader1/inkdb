@@ -8,6 +8,7 @@ use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
 use crate::storage::page::BTreePageType;
+use crate::util::sqlite_assert_with_corrupt_err;
 use crate::vfs::file::SqliteFile;
 
 pub type CellIdx = u16;
@@ -260,10 +261,10 @@ impl BTreeCursor {
     where
         F: SqliteFile,
     {
-        debug_assert!(
+        sqlite_assert_with_corrupt_err(
             page.is_interior(),
-            "Navigation path of this works only with interior pages"
-        );
+            "Navigation path of this works only with interior pages",
+        )?;
         let cell_count = page.no_of_cells();
         if page.page_type() == BTreePageType::InteriorTable {
             let mut l = 0;
@@ -328,7 +329,10 @@ impl BTreeCursor {
     where
         F: SqliteFile,
     {
-        assert!(page.is_leaf(), "This navigation path works only for leaves");
+        sqlite_assert_with_corrupt_err(
+            page.is_leaf(),
+            "This navigation path works only for leaves",
+        )?;
         let cell_cnt = page.no_of_cells();
         if page.page_type() == BTreePageType::LeafTable {
             let mut l = 0;
@@ -351,8 +355,7 @@ impl BTreeCursor {
             let mut r = cell_cnt;
             while l < r {
                 let m: u16 = l + ((r - l) / 2);
-                let cell = page.cell(m)?;
-                let mut payload = page.record_of(&cell, pager)?;
+                let mut payload = page.record_of_cell(m, pager)?;
                 let row_id = payload.pop().unwrap().get_int()?;
                 let tuple = Value::Tuple(payload);
                 if &tuple == target {
