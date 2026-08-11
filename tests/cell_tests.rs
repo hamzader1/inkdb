@@ -227,7 +227,7 @@ mod via_btree_page {
         let usable = PAGE_SIZE;
         let x = usable - 35; // local/overflow threshold
         let payload_len = x + 100; // force overflow
-        let local_len = inkdb::format::overflow::compute_local_payload_size(usable, payload_len);
+        let local_len = inkdb::format::overflow::compute_table_local_payload_size(usable, payload_len);
         let local_payload = vec![0xEEu8; local_len];
 
         let cell_bytes = encode_table_leaf_cell(payload_len as u64, 1, &local_payload, Some(0));
@@ -244,7 +244,7 @@ mod via_btree_page {
         let usable = PAGE_SIZE;
         let x = usable - 35;
         let payload_len = x + 100;
-        let local_len = inkdb::format::overflow::compute_local_payload_size(usable, payload_len);
+        let local_len = inkdb::format::overflow::compute_table_local_payload_size(usable, payload_len);
         let local_payload = vec![0xEEu8; local_len];
 
         let cell_bytes = encode_table_leaf_cell(payload_len as u64, 1, &local_payload, Some(9));
@@ -294,7 +294,7 @@ mod via_btree_page {
         let usable = PAGE_SIZE;
         let x = usable - ((usable - 12) * 64 / 255) + 23; // rough index X bound, over-approx is fine
         let payload_len = usable; // definitely forces overflow at this page size
-        let local_len = inkdb::format::overflow::compute_local_payload_size(usable, payload_len);
+        let local_len = inkdb::format::overflow::compute_table_local_payload_size(usable, payload_len);
         let local_payload = vec![0x01u8; local_len];
 
         let cell_bytes = encode_index_leaf_cell(payload_len as u64, &local_payload, Some(0));
@@ -330,7 +330,7 @@ mod via_btree_page {
     fn index_interior_cell_with_valid_overflow_parses() {
         let usable = PAGE_SIZE;
         let payload_len = usable; // force overflow
-        let local_len = inkdb::format::overflow::compute_local_payload_size(usable, payload_len);
+        let local_len = inkdb::format::overflow::compute_table_local_payload_size(usable, payload_len);
         let local_payload = vec![0x02u8; local_len];
 
         let cell_bytes = encode_index_interior_cell(1, payload_len as u64, &local_payload, Some(5));

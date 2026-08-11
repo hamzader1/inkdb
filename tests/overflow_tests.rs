@@ -5,7 +5,7 @@ mod common;
 use common::{MemFile, build_db_image, build_overflow_page, set_page_count, valid_header_bytes};
 use inkdb::SqliteDatabase;
 use inkdb::errors::SqliteError;
-use inkdb::format::overflow::{OverflowPageRef, compute_local_payload_size};
+use inkdb::format::overflow::{OverflowPageRef, compute_table_local_payload_size};
 use inkdb::vfs::disk::DiskFile; // only for type inference where needed
 
 // ---------------------------------------------------------------------
@@ -15,14 +15,14 @@ use inkdb::vfs::disk::DiskFile; // only for type inference where needed
 #[test]
 fn payload_fits_entirely_on_page_returns_full_length() {
     // usable_size 4096 -> X = 4096 - 35 = 4061
-    assert_eq!(compute_local_payload_size(4096, 0), 0);
-    assert_eq!(compute_local_payload_size(4096, 4061), 4061);
+    assert_eq!(compute_table_local_payload_size(4096, 0), 0);
+    assert_eq!(compute_table_local_payload_size(4096, 4061), 4061);
 }
 
 #[test]
 fn payload_just_over_x_spills_to_overflow() {
     // At payload_len = X + 1 = 4062, k computation kicks in.
-    let result = compute_local_payload_size(4096, 4062);
+    let result = compute_table_local_payload_size(4096, 4062);
     assert!(result < 4062, "should store less than full payload locally");
     assert!(result > 0);
 }
@@ -30,14 +30,14 @@ fn payload_just_over_x_spills_to_overflow() {
 #[test]
 fn very_large_payload_falls_back_to_m() {
     let k = 1792;
-    let result = compute_local_payload_size(4096, 100_000);
+    let result = compute_table_local_payload_size(4096, 100_000);
     assert_eq!(result, k);
 }
 
 #[test]
 fn local_payload_never_exceeds_payload_len() {
     for payload_len in [0usize, 1, 100, 4061, 4062, 5000, 50_000, 1_000_000] {
-        let local = compute_local_payload_size(4096, payload_len);
+        let local = compute_table_local_payload_size(4096, payload_len);
         assert!(
             local <= payload_len,
             "local payload {local} exceeds actual payload {payload_len}"
@@ -51,9 +51,9 @@ fn common_sqlite_page_sizes_produce_sane_x_boundary() {
     // local size at the X boundary should equal X exactly (no overflow yet).
     for &usable in &[512usize, 1024, 2048, 4096, 8192, 16384, 32768] {
         let x = usable - 35;
-        assert_eq!(compute_local_payload_size(usable, x), x);
+        assert_eq!(compute_table_local_payload_size(usable, x), x);
         // one byte more must NOT return the full payload untouched.
-        let over = compute_local_payload_size(usable, x + 1);
+        let over = compute_table_local_payload_size(usable, x + 1);
         assert!(over <= x + 1);
     }
 }
