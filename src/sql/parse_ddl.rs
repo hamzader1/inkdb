@@ -75,7 +75,7 @@ impl Parser {
             match self.peek() {
                 // Affinity from a built in type token (INTEGER, TEXT, ...)
                 Some(Integer) | Some(Text) | Some(Float) | Some(Blob) => {
-                    let kind = self.next().unwrap().kind;
+                    let kind = self.next_token().unwrap().kind;
                     self.set_affinity(&mut affinity, Affinity::from(kind), &name)?;
                 }
                 // Affinity from any other type name (VARCHAR, DECIMAL, ...),
@@ -83,7 +83,7 @@ impl Parser {
                 // TODO: Fix this later
                 Some(Identifier(type_name)) => {
                     let type_name = type_name.clone();
-                    self.next();
+                    self.next_token();
                     self.eat_type_size()?;
                     dbg!(&type_name);
                     self.set_affinity(&mut affinity, Affinity::from_type_name(&type_name), &name)?;
@@ -145,7 +145,7 @@ impl Parser {
             return Ok(());
         }
         while !self.at(RightParen) {
-            match self.next() {
+            match self.next_token() {
                 Some(t) if matches!(t.kind, NumberVar(_)) => {}
                 _ => {
                     return Err(SqliteError::RuntimeError(

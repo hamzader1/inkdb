@@ -131,7 +131,7 @@ impl Parser {
                 ));
             }
         };
-        self.next();
+        self.next_token();
         Ok(expr)
     }
 }
