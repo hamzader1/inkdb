@@ -30,7 +30,7 @@ impl Parser {
         self.expect(LeftParen)?;
         let mut columns: Vec<Column> = Vec::new();
         while !self.at(RightParen) {
-            columns.push(self.parse_column()?);
+            columns.push(self.parse_create_column()?);
             if !self.eat(Comma) {
                 break;
             }
@@ -65,7 +65,8 @@ impl Parser {
         }))
     }
 
-    fn parse_column(&mut self) -> Result<Column, SqliteError> {
+    // not parse_columns since [`SelectStmt`] (and Insert later) reserved it
+    fn parse_create_column(&mut self) -> Result<Column, SqliteError> {
         let name = self.expect_ident()?;
         let mut affinity: Option<Affinity> = None;
         let mut constraints = Vec::new();
