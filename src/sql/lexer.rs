@@ -422,9 +422,11 @@ impl<'a> Lexer<'a> {
                     end: self.pos,
                 });
             }
+            return Ok(TokenKind::FloatVar(number.parse().unwrap()));
         }
 
-        Ok(TokenKind::Number(number))
+        // TODO HANDLE ERRORS
+        Ok(TokenKind::NumberVar(number.parse().unwrap()))
     }
 }
 

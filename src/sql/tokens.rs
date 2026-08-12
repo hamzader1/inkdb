@@ -7,7 +7,7 @@ pub struct Token {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Span(pub usize, pub usize);
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 
 pub enum TokenKind {
     // DDL
@@ -75,7 +75,8 @@ pub enum TokenKind {
     // values / literals
     Identifier(String),
     BoolVar(bool),
-    Number(String),
+    NumberVar(i64),
+    FloatVar(f64),
     String(String),
     Blob,
     Null,
@@ -85,12 +86,14 @@ pub enum TokenKind {
     Comma,
     LeftParen,
     RightParen,
+    //
     Equals,
     NotEquals,
     Ge,
     Gt,
     Le,
     Lt,
+    //
     Plus,
     Minus,
     Slash,
