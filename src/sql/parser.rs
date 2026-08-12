@@ -8,7 +8,7 @@ use super::tokens::{
 use std::string::String;
 
 use super::ast::Expr;
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Arena {
     pub nodes: Vec<Expr>,
 }
@@ -144,6 +144,7 @@ impl Parser {
     pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {
         match self.peek() {
             Some(Create) => self.parse_create(),
+            Some(Select) => self.parse_select(),
             _ => todo!(),
         }
     }
