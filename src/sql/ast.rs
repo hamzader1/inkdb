@@ -23,7 +23,8 @@ pub struct Column {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Empty,
-    Number(i32),
+    Number(i64),
+    Float(f64),
     StringLitteral(String),
     Bool(bool),
     Identifier(String),
@@ -31,7 +32,6 @@ pub enum Expr {
     Substract(Box<Expr>, Box<Expr>),
     Devide(Box<Expr>, Box<Expr>),
     Multiply(Box<Expr>, Box<Expr>),
-    // Statment(Stmt),
     BinaryOp {
         left: Box<Expr>,
         op: BinaryOperator,
