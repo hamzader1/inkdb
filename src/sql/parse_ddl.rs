@@ -30,7 +30,7 @@ impl Parser {
         self.expect(LeftParen)?;
         let mut columns: Vec<Column> = Vec::new();
         while !self.at(RightParen) {
-            columns.push(self.parse_column()?);
+            columns.push(self.parse_create_column()?);
             if !self.eat(Comma) {
                 break;
             }
@@ -65,7 +65,8 @@ impl Parser {
         }))
     }
 
-    fn parse_column(&mut self) -> Result<Column, SqliteError> {
+    // not parse_columns since [`SelectStmt`] (and Insert later) reserved it
+    fn parse_create_column(&mut self) -> Result<Column, SqliteError> {
         let name = self.expect_ident()?;
         let mut affinity: Option<Affinity> = None;
         let mut constraints = Vec::new();
@@ -74,7 +75,7 @@ impl Parser {
             match self.peek() {
                 // Affinity from a built in type token (INTEGER, TEXT, ...)
                 Some(Integer) | Some(Text) | Some(Float) | Some(Blob) => {
-                    let kind = self.next().unwrap().kind;
+                    let kind = self.next_token().unwrap().kind;
                     self.set_affinity(&mut affinity, Affinity::from(kind), &name)?;
                 }
                 // Affinity from any other type name (VARCHAR, DECIMAL, ...),
@@ -82,7 +83,7 @@ impl Parser {
                 // TODO: Fix this later
                 Some(Identifier(type_name)) => {
                     let type_name = type_name.clone();
-                    self.next();
+                    self.next_token();
                     self.eat_type_size()?;
                     dbg!(&type_name);
                     self.set_affinity(&mut affinity, Affinity::from_type_name(&type_name), &name)?;
@@ -144,7 +145,7 @@ impl Parser {
             return Ok(());
         }
         while !self.at(RightParen) {
-            match self.next() {
+            match self.next_token() {
                 Some(t) if matches!(t.kind, NumberVar(_)) => {}
                 _ => {
                     return Err(SqliteError::RuntimeError(

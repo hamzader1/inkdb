@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::hash_map::VacantEntry;
 
 use crate::errors::SqliteError;
 
@@ -70,6 +71,18 @@ pub enum Value<'a> {
     Text(Cow<'a, str>),
     Blob(Cow<'a, [u8]>),
     Tuple(Vec<Value<'a>>),
+}
+impl<'a> Value<'a> {
+    pub fn into_owned(&self) -> Value<'static> {
+        match self {
+            Value::Text(x) => Value::Text(Cow::Owned(x.as_ref().to_string())),
+            Value::Blob(x) => Value::Blob(Cow::Owned(x.as_ref().to_owned())),
+            Value::Float(f) => Value::Float(*f),
+            Value::Integer(n) => Value::Integer(*n),
+            Value::Null => Value::Null,
+            Value::Tuple(t) => Value::Tuple(t.iter().map(|inner| inner.into_owned()).collect()),
+        }
+    }
 }
 
 impl<'a> Value<'a> {
@@ -602,3 +615,19 @@ impl<'a> Value<'a> {
         }
     }
 }
+
+// impl<'a> ToOwned for Value<'a> {
+//     type Owned = Value<'static>;
+//     fn to_owned(&self) -> Self::Owned {
+//         match self {
+//             Value::Text(x) => Value::Text(Cow::Owned(x.as_ref().to_string())),
+//             Value::Blob(x) => Value::Blob(Cow::Owned(x.as_ref().to_owned())),
+//             Value::Float(f) => Value::Float(*f),
+//             Value::Integer(n) => Value::Integer(*n),
+//             Value::Null => Value::Null,
+//             Value::Tuple(t) => {
+//                 Value::Tuple(t.iter().map(|inner| inner.into_owned_value()).collect())
+//             }
+//         }
+//     }
+// }

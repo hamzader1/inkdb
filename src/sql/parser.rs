@@ -8,7 +8,7 @@ use super::tokens::{
 use std::string::String;
 
 use super::ast::Expr;
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Arena {
     pub nodes: Vec<Expr>,
 }
@@ -67,7 +67,7 @@ impl Parser {
         None
     }
 
-    pub fn next(&mut self) -> Option<Token> {
+    pub fn next_token(&mut self) -> Option<Token> {
         let t = self.tokens.get(self.pos).cloned();
         self.pos += 1;
         t
@@ -83,7 +83,7 @@ impl Parser {
         Ok(())
     }
     pub fn expect_ident(&mut self) -> Result<String, SqliteError> {
-        match self.next() {
+        match self.next_token() {
             Some(t) => match t.kind {
                 Identifier(x) => Ok(x),
                 any => Err(RuntimeError("Expected identifier".into())),
@@ -94,56 +94,10 @@ impl Parser {
         }
     }
 
-    // pub fn expect_string(&mut self) -> Result<String, SqliteError> {
-    //     match self.next() {
-    //         Some(t) => match t.kind {
-    //             String(x) => Ok(x),
-    //             any => Err(RuntimeError("Expected identifier".into())),
-    //         },
-    //         None => Err(RuntimeError(
-    //             "Unexpected end of input, Expected identifier".into(),
-    //         )),
-    //     }
-    // }
-    // pub fn expect_int(&mut self) -> Result<i64, SqliteError> {
-    //     match self.next() {
-    //         Some(t) => match t.kind {
-    //             NumberVar(x) => Ok(x),
-    //             any => Err(RuntimeError("Expected identifier".into())),
-    //         },
-    //         None => Err(RuntimeError(
-    //             "Unexpected end of input, Expected identifier".into(),
-    //         )),
-    //     }
-    // }
-    // pub fn at_ident(&self) -> bool {
-    //     if let Some(tkind) = self.peek() {
-    //         return matches!(tkind, Identifier(_));
-    //     }
-    //     false
-    // }
-    // pub fn at_string(&self) -> bool {
-    //     if let Some(tkind) = self.peek() {
-    //         return matches!(tkind, String(_));
-    //     }
-    //     false
-    // }
-
-    // pub fn at_number(&self) -> bool {
-    //     if let Some(tkind) = self.peek() {
-    //         return matches!(tkind, NumberVar(_));
-    //     }
-    //     false
-    // }
-    // pub fn at_bool(&self) -> bool {
-    //     if let Some(tkind) = self.peek() {
-    //         return matches!(tkind, BoolVar(_));
-    //     }
-    //     false
-    // }
     pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {
         match self.peek() {
             Some(Create) => self.parse_create(),
+            Some(Select) => self.parse_select(),
             _ => todo!(),
         }
     }

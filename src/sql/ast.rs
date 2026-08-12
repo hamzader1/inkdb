@@ -1,3 +1,4 @@
+use super::parser::Arena;
 use super::tokens::TokenKind;
 
 #[derive(Debug)]
@@ -22,11 +23,11 @@ pub struct Column {
 }
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Empty,
     Number(i64),
     Float(f64),
     StringLitteral(String),
     Bool(bool),
+    ColumnRef(usize), // used only by select_v2
     Identifier(String),
     Add(usize, usize),
     Substract(usize, usize),
@@ -62,11 +63,19 @@ pub enum BinaryOperator {
     Contains,
 }
 
+#[derive(Debug)]
 pub struct SelectStmt {
-    table_name: String,
-    columns: Vec<Column>,
-    where_clause: Option<Expr>,
+    pub table_name: String,
+    pub arena: Arena,
+    pub columns: Vec<usize>,
+    pub where_clause: Option<usize>, // same arena used twice
 }
+
+// #[derive(Debqug)]
+// pub struct WhereClause {
+//     arena: Arena,
+//     expr_idx: usize,
+// }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Affinity {
     Text,
@@ -101,6 +110,7 @@ pub enum Constraint {
 pub enum Ast {
     CreateTableAst(CreateTable),
     CreateIndexAst(CreateIndex),
+    SelectStmtAst(SelectStmt),
 }
 
 impl From<TokenKind> for Affinity {
