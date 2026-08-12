@@ -28,24 +28,27 @@ pub enum Expr {
     StringLitteral(String),
     Bool(bool),
     Identifier(String),
-    Add(Box<Expr>, Box<Expr>),
-    Substract(Box<Expr>, Box<Expr>),
-    Devide(Box<Expr>, Box<Expr>),
-    Multiply(Box<Expr>, Box<Expr>),
+    Add(usize, usize),
+    Substract(usize, usize),
+    Devide(usize, usize),
+    Multiply(usize, usize),
+    Neg(usize),
+    Not(usize),
+
     BinaryOp {
-        left: Box<Expr>,
+        left: usize,
         op: BinaryOperator,
-        right: Box<Expr>,
+        right: usize,
     },
 
     And {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: usize,
+        right: usize,
     },
 
     Or {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: usize,
+        right: usize,
     },
 }
 #[derive(Debug, Clone)]
