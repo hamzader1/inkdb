@@ -1,5 +1,5 @@
 use crate::{
-    DbError, SqliteDatabase, compute_local_payload_size, format::page::BTreePage,
+    DbError, SqliteDatabase, compute_table_local_payload_size, format::page::BTreePage,
     util::sqlite_assert_one, vfs::file::SqliteFile,
 };
 use std::io::{
@@ -120,7 +120,7 @@ impl TableLeafCell {
         };
 
         let current_pos = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))? as usize;
-        let local_payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let local_payload_size = compute_table_local_payload_size(usable_size, payload_len as usize);
         let local_payload_range = Range::from(current_pos..current_pos + local_payload_size);
         let mut overflow_page: Option<u32> = None;
         if local_payload_size < payload_len as usize {
@@ -176,7 +176,7 @@ impl IndexInteriorCell {
         };
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cursor_pos as u64 + byte_read as u64))? as usize;
-        let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let payload_size = compute_table_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
         let mut overflow_page: Option<PageNo> = None;
@@ -225,7 +225,7 @@ impl IndexLeafCell {
         };
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
-        let payload_size = compute_local_payload_size(usable_size, payload_len as usize);
+        let payload_size = compute_table_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size =
             Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
         let mut overflow_page: Option<PageNo> = None;
