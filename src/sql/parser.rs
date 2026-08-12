@@ -7,17 +7,40 @@ use super::tokens::{
 };
 use std::string::String;
 
+use super::ast::Expr;
+#[derive(Debug, Default)]
+pub struct Arena {
+    pub nodes: Vec<Expr>,
+}
+impl Arena {
+    pub fn new() -> Self {
+        Self { nodes: Vec::new() }
+    }
+    pub fn push(&mut self, expr: Expr) -> usize {
+        self.nodes.push(expr);
+        self.nodes.len() - 1
+    }
+}
 pub struct Parser {
     pub tokens: Vec<Token>,
     pub pos: usize,
+    pub arena: Arena,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            arena: Arena::new(),
+        }
     }
     pub fn parse(tokens: Vec<Token>) -> Result<Ast, SqliteError> {
-        let mut parser = Parser { tokens, pos: 0 };
+        let mut parser = Parser {
+            tokens,
+            pos: 0,
+            arena: Arena::new(),
+        };
         parser.parse_statement()
     }
     pub fn at(&self, t_kind: TokenKind) -> bool {
