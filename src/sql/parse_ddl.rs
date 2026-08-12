@@ -6,8 +6,8 @@ use crate::errors::SqliteError;
 
 impl Parser {
     pub fn parse_create(&mut self) -> Result<Ast, SqliteError> {
-        self.expect(&Create)?;
-        let unique = self.eat(&Unique);
+        self.expect(Create)?;
+        let unique = self.eat(Unique);
         match self.peek() {
             Some(Table) => {
                 if unique {
@@ -25,38 +25,38 @@ impl Parser {
     }
 
     fn parse_create_table(&mut self) -> Result<Ast, SqliteError> {
-        self.expect(&Table)?;
+        self.expect(Table)?;
         let name = self.expect_ident()?;
-        self.expect(&LeftParen)?;
+        self.expect(LeftParen)?;
         let mut columns: Vec<Column> = Vec::new();
-        while !self.at(&RightParen) {
+        while !self.at(RightParen) {
             columns.push(self.parse_column()?);
-            if !self.eat(&Comma) {
+            if !self.eat(Comma) {
                 break;
             }
         }
-        self.expect(&RightParen)?;
+        self.expect(RightParen)?;
         Ok(Ast::CreateTableAst(CreateTable { name, columns }))
     }
 
     fn parse_create_index(&mut self, unique: bool) -> Result<Ast, SqliteError> {
-        self.expect(&Index)?;
-        if self.eat(&If) {
-            self.expect(&Not)?;
-            self.expect(&Exists)?;
+        self.expect(Index)?;
+        if self.eat(If) {
+            self.expect(Not)?;
+            self.expect(Exists)?;
         }
         let name = self.expect_ident()?;
-        self.expect(&On)?;
+        self.expect(On)?;
         let table = self.expect_ident()?;
-        self.expect(&LeftParen)?;
+        self.expect(LeftParen)?;
         let mut columns = Vec::new();
-        while !self.at(&RightParen) {
+        while !self.at(RightParen) {
             columns.push(self.expect_ident()?);
-            if !self.eat(&Comma) {
+            if !self.eat(Comma) {
                 break;
             }
         }
-        self.expect(&RightParen)?;
+        self.expect(RightParen)?;
         Ok(Ast::CreateIndexAst(CreateIndex {
             unique,
             name,
@@ -70,7 +70,7 @@ impl Parser {
         let mut affinity: Option<Affinity> = None;
         let mut constraints = Vec::new();
 
-        while !self.at(&Comma) && !self.at(&RightParen) {
+        while !self.at(Comma) && !self.at(RightParen) {
             match self.peek() {
                 // Affinity from a built in type token (INTEGER, TEXT, ...)
                 Some(Integer) | Some(Text) | Some(Float) | Some(Blob) => {
@@ -88,21 +88,21 @@ impl Parser {
                     self.set_affinity(&mut affinity, Affinity::from_type_name(&type_name), &name)?;
                 }
                 Some(Primary) => {
-                    self.expect(&Primary)?;
-                    self.expect(&Key)?;
+                    self.expect(Primary)?;
+                    self.expect(Key)?;
                     constraints.push(Constraint::PrimaryKey);
                 }
                 Some(Unique) => {
-                    self.expect(&Unique)?;
+                    self.expect(Unique)?;
                     constraints.push(Constraint::Unique);
                 }
                 Some(Not) => {
-                    self.expect(&Not)?;
-                    self.expect(&Null)?;
+                    self.expect(Not)?;
+                    self.expect(Null)?;
                     constraints.push(Constraint::NotNull);
                 }
                 Some(NotNull) => {
-                    self.expect(&NotNull)?;
+                    self.expect(NotNull)?;
                     constraints.push(Constraint::NotNull);
                 }
                 _ => break,
@@ -140,24 +140,24 @@ impl Parser {
     }
 
     fn eat_type_size(&mut self) -> Result<(), SqliteError> {
-        if !self.eat(&LeftParen) {
+        if !self.eat(LeftParen) {
             return Ok(());
         }
-        while !self.at(&RightParen) {
+        while !self.at(RightParen) {
             match self.next() {
-                Some(t) if matches!(t.kind, Number(_)) => {}
+                Some(t) if matches!(t.kind, NumberVar(_)) => {}
                 _ => {
                     return Err(SqliteError::RuntimeError(
                         "invalid token in type size".into(),
                     ));
                 }
             }
-            if !self.eat(&Comma) && !self.at(&RightParen) {
+            if !self.eat(Comma) && !self.at(RightParen) {
                 return Err(SqliteError::RuntimeError(
                     "expected ',' or ')' in type size".into(),
                 ));
             }
         }
-        self.expect(&RightParen)
+        self.expect(RightParen)
     }
 }
