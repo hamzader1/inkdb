@@ -97,6 +97,10 @@ impl BTreeCursor {
     }
 
     pub fn next<F: SqliteFile>(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+        // TODO: Index cursor iteration requires visiting
+        // interior index cells during traversal.
+        //
+        // Currently supported for table B-trees only.
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
@@ -111,20 +115,22 @@ impl BTreeCursor {
                     self.state = CursorState::At;
                     return Ok(());
                 }
-            } else if cell_idx + 1 == page.no_of_cells() {
-                let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
-                    "interior page has no right-most child".into(),
-                ))?;
-                self.add_path(page_no, cell_idx + 1, guard);
-                self.descend_to_first(pager, child)?;
-                self.state = CursorState::At;
-                return Ok(());
-            } else if cell_idx + 1 < page.no_of_cells() {
-                let child = page.cell(cell_idx + 1)?.left_child();
-                self.add_path(page_no, cell_idx + 1, guard);
-                self.descend_to_first(pager, child)?;
-                self.state = CursorState::At;
-                return Ok(());
+            } else {
+                if cell_idx + 1 == page.no_of_cells() {
+                    let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                        "interior page has no right-most child".into(),
+                    ))?;
+                    self.add_path(page_no, cell_idx + 1, guard);
+                    self.descend_to_first(pager, child)?;
+                    self.state = CursorState::At;
+                    return Ok(());
+                } else if cell_idx + 1 < page.no_of_cells() {
+                    let child = page.cell(cell_idx + 1)?.left_child();
+                    self.add_path(page_no, cell_idx + 1, guard);
+                    self.descend_to_first(pager, child)?;
+                    self.state = CursorState::At;
+                    return Ok(());
+                }
             }
         }
         self.state = CursorState::AfterLast;
