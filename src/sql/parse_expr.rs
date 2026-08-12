@@ -1,42 +1,37 @@
+use std::ops::Neg;
+
 use super::ast::{BinaryOperator, Expr};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
 use crate::errors::SqliteError;
 
 impl Parser {
-    pub fn parse_expression(&mut self) -> Result<Expr, SqliteError> {
+    pub fn parse_expression(&mut self) -> Result<usize, SqliteError> {
         self.parse_logical_or()
-        // start
     }
 
-    pub fn parse_logical_or(&mut self) -> Result<Expr, SqliteError> {
+    pub fn parse_logical_or(&mut self) -> Result<usize, SqliteError> {
         let mut left = self.parse_logical_and()?;
 
         while self.eat(Or) {
             let right = self.parse_logical_and()?;
 
-            left = Expr::Or {
-                left: Box::new(left),
-                right: Box::new(right),
-            };
+            left = self.arena.push(Expr::Or { left, right });
         }
         Ok(left)
         // Ok(Expr::Empty)
     }
 
-    pub fn parse_logical_and(&mut self) -> Result<Expr, SqliteError> {
+    pub fn parse_logical_and(&mut self) -> Result<usize, SqliteError> {
         let mut left = self.parse_condition()?;
         while self.eat(And) {
             let right = self.parse_condition()?;
-            left = Expr::And {
-                left: Box::new(left),
-                right: Box::new(right),
-            };
+            left = self.arena.push(Expr::And { left, right });
         }
         Ok(left)
     }
 
-    pub fn parse_condition(&mut self) -> Result<Expr, SqliteError> {
+    pub fn parse_condition(&mut self) -> Result<usize, SqliteError> {
         let mut left = self.parse_addition()?;
         while self.at(Equals)
             || self.at(NotEquals)
@@ -60,41 +55,57 @@ impl Parser {
                 BinaryOperator::Lt
             };
             let right = self.parse_addition()?;
-            left = Expr::BinaryOp {
-                left: Box::new(left),
-                op,
-                right: Box::new(right),
-            }
+            left = self.arena.push(Expr::BinaryOp { left, op, right })
         }
         Ok(left)
     }
-    pub fn parse_addition(&mut self) -> Result<Expr, SqliteError> {
+    pub fn parse_addition(&mut self) -> Result<usize, SqliteError> {
         let mut left = self.parse_multiplication()?;
         while self.at(Plus) || self.at(Minus) {
-            let right = self.parse_multiplication()?;
             if self.eat(Plus) {
-                left = Expr::Add(Box::new(left), Box::new(right));
+                let right = self.parse_multiplication()?;
+                left = self.arena.push(Expr::Add(left, right));
             } else {
                 self.eat(Minus);
-                left = Expr::Substract(Box::new(left), Box::new(right));
+                let right = self.parse_multiplication()?;
+                left = self.arena.push(Expr::Substract(left, right));
             }
         }
         Ok(left)
     }
-    pub fn parse_multiplication(&mut self) -> Result<Expr, SqliteError> {
-        let mut left = self.parse_factor()?;
+    pub fn parse_multiplication(&mut self) -> Result<usize, SqliteError> {
+        let mut left = self.parse_unary()?;
         while self.at(Star) || self.at(Slash) {
-            let right = self.parse_factor()?;
             if self.eat(Star) {
-                left = Expr::Multiply(Box::new(left), Box::new(right));
+                let right = self.parse_unary()?;
+                left = self.arena.push(Expr::Multiply(left, right));
             } else {
                 self.eat(Slash);
-                left = Expr::Devide(Box::new(left), Box::new(right));
+                let right = self.parse_unary()?;
+                left = self.arena.push(Expr::Devide(left, right));
             }
         }
         Ok(left)
     }
-    pub fn parse_factor(&mut self) -> Result<Expr, SqliteError> {
+    fn parse_unary(&mut self) -> Result<usize, SqliteError> {
+        if self.eat(Minus) {
+            let idx = self.parse_factor()?;
+
+            match self.arena.nodes[idx] {
+                Expr::Number(x) => Ok(self.arena.push(Expr::Number(-x))),
+
+                Expr::Float(x) => Ok(self.arena.push(Expr::Float(-x))),
+
+                _ => Ok(self.arena.push(Expr::Neg(idx))),
+            }
+        } else if self.eat(Not) {
+            let idx = self.parse_condition()?;
+            Ok(self.arena.push(Expr::Not(idx)))
+        } else {
+            self.parse_factor()
+        }
+    }
+    pub fn parse_factor(&mut self) -> Result<usize, SqliteError> {
         if self.eat(LeftParen) {
             let expr = self.parse_expression()?;
             self.expect(RightParen)?;
@@ -102,12 +113,13 @@ impl Parser {
         }
 
         let expr = match self.peek() {
-            Some(Identifier(x)) => Expr::Identifier(x.clone()),
-            Some(String(x)) => Expr::StringLitteral(x.clone()),
-            Some(NumberVar(x)) => Expr::Number(*x),
-            Some(FloatVar(x)) => Expr::Float(*x),
-            Some(BoolVar(x)) => Expr::Bool(*x),
+            Some(Identifier(x)) => self.arena.push(Expr::Identifier(x.clone())),
+            Some(String(x)) => self.arena.push(Expr::StringLitteral(x.clone())),
+            Some(NumberVar(x)) => self.arena.push(Expr::Number(*x)),
+            Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
+            Some(BoolVar(x)) => self.arena.push(Expr::Bool(*x)),
             Some(other) => {
+                dbg!(self.pos);
                 return Err(SqliteError::RuntimeError(format!(
                     "Unexpected token {:?} in expression",
                     other
