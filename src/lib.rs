@@ -14,7 +14,7 @@ mod util;
 pub mod vfs;
 use errors::SqliteError;
 use format::header::SqliteDatabaseHeader;
-use format::overflow::compute_local_payload_size;
+use format::overflow::compute_table_local_payload_size;
 use format::page::BTreePage;
 pub use format::varint::{decode_varint, encode_varint};
 use std::path::Path;
