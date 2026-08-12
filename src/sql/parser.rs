@@ -13,20 +13,23 @@ pub struct Parser {
 }
 
 impl Parser {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, pos: 0 }
+    }
     pub fn parse(tokens: Vec<Token>) -> Result<Ast, SqliteError> {
         let mut parser = Parser { tokens, pos: 0 };
         parser.parse_statement()
     }
-    pub fn at(&self, t_kind: &TokenKind) -> bool {
+    pub fn at(&self, t_kind: TokenKind) -> bool {
         if let Some(t) = self.tokens.get(self.pos)
-            && &t.kind == t_kind
+            && t_kind == t.kind
         {
             return true;
         }
         false
     }
 
-    pub fn eat(&mut self, t_kind: &TokenKind) -> bool {
+    pub fn eat(&mut self, t_kind: TokenKind) -> bool {
         if self.at(t_kind) {
             self.pos += 1;
             return true;
@@ -47,7 +50,7 @@ impl Parser {
         t
     }
 
-    pub fn expect(&mut self, t_kind: &TokenKind) -> Result<(), SqliteError> {
+    pub fn expect(&mut self, t_kind: TokenKind) -> Result<(), SqliteError> {
         if !self.at(t_kind) {
             return Err(RuntimeError(
                 "Given token does not match the current token".into(),
@@ -67,6 +70,54 @@ impl Parser {
             )),
         }
     }
+
+    // pub fn expect_string(&mut self) -> Result<String, SqliteError> {
+    //     match self.next() {
+    //         Some(t) => match t.kind {
+    //             String(x) => Ok(x),
+    //             any => Err(RuntimeError("Expected identifier".into())),
+    //         },
+    //         None => Err(RuntimeError(
+    //             "Unexpected end of input, Expected identifier".into(),
+    //         )),
+    //     }
+    // }
+    // pub fn expect_int(&mut self) -> Result<i64, SqliteError> {
+    //     match self.next() {
+    //         Some(t) => match t.kind {
+    //             NumberVar(x) => Ok(x),
+    //             any => Err(RuntimeError("Expected identifier".into())),
+    //         },
+    //         None => Err(RuntimeError(
+    //             "Unexpected end of input, Expected identifier".into(),
+    //         )),
+    //     }
+    // }
+    // pub fn at_ident(&self) -> bool {
+    //     if let Some(tkind) = self.peek() {
+    //         return matches!(tkind, Identifier(_));
+    //     }
+    //     false
+    // }
+    // pub fn at_string(&self) -> bool {
+    //     if let Some(tkind) = self.peek() {
+    //         return matches!(tkind, String(_));
+    //     }
+    //     false
+    // }
+
+    // pub fn at_number(&self) -> bool {
+    //     if let Some(tkind) = self.peek() {
+    //         return matches!(tkind, NumberVar(_));
+    //     }
+    //     false
+    // }
+    // pub fn at_bool(&self) -> bool {
+    //     if let Some(tkind) = self.peek() {
+    //         return matches!(tkind, BoolVar(_));
+    //     }
+    //     false
+    // }
     pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {
         match self.peek() {
             Some(Create) => self.parse_create(),
