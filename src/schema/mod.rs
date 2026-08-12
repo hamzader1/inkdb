@@ -1,9 +1,9 @@
-use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 use crate::storage::btree::BTreeCursor;
+use crate::{errors::SqliteError, sql::ast::Constraint};
 use std::collections::HashMap;
 
 use crate::sql::ast::{
@@ -18,6 +18,37 @@ pub struct Table {
     name: String,
     pub root_page: u32,
     columns: Vec<Column>,
+}
+impl Table {
+    // pub fn is_col_exists(&self, col_name: &str) -> bool {
+    //     self.columns
+    //         .iter()
+    //         .find(|col| col_name == col.name)
+    //         .is_some()
+    // }
+
+    pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
+        for (i, col) in self.columns.iter().enumerate() {
+            if col.name == col_name {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    pub fn has_int_primary_key(&self) -> bool {
+        for col in self.columns.iter() {
+            if col.affinity == Affinity::Int
+                && let Some(ref constraits) = col.constraints
+            {
+                return constraits
+                    .iter()
+                    .find(|constrait| **constrait == Constraint::PrimaryKey)
+                    .is_some();
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -94,6 +125,7 @@ impl SqliteMaster {
                 };
                 self.indexes.insert(index.name.clone(), index);
             }
+            _ => unreachable!(),
         }
         Ok(())
     }
