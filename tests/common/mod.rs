@@ -35,12 +35,7 @@ impl SqliteFile for MemFile {
         Ok(self.data.borrow().len() as u64)
     }
 
-    fn read_exact_at<B: AsMut<[u8]> + ?Sized>(
-        &self,
-        offset: u64,
-        buff: &mut B,
-    ) -> Result<(), DbError> {
-        let buff = buff.as_mut();
+    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), DbError> {
         let data = self.data.borrow();
         let start = offset as usize;
         let end = start + buff.len();
@@ -57,8 +52,7 @@ impl SqliteFile for MemFile {
         Ok(())
     }
 
-    fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buff: &B) -> Result<(), DbError> {
-        let buff = buff.as_ref();
+    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), DbError> {
         let mut data = self.data.borrow_mut();
         let start = offset as usize;
         let end = start + buff.len();

@@ -49,6 +49,6 @@ fn multiple_cursors_over_same_file_are_independent() {
 fn reading_array_larger_than_remaining_data_errors() {
     let file = MemFile::new(vec![1, 2, 3]);
     let mut cur = FileCursor::new(&file);
-    let result = cur.read_next_arrary::<10>();
+    let result = cur.read_next_array::<10>();
     assert!(result.is_err());
 }

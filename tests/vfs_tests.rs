@@ -487,7 +487,7 @@ fn cursor_mem_file_read_u32_big_endian() {
 fn cursor_mem_file_read_fixed_array() {
     let file = MemFile::new(rc_vec(b"SQLite format 3\0".to_vec()));
     let mut cur = FileCursor::new(&file);
-    let arr: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let arr: [u8; 16] = cur.read_next_array::<16>().unwrap();
     assert_eq!(&arr, b"SQLite format 3\0");
 }
 
@@ -522,7 +522,7 @@ fn cursor_mem_file_mixed_reads_advance_offset() {
     assert_eq!(cur.read_next_u8().unwrap(), 0xAB);
     assert_eq!(cur.read_next_u16().unwrap(), 0x1234);
     assert_eq!(cur.read_next_u32().unwrap(), 0xCAFEBABE);
-    let tail: [u8; 5] = cur.read_next_arrary::<5>().unwrap();
+    let tail: [u8; 5] = cur.read_next_array::<5>().unwrap();
     assert_eq!(&tail, b"tail!");
 }
 
@@ -541,7 +541,7 @@ fn cursor_mem_file_read_array_larger_than_remaining_panics() {
     let file = MemFile::new(rc_vec(vec![1, 2, 3]));
     let mut cur = FileCursor::new(&file);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        cur.read_next_arrary::<10>().unwrap();
+        cur.read_next_array::<10>().unwrap();
     }));
     assert!(result.is_err());
 }
@@ -597,7 +597,7 @@ fn cursor_disk_file_read_fixed_array() {
     let mut vfs = DiskVfs;
     let file = vfs.open(&path, SqliteOptions::new().read(true)).unwrap();
     let mut cur = FileCursor::new(&file);
-    let arr: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let arr: [u8; 16] = cur.read_next_array::<16>().unwrap();
     assert_eq!(&arr, b"SQLite format 3\0");
     let _ = std::fs::remove_file(&path);
 }
@@ -644,7 +644,7 @@ fn cursor_disk_file_mixed_reads_advance_offset_correctly() {
     assert_eq!(cur.read_next_u8().unwrap(), 0xAB);
     assert_eq!(cur.read_next_u16().unwrap(), 0x1234);
     assert_eq!(cur.read_next_u32().unwrap(), 0xCAFEBABE);
-    let tail: [u8; 5] = cur.read_next_arrary::<5>().unwrap();
+    let tail: [u8; 5] = cur.read_next_array::<5>().unwrap();
     assert_eq!(&tail, b"tail!");
     let _ = std::fs::remove_file(&path);
 }
@@ -667,7 +667,7 @@ fn cursor_disk_file_read_array_larger_than_remaining_errors() {
     let mut vfs = DiskVfs;
     let file = vfs.open(&path, SqliteOptions::new().read(true)).unwrap();
     let mut cur = FileCursor::new(&file);
-    assert!(cur.read_next_arrary::<10>().is_err());
+    assert!(cur.read_next_array::<10>().is_err());
     let _ = std::fs::remove_file(&path);
 }
 
@@ -691,7 +691,7 @@ fn cursor_mem_file_can_read_sqlite_header_magic() {
     let header = common::valid_header_bytes(4096, 0);
     let file = MemFile::new(rc_vec(header));
     let mut cur = FileCursor::new(&file);
-    let magic: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let magic: [u8; 16] = cur.read_next_array::<16>().unwrap();
     assert_eq!(&magic, b"SQLite format 3\0");
 }
 
@@ -700,7 +700,7 @@ fn cursor_mem_file_can_read_page_size_from_header() {
     let header = common::valid_header_bytes(4096, 0);
     let file = MemFile::new(rc_vec(header));
     let mut cur = FileCursor::new(&file);
-    let _magic: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let _magic: [u8; 16] = cur.read_next_array::<16>().unwrap();
     let page_size = cur.read_next_u16().unwrap();
     assert_eq!(page_size, 4096);
 }
@@ -713,7 +713,7 @@ fn cursor_disk_file_can_read_sqlite_header_magic() {
     let mut vfs = DiskVfs;
     let file = vfs.open(&path, SqliteOptions::new().read(true)).unwrap();
     let mut cur = FileCursor::new(&file);
-    let magic: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let magic: [u8; 16] = cur.read_next_array::<16>().unwrap();
     assert_eq!(&magic, b"SQLite format 3\0");
     let _ = std::fs::remove_file(&path);
 }
@@ -726,7 +726,7 @@ fn cursor_disk_file_can_read_page_size_from_header() {
     let mut vfs = DiskVfs;
     let file = vfs.open(&path, SqliteOptions::new().read(true)).unwrap();
     let mut cur = FileCursor::new(&file);
-    let _magic: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let _magic: [u8; 16] = cur.read_next_array::<16>().unwrap();
     let page_size = cur.read_next_u16().unwrap();
     assert_eq!(page_size, 8192);
     let _ = std::fs::remove_file(&path);

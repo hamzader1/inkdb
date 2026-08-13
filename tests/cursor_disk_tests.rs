@@ -76,7 +76,7 @@ fn cursor_reads_fixed_size_array() {
     let tmp = TempFile::with_contents("array", b"SQLite format 3\0");
     let file = open_disk_file(tmp.path());
     let mut cur = FileCursor::new(&file);
-    let arr: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let arr: [u8; 16] = cur.read_next_array::<16>().unwrap();
     assert_eq!(&arr, b"SQLite format 3\0");
 }
 
@@ -116,7 +116,7 @@ fn cursor_mixed_reads_advance_offset_correctly() {
     assert_eq!(cur.read_next_u8().unwrap(), 0xAB);
     assert_eq!(cur.read_next_u16().unwrap(), 0x1234);
     assert_eq!(cur.read_next_u32().unwrap(), 0xCAFEBABE);
-    let tail: [u8; 5] = cur.read_next_arrary::<5>().unwrap();
+    let tail: [u8; 5] = cur.read_next_array::<5>().unwrap();
     assert_eq!(&tail, b"tail!");
 }
 
@@ -169,10 +169,10 @@ fn read_next_exact_with_zero_length_buffer_is_a_no_op() {
 }
 
 #[test]
-fn read_next_arrary_larger_than_remaining_file_errors() {
+fn read_next_array_larger_than_remaining_file_errors() {
     let tmp = TempFile::with_contents("array_too_big", &[1, 2, 3]);
     let file = open_disk_file(tmp.path());
     let mut cur = FileCursor::new(&file);
-    let result = cur.read_next_arrary::<10>();
+    let result = cur.read_next_array::<10>();
     assert!(result.is_err());
 }
