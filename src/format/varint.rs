@@ -74,12 +74,12 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     // where n == 9 is already excluded before arriving here.
     assert!(n <= 9);
     // let mut j = n - 1;
-    let mut i = 0;
-    for j in (0..n).rev() {
+    // let mut i = 0;
+    for (i, j) in (0..n).rev().enumerate() {
         buff[i] = temp_buffer[j];
-        i += 1;
+        // i += 1;
     }
-    return n;
+    n
 }
 
 pub fn decode_varint(bytes: &[u8]) -> Option<(u64, usize)> {

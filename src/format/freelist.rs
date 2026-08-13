@@ -31,9 +31,7 @@ impl SqliteDatabase {
             }
             _ => {}
         };
-        if let Err(e) = self.validate_page(current_page, None::<fn(_) -> bool>) {
-            return Err(e);
-        }
+        self.validate_page(current_page, None::<fn(_) -> bool>)?;
         let mut trunk_pages = Vec::<u32>::new();
         let mut leaf_pages = Vec::<u32>::new();
         // let mut buf = vec![0u8; self.header.database_page_size as _];
