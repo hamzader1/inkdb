@@ -7,7 +7,7 @@ use crate::sql::parser::Arena;
 type ColumnIndex = usize;
 type ArenaColumnIndex = usize;
 
-pub struct Analayze;
+pub struct Analyze;
 // #[derive(Debug)]
 // pub struct MultiIndexColumn {
 //     pub col_idx: ColumnIndex,
@@ -30,7 +30,7 @@ pub struct ResolvedQuery {
 //     }
 // }
 
-impl Analayze {
+impl Analyze {
     pub fn analyze(
         select_stmt: SelectStmt,
         sqlite_master: &SqliteMaster,
@@ -59,7 +59,7 @@ impl Analayze {
 
         if !has_star {
             for idx in columns.iter() {
-                Analayze::fast_bind(table, *idx, &mut arena)?;
+                Analyze::fast_bind(table, *idx, &mut arena)?;
             }
             return Ok(ResolvedQuery {
                 root_page: table.root_page,
@@ -77,7 +77,7 @@ impl Analayze {
                 new_cols.push(*idx);
             }
 
-            Analayze::slow_bind(
+            Analyze::slow_bind(
                 table,
                 *idx,
                 &mut arena,
