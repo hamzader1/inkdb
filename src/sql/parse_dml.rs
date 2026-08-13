@@ -2,13 +2,20 @@ use super::ast::{Ast, Column, SelectStmt};
 use super::parser::Parser;
 use super::tokens::TokenKind::{self, *};
 use crate::errors::SqliteError;
+use crate::sql::ast::Expr;
 
 impl Parser {
     pub fn parse_select(&mut self) -> Result<Ast, SqliteError> {
         self.expect(Select);
         let mut columns = Vec::new();
         loop {
-            columns.push(self.parse_expression()?);
+            if self.eat(Star) {
+                let idx = self.arena.nodes.len();
+                self.arena.nodes.push(Expr::Star);
+                columns.push(idx);
+            } else {
+                columns.push(self.parse_expression()?);
+            }
             if !self.eat(Comma) {
                 // anything, BUT COMMA
                 break;
