@@ -1,16 +1,18 @@
+use crate::backend::planner::plan::Plan;
 use crate::record::Value;
 use crate::sql::parser::Arena;
 
-use super::Executor;
 use super::eval::Eval;
 
-pub struct Project<E: Executor> {
-    child: E,
+#[derive(Debug)]
+pub struct Project {
+    pub child: Box<Plan>,
     arena: Arena,
     columns: Vec<usize>,
 }
-impl<E: Executor> Project<E> {
-    pub fn new(child: E, arena: Arena, columns: Vec<usize>) -> Self {
+
+impl Project {
+    pub fn new(child: Box<Plan>, arena: Arena, columns: Vec<usize>) -> Self {
         Self {
             child,
             arena,
@@ -18,8 +20,8 @@ impl<E: Executor> Project<E> {
         }
     }
 }
-impl<E: Executor> Executor for Project<E> {
-    fn next(
+impl Project {
+    pub fn next(
         &mut self,
         pager: &mut crate::pager::pager::Pager,
     ) -> Result<Option<super::Row>, crate::errors::SqliteError> {
@@ -29,14 +31,9 @@ impl<E: Executor> Executor for Project<E> {
                 .iter()
                 .map(|i| Eval::eval(&self.arena, *i, &row))
                 .collect();
-            // for
             return Ok(Some(output_row));
         }
+
         Ok(None)
     }
 }
-
-// take the row
-// apply eval on it
-// return val
-// replace it with the same index
