@@ -50,19 +50,124 @@ impl Analayze {
                 )));
             }
         };
+
+        let has_star = arena
+            .nodes
+            .iter()
+            .find(|node| *node == &Expr::Star)
+            .is_some();
+
+        if !has_star {
+            for idx in columns.iter() {
+                Analayze::fast_bind(table, *idx, &mut arena)?;
+            }
+            return Ok(ResolvedQuery {
+                root_page: table.root_page,
+                arena,
+                columns,
+                where_clause,
+            });
+        }
+        let mut new_arena: Vec<Expr> = Vec::new();
+        let mut map = vec![0; arena.nodes.len()];
+        let mut new_cols = Vec::new();
         for idx in columns.iter() {
-            Analayze::bind(table, *idx, &mut arena)?;
+            if let &Expr::Star = &arena.nodes[*idx] {
+            } else {
+                new_cols.push(*idx);
+            }
+
+            Analayze::slow_bind(
+                table,
+                *idx,
+                &mut arena,
+                &mut new_arena,
+                &mut map,
+                &mut new_cols,
+            )?;
+        }
+        let mut col_id = 0usize;
+        for idx in columns.iter() {
+            if let &Expr::Star = &arena.nodes[*idx] {
+                col_id += table.get_cols_len();
+            } else {
+                new_cols[col_id] = map[*idx];
+                col_id += 1;
+            }
         }
 
         Ok(ResolvedQuery {
             root_page: table.root_page,
-            arena,
-            columns,
+            arena: Arena { nodes: new_arena },
+            columns: new_cols,
             where_clause,
         })
     }
 
-    fn bind(table: &Table, idx: usize, arena: &mut Arena) -> Result<(), SqliteError> {
+    fn slow_bind(
+        table: &Table,
+        idx: usize,
+        arena: &mut Arena,
+        new: &mut Vec<Expr>,
+        map: &mut Vec<usize>,
+        new_cols: &mut Vec<usize>,
+    ) -> Result<(), SqliteError> {
+        let expr = &arena.nodes[idx];
+        match expr {
+            Expr::Identifier(col_name) => match table.get_col_idx(col_name) {
+                Some(col_idx) => {
+                    new.push(Expr::ColumnRef(col_idx));
+                    map[idx] = new.len() - 1;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(SqliteError::RuntimeError(format!(
+                        "Column {} does not exists",
+                        col_name
+                    )));
+                }
+            },
+            Expr::Star => {
+                for i in 0..table.get_cols_len() {
+                    new.push(Expr::ColumnRef(i));
+                    new_cols.push(new.len() - 1);
+                }
+                map[idx] = new.len() - 1;
+            }
+            Expr::Number(_) | Expr::Float(_) | Expr::Bool(_) | Expr::StringLitteral(_) => {
+                new.push(expr.clone());
+                map[idx] = new.len() - 1;
+                return Ok(());
+            }
+            Expr::Add(left, right)
+            | Expr::Substract(left, right)
+            | Expr::Multiply(left, right)
+            | Expr::Devide(left, right) => {
+                let left = *left;
+                let right = *right;
+
+                let node = expr.clone();
+                Self::slow_bind(table, left, arena, new, map, new_cols)?;
+                Self::slow_bind(table, right, arena, new, map, new_cols)?;
+                new.push(Expr::remap_l_r(&node, map[left], map[right]));
+                map[idx] = new.len() - 1;
+            }
+            Expr::Neg(i) => {
+                let child = *i;
+                Self::slow_bind(table, idx, arena, new, map, new_cols)?;
+                new.push(Expr::Neg(map[child]));
+                map[idx] = new.len() - 1;
+            }
+            // TODO: Temporary for now, Remove in where clause
+            _ => {
+                return Err(SqliteError::RuntimeError(
+                    "Expression is not allowed in select statement list".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+    fn fast_bind(table: &Table, idx: usize, arena: &mut Arena) -> Result<(), SqliteError> {
         let expr = &arena.nodes[idx];
         match expr {
             Expr::Identifier(col_name) => match table.get_col_idx(col_name) {
@@ -83,29 +188,29 @@ impl Analayze {
             Expr::Add(left, right) => {
                 let left = *left;
                 let right = *right;
-                Self::bind(table, left, arena)?;
-                Self::bind(table, right, arena)?;
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
             }
             Expr::Substract(left, right) => {
                 let left = *left;
                 let right = *right;
-                Self::bind(table, left, arena)?;
-                Self::bind(table, right, arena)?;
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
             }
             Expr::Multiply(left, right) => {
                 let left = *left;
                 let right = *right;
-                Self::bind(table, left, arena)?;
-                Self::bind(table, right, arena)?;
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
             }
             Expr::Devide(left, right) => {
                 let left = *left;
                 let right = *right;
-                Self::bind(table, left, arena)?;
-                Self::bind(table, right, arena)?;
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
             }
             Expr::Neg(i) => {
-                Self::bind(table, *i, arena)?;
+                Self::fast_bind(table, *i, arena)?;
             }
             // TODO: Temporary for now, Remove in where clause
             _ => {
