@@ -287,7 +287,7 @@ impl BTreeCell {
     }
 }
 
-impl<S: SqliteFile> SqliteDatabase<S> {
+impl SqliteDatabase {
     pub fn cell_payload(
         &mut self,
         page: &BTreePage,

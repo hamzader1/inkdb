@@ -9,7 +9,6 @@ use crate::record::SqlType;
 use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::util::sqlite_assert_with_corrupt_err;
-use crate::vfs::file::SqliteFile;
 
 pub type CellIdx = u16;
 
@@ -60,14 +59,11 @@ impl BTreeCursor {
             state: CursorState::Invalid,
         }
     }
-    pub fn seek<F>(
+    pub fn seek(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
         target: Value<'_>,
-    ) -> Result<SeekResult, SqliteError>
-    where
-        F: SqliteFile,
-    {
+    ) -> Result<SeekResult, SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -96,7 +92,7 @@ impl BTreeCursor {
         }
     }
 
-    pub fn next<F: SqliteFile>(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager) -> Result<(), SqliteError> {
         // TODO: Index cursor iteration requires visiting
         // interior index cells during traversal.
         //
@@ -136,7 +132,7 @@ impl BTreeCursor {
         self.state = CursorState::AfterLast;
         Ok(())
     }
-    pub fn first<F: SqliteFile>(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn first(&mut self, pager: &mut Pager) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -152,9 +148,9 @@ impl BTreeCursor {
             page_no = child;
         }
     }
-    pub fn descend_to_first<F: SqliteFile>(
+    pub fn descend_to_first(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
         page_no: PageNo,
     ) -> Result<(), SqliteError> {
         let mut page_no = page_no;
@@ -171,7 +167,7 @@ impl BTreeCursor {
             page_no = child;
         }
     }
-    pub fn prev<F: SqliteFile>(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn prev(&mut self, pager: &mut Pager) -> Result<(), SqliteError> {
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
@@ -198,7 +194,7 @@ impl BTreeCursor {
         self.state = CursorState::BeforeFirst;
         Ok(())
     }
-    pub fn last<F: SqliteFile>(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn last(&mut self, pager: &mut Pager) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -216,11 +212,7 @@ impl BTreeCursor {
             page_no = child;
         }
     }
-    fn descend_to_last<F: SqliteFile>(
-        &mut self,
-        pager: &mut Pager<F>,
-        page_no: PageNo,
-    ) -> Result<(), SqliteError> {
+    fn descend_to_last(&mut self, pager: &mut Pager, page_no: PageNo) -> Result<(), SqliteError> {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
@@ -238,10 +230,7 @@ impl BTreeCursor {
         }
     }
 
-    pub fn current<F: SqliteFile>(
-        &self,
-        pager: &mut Pager<F>,
-    ) -> Result<Option<BTreeCell>, SqliteError> {
+    pub fn current(&self, pager: &mut Pager) -> Result<Option<BTreeCell>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let Path {
                 page_no,
@@ -258,15 +247,12 @@ impl BTreeCursor {
     fn clear_path(&mut self) {
         self.stack.clear();
     }
-    fn choose_child<'a, F>(
+    fn choose_child<'a>(
         &self,
         page: &BTreePageRef<'a>,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
         target: &Value,
-    ) -> Result<SearchResult, SqliteError>
-    where
-        F: SqliteFile,
-    {
+    ) -> Result<SearchResult, SqliteError> {
         sqlite_assert_with_corrupt_err(
             page.is_interior(),
             "Navigation path of this works only with interior pages",
@@ -326,15 +312,12 @@ impl BTreeCursor {
         })
     }
 
-    fn choose_target<'a, F>(
+    fn choose_target<'a>(
         &'a self,
         page: &BTreePageRef<'a>,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
         target: &Value<'_>,
-    ) -> Result<(bool, CellIdx), SqliteError>
-    where
-        F: SqliteFile,
-    {
+    ) -> Result<(bool, CellIdx), SqliteError> {
         sqlite_assert_with_corrupt_err(
             page.is_leaf(),
             "This navigation path works only for leaves",
@@ -376,9 +359,9 @@ impl BTreeCursor {
         }
     }
 
-    pub fn current_page_as_ref<'a, F: SqliteFile>(
+    pub fn current_page_as_ref<'a>(
         &'a self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
     ) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let page = Self::page_as_ref(path.page_no, &path.guard, pager)?;
@@ -386,9 +369,9 @@ impl BTreeCursor {
         }
         Ok(None)
     }
-    pub fn current_record<'a, F: SqliteFile>(
+    pub fn current_record<'a>(
         &'a self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
     ) -> Result<Option<Vec<Value<'a>>>, SqliteError> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current(pager)?
@@ -399,11 +382,7 @@ impl BTreeCursor {
         Ok(None)
     }
 
-    fn with_page<F: SqliteFile, T, FN>(
-        pager: &mut Pager<F>,
-        page_no: PageNo,
-        f: FN,
-    ) -> Result<T, SqliteError>
+    fn with_page<T, FN>(pager: &mut Pager, page_no: PageNo, f: FN) -> Result<T, SqliteError>
     where
         FN: for<'a> FnOnce(&'a BTreePageRef<'a>) -> Result<T, SqliteError>,
     {
@@ -417,9 +396,8 @@ impl BTreeCursor {
         )?;
         f(&page)
     }
-    pub fn with_current<F, FN, R>(&mut self, pager: &mut Pager<F>, f: FN) -> Result<R, SqliteError>
+    pub fn with_current<FN, R>(&mut self, pager: &mut Pager, f: FN) -> Result<R, SqliteError>
     where
-        F: SqliteFile,
         FN: for<'a> FnOnce(&'a BTreePageRef<'a>, &BTreeCell) -> Result<R, SqliteError>,
     {
         let path = self.stack.last().unwrap();
@@ -432,10 +410,10 @@ impl BTreeCursor {
         })
     }
 
-    pub fn page_as_ref<'a, F: SqliteFile>(
+    pub fn page_as_ref<'a>(
         page_no: PageNo,
         guard: &'a PageGuard,
-        pager: &Pager<F>,
+        pager: &Pager,
     ) -> Result<BTreePageRef<'a>, SqliteError> {
         BTreePageRef::new(
             page_no,

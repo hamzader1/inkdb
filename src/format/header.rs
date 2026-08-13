@@ -119,7 +119,7 @@ impl SqliteDatabaseHeader {
         // default cursor to 0, no manually offset needed
         let mut cursor = FileCursor::<'_, R>::new(sqlite_source);
 
-        let header_string = cursor.read_next_arrary::<HEADER_STRING_SIZE>()?;
+        let header_string = cursor.read_next_array::<HEADER_STRING_SIZE>()?;
         let database_page_size = cursor.read_next_u16()?;
         let file_format_write_version = cursor.read_next_u8()?;
         let file_format_read_version = cursor.read_next_u8()?;
@@ -139,7 +139,7 @@ impl SqliteDatabaseHeader {
         let user_version = cursor.read_next_u32()?;
         let incremental_vacuum_mode = cursor.read_next_u32()?;
         let application_id = cursor.read_next_u32()?;
-        let reserved_for_expansion = cursor.read_next_arrary::<RESERVED_FOR_EXPANSION_SIZE>()?;
+        let reserved_for_expansion = cursor.read_next_array::<RESERVED_FOR_EXPANSION_SIZE>()?;
         let version_valid_for_number = cursor.read_next_u32()?;
         let sqlite_version_number = cursor.read_next_u32()?;
         let mut header = Self {

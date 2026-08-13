@@ -13,7 +13,7 @@ pub struct FreeList {
     leaf_pages: Vec<PageNo>,
 }
 
-impl<S: SqliteFile> SqliteDatabase<S> {
+impl SqliteDatabase {
     pub fn freelist(&mut self) -> Result<Option<FreeList>, DbError> {
         let mut current_page = self.header.first_freelist_trunk_page;
         let total_pages = self.header.total_number_of_freelist_pages;
@@ -46,11 +46,11 @@ impl<S: SqliteFile> SqliteDatabase<S> {
             let mut cursor = Cursor::new(buf);
             trunk_pages.push(current_page);
             let next_freelist_trunk = read_u32_be(&mut cursor)?;
-            Pager::<S>::validate_page(current_page, max_pages as _, Some(|p| p == 1))?;
+            Pager::validate_page(current_page, max_pages as _, Some(|p| p == 1))?;
             let leaf_pages_cnt = read_u32_be(&mut cursor)?;
             for _ in 0..leaf_pages_cnt {
                 let leaf_page = read_u32_be(&mut cursor)?;
-                Pager::<S>::validate_page(leaf_page, max_pages as _, Some(|p| p == 1))?;
+                Pager::validate_page(leaf_page, max_pages as _, Some(|p| p == 1))?;
                 leaf_pages.push(leaf_page);
             }
             current_page = next_freelist_trunk;
