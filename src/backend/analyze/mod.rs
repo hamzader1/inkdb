@@ -104,6 +104,9 @@ impl Analayze {
                 Self::bind(table, left, arena)?;
                 Self::bind(table, right, arena)?;
             }
+            Expr::Neg(i) => {
+                Self::bind(table, *i, arena)?;
+            }
             // TODO: Temporary for now, Remove in where clause
             _ => {
                 return Err(SqliteError::RuntimeError(

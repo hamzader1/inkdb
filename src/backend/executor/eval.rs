@@ -14,9 +14,10 @@ impl Eval {
             Expr::Bool(b) => Value::Integer(b as u8 as i64),
             Expr::ColumnRef(col_idx) => row[col_idx].into_owned(),
             Expr::Add(l, r) => Self::eval(arena, l, row) + Self::eval(arena, r, row),
-            Expr::Substract(l, r) => Self::eval(arena, l, row),
-            Expr::Multiply(l, r) => Self::eval(arena, l, row),
-            Expr::Devide(l, r) => Self::eval(arena, l, row),
+            Expr::Substract(l, r) => Self::eval(arena, l, row) - Self::eval(arena, r, row),
+            Expr::Multiply(l, r) => Self::eval(arena, l, row) * Self::eval(arena, r, row),
+            Expr::Devide(l, r) => Self::eval(arena, l, row) / Self::eval(arena, r, row),
+            Expr::Neg(x) => Value::Integer(-1) * Self::eval(arena, x, row), // Limited to '-' for now.
             _ => todo!(),
         }
     }
