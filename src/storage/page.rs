@@ -197,6 +197,25 @@ impl<'p> BTreePageRef<'p> {
         self.get_cell_record(pager, cell, &mut records)?;
         Ok(records)
     }
+
+    pub fn record_of_cell_into(
+        &self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'p>>,
+    ) -> Result<(), SqliteError> {
+        let cell = self.cell(cell_idx)?;
+        self.get_cell_record(pager, &cell, records)
+    }
+
+    pub fn record_of_into(
+        &self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'p>>,
+    ) -> Result<(), SqliteError> {
+        self.get_cell_record(pager, cell, records)
+    }
     fn get_cell_record(
         &self,
         pager: &mut Pager,
