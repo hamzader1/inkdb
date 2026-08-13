@@ -21,7 +21,7 @@ pub struct Column {
     pub affinity: Affinity,
     pub constraints: Option<Vec<Constraint>>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(i64),
     Float(f64),
@@ -35,6 +35,7 @@ pub enum Expr {
     Multiply(usize, usize),
     Neg(usize),
     Not(usize),
+    Star,
 
     BinaryOp {
         left: usize,
@@ -52,7 +53,25 @@ pub enum Expr {
         right: usize,
     },
 }
-#[derive(Debug, Clone)]
+impl Expr {
+    pub fn remap_l_r(expr: &Expr, l: usize, r: usize) -> Expr {
+        match expr {
+            Expr::Add(_, _) => Expr::Add(l, r),
+            Expr::Substract(_, _) => Expr::Substract(l, r),
+            Expr::Multiply(_, _) => Expr::Multiply(l, r),
+            Expr::Devide(_, _) => Expr::Devide(l, r),
+            Expr::And { left: _, right: _ } => Expr::And { left: l, right: r },
+            Expr::Or { left: _, right: _ } => Expr::Or { left: l, right: r },
+            Expr::BinaryOp { left, op, right } => Expr::BinaryOp {
+                left: l,
+                op: op.clone(),
+                right: r,
+            },
+            _ => panic!("Reached unmapped Expression"),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOperator {
     Eq,
     NotEq,

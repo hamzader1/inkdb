@@ -691,3 +691,36 @@ impl<'a> Div for Value<'a> {
         }
     }
 }
+
+impl<'a> std::fmt::Display for Value<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Null => write!(f, "Null"),
+            Value::Integer(int) => write!(f, "{}", int),
+            &Value::Float(fl) => write!(f, "{}", fl),
+            Value::Text(t) => write!(f, "{}", t),
+            Value::Blob(b) => {
+                write!(f, "[")?;
+                for (i, val) in b.iter().enumerate() {
+                    write!(f, "{}", val)?;
+
+                    if i < b.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "]")?;
+                Ok(())
+            }
+            Value::Tuple(b) => {
+                for (i, val) in b.iter().enumerate() {
+                    write!(f, "{}", val)?;
+
+                    if i < b.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}

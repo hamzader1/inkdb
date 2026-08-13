@@ -33,7 +33,7 @@ fn make_db(page_size: usize, page_count: usize) -> Vec<u8> {
     data
 }
 
-fn pager_from(data: Vec<u8>, page_size: usize, page_count: usize) -> Pager<MemFile> {
+fn pager_from(data: Vec<u8>, page_size: usize, page_count: usize) -> Pager {
     let file = MemFile::new(rc_vec(data));
     Pager::new(file, page_size, page_size, page_count)
 }
@@ -44,7 +44,7 @@ fn enc(row_id: u64, payload: &[u8]) -> Vec<u8> {
 }
 
 /// Build a db whose `page_no` is a table-leaf root holding `cells`.
-fn leaf_db(page_size: usize, page_count: usize, page_no: u32, cells: &[Vec<u8>]) -> Pager<MemFile> {
+fn leaf_db(page_size: usize, page_count: usize, page_no: u32, cells: &[Vec<u8>]) -> Pager {
     let mut data = make_db(page_size, page_count);
     let start = (page_no - 1) as usize * page_size;
     common::write_leaf_table_page(&mut data[start..start + page_size], 0, cells);
@@ -52,7 +52,7 @@ fn leaf_db(page_size: usize, page_count: usize, page_no: u32, cells: &[Vec<u8>])
 }
 
 /// Standard 512-byte leaf-table root at page 2 with rowid-sorted cells.
-fn leaf_root(cells: &[(u64, &[u8])]) -> Pager<MemFile> {
+fn leaf_root(cells: &[(u64, &[u8])]) -> Pager {
     let encoded: Vec<Vec<u8>> = cells.iter().map(|&(rid, p)| enc(rid, p)).collect();
     leaf_db(PAGE_SIZE, 2, 2, &encoded)
 }
@@ -61,7 +61,7 @@ fn leaf_root(cells: &[(u64, &[u8])]) -> Pager<MemFile> {
 ///   page 2: interior, [(left=3, boundary=3)] right=4
 ///   page 3: leaf (1,a) (2,b) (3,c)
 ///   page 4: leaf (4,d) (5,e) (6,f)
-fn two_level_tree() -> Pager<MemFile> {
+fn two_level_tree() -> Pager {
     let mut data = make_db(PAGE_SIZE, 4);
     common::write_interior_table_page(&mut data[PAGE_SIZE..2 * PAGE_SIZE], 0, &[(3, 3)], 4);
     let left = [enc(1, b"a"), enc(2, b"b"), enc(3, b"c")];
@@ -77,7 +77,7 @@ fn two_level_tree() -> Pager<MemFile> {
 ///   page 5: leaf (1,a) (2,b)
 ///   page 6: leaf (3,c) (4,d)
 ///   page 4: leaf (5,e) (6,f)
-fn three_level_tree() -> Pager<MemFile> {
+fn three_level_tree() -> Pager {
     let mut data = make_db(PAGE_SIZE, 6);
     common::write_interior_table_page(&mut data[PAGE_SIZE..2 * PAGE_SIZE], 0, &[(3, 4)], 4);
     common::write_interior_table_page(&mut data[2 * PAGE_SIZE..3 * PAGE_SIZE], 0, &[(5, 2)], 6);
@@ -102,20 +102,20 @@ fn path_parts(cursor: &BTreeCursor) -> Vec<(u32, u16)> {
 /// Seek on a fresh cursor rooted at page 2, returning the result and the
 /// resulting path. Fresh cursors keep each seek independent (a seek no
 /// longer clears a previous path).
-fn fresh_seek_pos(pager: &mut Pager<MemFile>, target: u64) -> (SeekResult, Vec<(u32, u16)>) {
+fn fresh_seek_pos(pager: &mut Pager, target: u64) -> (SeekResult, Vec<(u32, u16)>) {
     let mut cursor = BTreeCursor::new(2);
     let res = cursor.seek(pager, target).unwrap();
     (res, path_parts(&cursor))
 }
 
 /// Read the row id of the cell at `(page_no, idx)` on a 512-byte page.
-fn cell_row_id(pager: &mut Pager<MemFile>, page_no: u32, idx: u16) -> u64 {
+fn cell_row_id(pager: &mut Pager, page_no: u32, idx: u16) -> u64 {
     cell_row_id_at(pager, page_no, idx, PAGE_SIZE, USABLE)
 }
 
 /// Read the row id of the cell at `(page_no, idx)` on a custom page size.
 fn cell_row_id_at(
-    pager: &mut Pager<MemFile>,
+    pager: &mut Pager,
     page_no: u32,
     idx: u16,
     page_size: usize,
@@ -127,13 +127,13 @@ fn cell_row_id_at(
 }
 
 /// Read the payload bytes of the cell at `(page_no, idx)` on a 512-byte page.
-fn cell_payload(pager: &mut Pager<MemFile>, page_no: u32, idx: u16) -> Vec<u8> {
+fn cell_payload(pager: &mut Pager, page_no: u32, idx: u16) -> Vec<u8> {
     cell_payload_at(pager, page_no, idx, PAGE_SIZE, USABLE)
 }
 
 /// Read the payload bytes of the cell at `(page_no, idx)` on a custom page size.
 fn cell_payload_at(
-    pager: &mut Pager<MemFile>,
+    pager: &mut Pager,
     page_no: u32,
     idx: u16,
     page_size: usize,
@@ -156,7 +156,7 @@ fn insert_idx(rowids: &[u64], target: u64) -> u16 {
 
 /// Forward walk: `first()` then `next()` until the stack empties, collecting
 /// row ids. The walk is over when `next()` exhausts the path.
-fn walk_forward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u64> {
+fn walk_forward(pager: &mut Pager, cursor: &mut BTreeCursor) -> Vec<u64> {
     let mut out = Vec::new();
     cursor.first(pager).unwrap();
     loop {
@@ -172,7 +172,7 @@ fn walk_forward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u64
 
 /// Backward walk: `last()` then `prev()` until the stack empties, collecting
 /// row ids.
-fn walk_backward(pager: &mut Pager<MemFile>, cursor: &mut BTreeCursor) -> Vec<u64> {
+fn walk_backward(pager: &mut Pager, cursor: &mut BTreeCursor) -> Vec<u64> {
     let mut out = Vec::new();
     cursor.last(pager).unwrap();
     loop {

@@ -300,10 +300,10 @@ impl Pager {
     where
         E: Fn(PageNo) -> bool,
     {
-        if let Some(exc) = exception {
-            if exc(page_no) {
-                return Err(SqliteError::Corrupt("Exception Failed".into()));
-            }
+        if let Some(exc) = exception
+            && exc(page_no)
+        {
+            return Err(SqliteError::Corrupt("Exception Failed".into()));
         }
         if page_no == 0 {
             return Err(SqliteError::Corrupt("page number cannot be zero".into()));

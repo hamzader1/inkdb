@@ -33,10 +33,10 @@ fn read_next_u32_is_big_endian() {
 }
 
 #[test]
-fn read_next_arrary_reads_exact_length() {
+fn read_next_array_reads_exact_length() {
     let file = MemFile::new(b"SQLite format 3\0".to_vec());
     let mut cur = FileCursor::new(&file);
-    let arr: [u8; 16] = cur.read_next_arrary::<16>().unwrap();
+    let arr: [u8; 16] = cur.read_next_array::<16>().unwrap();
     assert_eq!(&arr, b"SQLite format 3\0");
 }
 

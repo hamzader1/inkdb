@@ -34,6 +34,9 @@ impl Table {
         }
         None
     }
+    pub fn get_cols_len(&self) -> usize {
+        self.columns.len()
+    }
 
     pub fn has_int_primary_key(&self) -> bool {
         for col in self.columns.iter() {

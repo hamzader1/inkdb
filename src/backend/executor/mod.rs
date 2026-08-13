@@ -7,14 +7,18 @@ pub mod filter;
 pub mod project;
 pub mod scan;
 
-pub trait Executor {
-    fn next(&mut self, pager: &mut Pager) -> Result<Option<Row>, SqliteError>;
-}
+pub type Row = Vec<Value<'static>>;
 
-impl Executor for Box<dyn Executor> {
-    fn next(&mut self, pager: &mut Pager) -> Result<Option<Row>, SqliteError> {
-        (**self).next(pager)
+pub struct RowWrapper(pub Row);
+impl std::fmt::Display for RowWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let row = &self.0;
+        for (i, val) in row.iter().enumerate() {
+            write!(f, "{}", val)?;
+            if i < row.len() - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        Ok(())
     }
 }
-
-pub type Row = Vec<Value<'static>>;

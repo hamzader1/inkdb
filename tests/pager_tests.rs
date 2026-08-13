@@ -586,31 +586,31 @@ fn pager_cached_page_count_after_drop() {
 
 #[test]
 fn pager_validate_page_valid() {
-    assert!(Pager::<MemFile>::validate_page(1, 10, None::<fn(_) -> bool>).is_ok());
-    assert!(Pager::<MemFile>::validate_page(10, 10, None::<fn(_) -> bool>).is_ok());
+    assert!(Pager::validate_page(1, 10, None::<fn(_) -> bool>).is_ok());
+    assert!(Pager::validate_page(10, 10, None::<fn(_) -> bool>).is_ok());
 }
 
 #[test]
 fn pager_validate_page_zero_errors() {
-    let result = Pager::<MemFile>::validate_page(0, 10, None::<fn(_) -> bool>);
+    let result = Pager::validate_page(0, 10, None::<fn(_) -> bool>);
     assert!(result.is_err());
 }
 
 #[test]
 fn pager_validate_page_beyond_max_errors() {
-    let result = Pager::<MemFile>::validate_page(11, 10, None::<fn(_) -> bool>);
+    let result = Pager::validate_page(11, 10, None::<fn(_) -> bool>);
     assert!(result.is_err());
 }
 
 #[test]
 fn pager_validate_page_with_exception() {
-    let result = Pager::<MemFile>::validate_page(5, 10, Some(|p| p == 5));
+    let result = Pager::validate_page(5, 10, Some(|p| p == 5));
     assert!(result.is_err());
 }
 
 #[test]
 fn pager_validate_page_with_exception_not_triggered() {
-    let result = Pager::<MemFile>::validate_page(3, 10, Some(|p| p == 5));
+    let result = Pager::validate_page(3, 10, Some(|p| p == 5));
     assert!(result.is_ok());
 }
 
