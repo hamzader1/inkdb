@@ -22,7 +22,13 @@ impl Plan {
         let table = Self::TableScan {
             root_page: resolved_query.root_page,
         };
-        // TODO: missing where
+
+        /*
+         *
+         *  TODO: missing where clause
+         *
+         *
+         */
 
         Self::Project {
             input: Box::new(table),
@@ -31,18 +37,18 @@ impl Plan {
         }
     }
 }
-pub fn build_executor(plan: &Plan, pager: &mut Pager) -> Box<dyn Executor> {
+pub fn build_executor(plan: Plan, pager: &mut Pager) -> Box<dyn Executor> {
     match plan {
-        Plan::TableScan { root_page } => Box::new(TableScan::new(*root_page, pager)),
+        Plan::TableScan { root_page } => Box::new(TableScan::new(root_page, pager)),
 
         Plan::Project {
             input,
             arena,
             output,
         } => {
-            let child = build_executor(input, pager);
+            let child = build_executor(*input, pager); // return Box<Table>
 
-            Box::new(Project::new(child, arena.clone(), output.clone()))
+            Box::new(Project::new(child, arena, output))
         }
     }
 }
