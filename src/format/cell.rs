@@ -105,7 +105,7 @@ impl TableLeafCell {
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         let mut buffer = [0u8; 9];
         r.read_exact(&mut buffer[..bytes_to_read])?;
-        let (payload_len, byte_read) = match decode_varint(&mut buffer[..bytes_to_read]) {
+        let (payload_len, byte_read) = match decode_varint(&buffer[..bytes_to_read]) {
             Some(x) => x,
             _ => return Err(SqliteError::InvalidVarint),
         };
@@ -114,13 +114,14 @@ impl TableLeafCell {
         let bytes_to_read = remaining_varint_bytes(r, usable_size)?;
         r.read_exact(&mut buffer[..bytes_to_read])?;
 
-        let (row_id, byte_read) = match decode_varint(&mut buffer[..bytes_to_read]) {
+        let (row_id, byte_read) = match decode_varint(&buffer[..bytes_to_read]) {
             Some(x) => x,
             _ => return Err(SqliteError::InvalidVarint),
         };
 
         let current_pos = r.seek(SeekFrom::Start(pre_moved_cursor + byte_read as u64))? as usize;
-        let local_payload_size = compute_table_local_payload_size(usable_size, payload_len as usize);
+        let local_payload_size =
+            compute_table_local_payload_size(usable_size, payload_len as usize);
         let local_payload_range = Range::from(current_pos..current_pos + local_payload_size);
         let mut overflow_page: Option<u32> = None;
         if local_payload_size < payload_len as usize {
@@ -177,8 +178,7 @@ impl IndexInteriorCell {
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cursor_pos as u64 + byte_read as u64))? as usize;
         let payload_size = compute_table_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size =
-            Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
+        let local_payload_size = Range::from(pre_moved_cursor..pre_moved_cursor + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             r.seek(SeekFrom::Current(payload_size as i64))?;
@@ -226,8 +226,7 @@ impl IndexLeafCell {
         // at the start of the payload
         let pre_moved_cursor = r.seek(Start(cell_header + byte_read as u64))? as usize;
         let payload_size = compute_table_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size =
-            Range::from(pre_moved_cursor..pre_moved_cursor + payload_size as usize);
+        let local_payload_size = Range::from(pre_moved_cursor..pre_moved_cursor + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             r.seek(SeekFrom::Current(payload_size as i64))?;
@@ -287,7 +286,7 @@ impl BTreeCell {
     }
 }
 
-impl<S: SqliteFile> SqliteDatabase<S> {
+impl SqliteDatabase {
     pub fn cell_payload(
         &mut self,
         page: &BTreePage,

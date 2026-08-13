@@ -11,7 +11,6 @@ use crate::sql::ast::{
     Ast::{self, CreateIndexAst, CreateTableAst},
     Column, CreateIndex, CreateTable,
 };
-use crate::vfs::file::SqliteFile;
 
 #[derive(Debug)]
 pub struct Table {
@@ -67,7 +66,7 @@ pub struct SqliteMaster {
 }
 
 impl SqliteMaster {
-    pub fn new<F: SqliteFile>(pager: &mut Pager<F>) -> Result<Self, SqliteError> {
+    pub fn new(pager: &mut Pager) -> Result<Self, SqliteError> {
         let mut sqlite_master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),

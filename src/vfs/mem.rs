@@ -8,6 +8,7 @@ use crate::errors::SqliteError;
 use crate::vfs::Vfs;
 
 use super::file::SqliteFile;
+
 #[derive(Debug, Default)]
 pub struct MemVfs {
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
@@ -19,6 +20,7 @@ impl MemVfs {
             db_buffers: HashMap::new(),
         }
     }
+
     pub fn insert<P>(&mut self, f_name: P, bytes: Vec<u8>)
     where
         P: AsRef<Path>,
@@ -30,14 +32,16 @@ impl MemVfs {
 
 impl Vfs for MemVfs {
     type File = MemFile;
+
     fn open<F: AsRef<Path>>(
         &mut self,
         f: F,
-        options: super::SqliteOptions,
-    ) -> Result<Self::File, crate::DbError> {
+        _options: super::SqliteOptions,
+    ) -> Result<Self::File, DbError> {
         if let Some(bytes) = self.db_buffers.get(&f.as_ref().to_path_buf()) {
             return Ok(MemFile::new(Rc::clone(bytes)));
         }
+
         Err(DbError::DatabaseNotExists)
     }
 }
@@ -52,51 +56,49 @@ impl MemFile {
         Self { bytes }
     }
 }
+
 impl SqliteFile for MemFile {
-    fn len(&self) -> Result<u64, crate::DbError> {
-        Ok(self.bytes.borrow().len() as _)
+    fn len(&self) -> Result<u64, DbError> {
+        Ok(self.bytes.borrow().len() as u64)
     }
-    fn read_exact_at<B: AsMut<[u8]> + ?Sized>(
-        &self,
-        offset: u64,
-        buff: &mut B,
-    ) -> Result<(), crate::DbError> {
-        let bytes = &self.bytes.borrow();
-        let buf = buff.as_mut();
+
+    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), DbError> {
+        let bytes = self.bytes.borrow();
+
         let start = offset as usize;
-        let end = start + buf.len();
+        let end = start + buff.len();
+
         if end > bytes.len() {
             return Err(SqliteError::Corrupt("Range out of bounds".into()));
         }
-        let slice = &bytes[start..end];
-        buf.copy_from_slice(slice);
+
+        buff.copy_from_slice(&bytes[start..end]);
+
         Ok(())
     }
 
-    fn write_all_at<B: AsRef<[u8]> + ?Sized>(
-        &self,
-        offset: u64,
-        buff: &B,
-    ) -> Result<(), crate::DbError> {
-        let bytes = &mut self.bytes.borrow_mut();
-        let buff = buff.as_ref();
+    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), DbError> {
+        let mut bytes = self.bytes.borrow_mut();
+
         let start = offset as usize;
         let end = start + buff.len();
+
         if end > bytes.len() {
             return Err(SqliteError::Corrupt("Range out of bounds".into()));
         }
-        let slice = &mut bytes[start..end];
-        slice.copy_from_slice(buff);
+
+        bytes[start..end].copy_from_slice(buff);
+
         Ok(())
     }
-    fn set_len(&self, len: usize) -> Result<(), crate::DbError> {
-        unsafe {
-            self.bytes.borrow_mut().set_len(len);
-        }
+
+    fn set_len(&self, len: usize) -> Result<(), DbError> {
+        self.bytes.borrow_mut().resize(len, 0);
         Ok(())
     }
-    fn sync(&self) -> Result<(), crate::DbError> {
-        // Empty: Nothing we can for in memory buffers
+
+    fn sync(&self) -> Result<(), DbError> {
+        // Nothing to do for an in-memory buffer.
         Ok(())
     }
 }

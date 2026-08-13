@@ -1,21 +1,24 @@
 use super::super::executor::{project::Project, scan::TableScan};
-use crate::backend::analyze::{MultiIndexColumn, ResolvedQuery};
-use crate::backend::executor::Executor;
+use crate::backend::analyze::ResolvedQuery;
+use crate::backend::executor::{Executor, Row};
+use crate::errors::SqliteError;
+use crate::pager::pager::Pager;
 use crate::sql::parser::Arena;
+use crate::vfs::file::SqliteFile;
 
-enum Plan {
+pub enum Plan {
     TableScan {
         root_page: u32,
     },
     Project {
         input: Box<Plan>,
         arena: Arena,
-        output: Vec<MultiIndexColumn>,
+        output: Vec<usize>,
     },
 }
 
 impl Plan {
-    fn create_plan(resolved_query: ResolvedQuery) -> Plan {
+    pub fn create_plan(resolved_query: ResolvedQuery) -> Plan {
         let table = Self::TableScan {
             root_page: resolved_query.root_page,
         };
@@ -27,9 +30,19 @@ impl Plan {
             output: resolved_query.columns,
         }
     }
-    // fn build_executor(&self) -> Box<dyn Executor> {
-    //     match self {
+}
+pub fn build_executor(plan: &Plan, pager: &mut Pager) -> Box<dyn Executor> {
+    match plan {
+        Plan::TableScan { root_page } => Box::new(TableScan::new(*root_page, pager)),
 
-    //     }
-    // }
+        Plan::Project {
+            input,
+            arena,
+            output,
+        } => {
+            let child = build_executor(input, pager);
+
+            Box::new(Project::new(child, arena.clone(), output.clone()))
+        }
+    }
 }

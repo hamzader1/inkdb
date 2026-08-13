@@ -1,4 +1,6 @@
 #![allow(unused, dead_code)] // temp for now
+pub mod backend;
+use backend::planner::plan::*;
 mod bytes;
 pub mod record;
 pub mod sql;
@@ -28,12 +30,12 @@ use self::vfs::disk::{DiskFile, DiskVfs};
 use self::vfs::file::SqliteFile;
 use crate::pager::pager::Pager;
 
-pub struct SqliteDatabase<S: SqliteFile> {
-    pub pager: Pager<S>,
+pub struct SqliteDatabase {
+    pub pager: Pager,
     header: SqliteDatabaseHeader,
 }
 
-impl SqliteDatabase<DiskFile> {
+impl SqliteDatabase {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
         let sqlite_default_vfs = DiskVfs;
         Self::with_source(sqlite_default_vfs, db_path)
@@ -45,10 +47,11 @@ impl SqliteDatabase<DiskFile> {
 }
 
 // 'f file source
-impl<'f, S: SqliteFile> SqliteDatabase<S> {
+impl SqliteDatabase {
     pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteError>
     where
-        V: Vfs<File = S>,
+        V: Vfs,
+        V::File: 'static,
     {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
@@ -66,7 +69,8 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
         cache_size: usize,
     ) -> Result<Self, SqliteError>
     where
-        V: Vfs<File = S>,
+        V: Vfs,
+        V::File: 'static,
     {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
@@ -79,14 +83,14 @@ impl<'f, S: SqliteFile> SqliteDatabase<S> {
         );
         Ok(Self { pager, header })
     }
-    fn source(&'f self) -> &'f S {
-        &self.pager.source
+    fn source(&self) -> &dyn SqliteFile {
+        &*self.pager.source
     }
-    fn cursor(&self) -> FileCursor<'_, S> {
-        FileCursor::new(self.source())
+    fn cursor(&self) -> FileCursor<'_, dyn SqliteFile> {
+        FileCursor::new(&*self.pager.source)
     }
-    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, S> {
-        FileCursor::with_offset(self.source(), offset)
+    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, dyn SqliteFile> {
+        FileCursor::with_offset(&*self.pager.source, offset)
     }
     pub fn header(&self) -> &'_ SqliteDatabaseHeader {
         &self.header

@@ -75,7 +75,7 @@ impl<'a> OverflowPageRef<'a> {
     }
 }
 
-impl<S: SqliteFile> SqliteDatabase<S> {
+impl SqliteDatabase {
     pub fn read_overflow_payload(
         &mut self,
         mut local_payload_bytes: Vec<u8>,

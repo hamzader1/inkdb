@@ -22,6 +22,7 @@ pub struct DiskFile {
 
 impl Vfs for DiskVfs {
     type File = DiskFile;
+
     fn open<F: AsRef<std::path::Path>>(
         &mut self,
         f: F,
@@ -39,26 +40,26 @@ impl SqliteFile for DiskFile {
         let len = self.file.metadata()?.len();
         Ok(len)
     }
-    fn read_exact_at<B: AsMut<[u8]> + ?Sized>(
-        &self,
-        offset: u64,
-        buff: &mut B,
-    ) -> Result<(), DbError> {
+
+    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), DbError> {
         let file_len = self.file.metadata()?.len();
-        let buf = buff.as_mut();
-        if (offset as usize) + buf.len() > file_len as _ {
+
+        if (offset as usize) + buff.len() > file_len as usize {
             return Err(SqliteError::Corrupt("Range out of bounds".into()));
         }
-        self.file.read_exact_at(buf, offset)?;
+
+        self.file.read_exact_at(buff, offset)?;
         Ok(())
     }
-    fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buff: &B) -> Result<(), DbError> {
+
+    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), DbError> {
         let file_len = self.file.metadata()?.len();
-        let buf = buff.as_ref();
-        if (offset as usize) + buf.len() > file_len as _ {
+
+        if (offset as usize) + buff.len() > file_len as usize {
             return Err(SqliteError::Corrupt("Range out of bounds".into()));
         }
-        self.file.write_all_at(buff.as_ref(), offset)?;
+
+        self.file.write_all_at(buff, offset)?;
         Ok(())
     }
 
@@ -66,6 +67,7 @@ impl SqliteFile for DiskFile {
         self.file.set_len(len as u64)?;
         Ok(())
     }
+
     fn sync(&self) -> Result<(), DbError> {
         self.file.sync_all()?;
         Ok(())
@@ -78,45 +80,56 @@ impl SqliteFile for DiskFile {
         let len = self.file.metadata()?.len();
         Ok(len)
     }
-    fn read_exact_at<B: AsMut<[u8]> + ?Sized>(
-        &self,
-        offset: u64,
-        buf: &mut B,
-    ) -> Result<(), DbError> {
+
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), DbError> {
         use crate::SqliteError;
+
         let file_len = self.file.metadata()?.len();
-        let mut buf = buf.as_mut();
-        if offset as usize + buf.len() > file_len as _ {
+
+        if offset as usize + buf.len() > file_len as usize {
             return Err(SqliteError::Corrupt("Range out of bounds".into()));
         }
+
         let mut offset = offset;
+        let mut buf = buf;
+
         while !buf.is_empty() {
             let n = self.file.seek_read(buf, offset)?;
+
             if n == 0 {
                 return Err(DbError::Corrupt("Unexpected EOF".into()));
             }
+
             offset += n as u64;
             buf = &mut buf[n..];
         }
 
         Ok(())
     }
-    fn write_all_at<B: AsRef<[u8]> + ?Sized>(&self, offset: u64, buf: &B) -> Result<(), DbError> {
+
+    fn write_all_at(&self, offset: u64, buf: &[u8]) -> Result<(), DbError> {
         use crate::SqliteError;
+
         let file_len = self.file.metadata()?.len();
-        let mut buf = buf.as_ref();
-        if offset as usize + buf.len() > file_len as _ {
+
+        if offset as usize + buf.len() > file_len as usize {
             return Err(SqliteError::Corrupt("Range out of bounds".into()));
         }
+
         let mut offset = offset;
+        let mut buf = buf;
+
         while !buf.is_empty() {
             let n = self.file.seek_write(buf, offset)?;
+
             if n == 0 {
                 return Err(DbError::Corrupt("failed to write the whole buffer".into()));
             }
+
             offset += n as u64;
             buf = &buf[n..];
         }
+
         Ok(())
     }
 
@@ -124,6 +137,7 @@ impl SqliteFile for DiskFile {
         self.file.set_len(len as u64)?;
         Ok(())
     }
+
     fn sync(&self) -> Result<(), DbError> {
         self.file.sync_all()?;
         Ok(())
@@ -133,9 +147,11 @@ impl SqliteFile for DiskFile {
 impl From<SqliteOptions> for OpenOptions {
     fn from(value: SqliteOptions) -> Self {
         let mut options = OpenOptions::new();
+
         options.read(value.can_read());
         options.write(value.can_write());
         options.create(value.is_create());
+
         options
     }
 }

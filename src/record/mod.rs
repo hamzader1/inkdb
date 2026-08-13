@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::VacantEntry;
 
 use crate::errors::SqliteError;
+use std::ops::{Add, Div, Mul, Sub};
 
 pub const SERIAL_NULL: u8 = 0;
 pub const SERIAL_INT8: u8 = 1;
@@ -616,18 +617,77 @@ impl<'a> Value<'a> {
     }
 }
 
-// impl<'a> ToOwned for Value<'a> {
-//     type Owned = Value<'static>;
-//     fn to_owned(&self) -> Self::Owned {
-//         match self {
-//             Value::Text(x) => Value::Text(Cow::Owned(x.as_ref().to_string())),
-//             Value::Blob(x) => Value::Blob(Cow::Owned(x.as_ref().to_owned())),
-//             Value::Float(f) => Value::Float(*f),
-//             Value::Integer(n) => Value::Integer(*n),
-//             Value::Null => Value::Null,
-//             Value::Tuple(t) => {
-//                 Value::Tuple(t.iter().map(|inner| inner.into_owned_value()).collect())
-//             }
-//         }
-//     }
-// }
+impl<'a> Add for Value<'a> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Integer(a), Self::Integer(b)) => Self::Integer(a + b),
+            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 + b),
+            (Self::Float(a), Self::Integer(b)) => Self::Float(a + b as f64),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a + b),
+
+            (Self::Null, _) | (_, Self::Null) => Self::Null,
+
+            (a, b) => panic!("cannot add {a:?} and {b:?}"),
+        }
+    }
+}
+
+impl<'a> Sub for Value<'a> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Integer(a), Self::Integer(b)) => Self::Integer(a - b),
+            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 - b),
+            (Self::Float(a), Self::Integer(b)) => Self::Float(a - b as f64),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a - b),
+
+            (Self::Null, _) | (_, Self::Null) => Self::Null,
+
+            (a, b) => panic!("cannot subtract {b:?} from {a:?}"),
+        }
+    }
+}
+
+impl<'a> Mul for Value<'a> {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Integer(a), Self::Integer(b)) => Self::Integer(a * b),
+            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 * b),
+            (Self::Float(a), Self::Integer(b)) => Self::Float(a * b as f64),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a * b),
+
+            (Self::Null, _) | (_, Self::Null) => Self::Null,
+
+            (a, b) => panic!("cannot multiply {a:?} and {b:?}"),
+        }
+    }
+}
+
+impl<'a> Div for Value<'a> {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Integer(a), Self::Integer(b)) => {
+                if b == 0 {
+                    panic!("division by zero");
+                }
+
+                Self::Integer(a / b)
+            }
+
+            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 / b),
+            (Self::Float(a), Self::Integer(b)) => Self::Float(a / b as f64),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a / b),
+
+            (Self::Null, _) | (_, Self::Null) => Self::Null,
+
+            (a, b) => panic!("cannot divide {a:?} by {b:?}"),
+        }
+    }
+}

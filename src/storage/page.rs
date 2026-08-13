@@ -9,7 +9,6 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::{Record, RecordMetadata, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
-use crate::vfs::file::SqliteFile;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
@@ -179,28 +178,28 @@ impl<'p> BTreePageRef<'p> {
             }
         }
     }
-    pub fn record_of_cell<F: SqliteFile>(
+    pub fn record_of_cell(
         &self,
         cell_idx: CellIdx,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
     ) -> Result<Vec<Value<'p>>, SqliteError> {
         let mut records = Vec::new();
         let cell = self.cell(cell_idx)?;
         self.get_cell_record(pager, &cell, &mut records)?;
         Ok(records)
     }
-    pub fn record_of<F: SqliteFile>(
+    pub fn record_of(
         &self,
         cell: &BTreeCell,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
     ) -> Result<Vec<Value<'p>>, SqliteError> {
         let mut records = Vec::new();
         self.get_cell_record(pager, cell, &mut records)?;
         Ok(records)
     }
-    fn get_cell_record<F: SqliteFile>(
+    fn get_cell_record(
         &self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
         cell: &BTreeCell,
         collector: &mut Vec<Value<'p>>,
     ) -> Result<(), SqliteError> {
@@ -273,9 +272,7 @@ impl<'p> BTreePageRef<'p> {
         self.header.no_of_cells
     }
 
-    pub fn iter<'r, F>(&'r self, pager: &'r mut Pager<F>) -> PageIterator<'r, 'p, F>
-    where
-        F: SqliteFile,
+    pub fn iter<'r>(&'r self, pager: &'r mut Pager) -> PageIterator<'r, 'p>
     {
         PageIterator {
             page: self,
@@ -283,9 +280,9 @@ impl<'p> BTreePageRef<'p> {
             index: 0,
         }
     }
-    pub fn records<F: SqliteFile>(
+    pub fn records(
         &self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager,
     ) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
         let mut all = Vec::with_capacity(self.no_of_cells() as usize);
         for cell_idx in 0..self.no_of_cells() {
@@ -328,8 +325,8 @@ impl<'a> OverflowPageRef<'a> {
     }
 }
 impl<'a> OverflowPageRef<'a> {
-    pub fn get_total_payload<F: SqliteFile>(
-        pager: &mut Pager<F>,
+    pub fn get_total_payload(
+        pager: &mut Pager,
         local_payload_bytes: &[u8],
         total_payload_length: usize,
         usable_size: usize,
@@ -377,13 +374,13 @@ impl<'a> OverflowPageRef<'a> {
     }
 }
 
-pub struct PageIterator<'r, 'p, F: SqliteFile> {
+pub struct PageIterator<'r, 'p> {
     page: &'r BTreePageRef<'p>,
-    pager: &'r mut Pager<F>,
+    pager: &'r mut Pager,
     index: CellIdx,
 }
 
-impl<'r, 'p, F: SqliteFile> Iterator for PageIterator<'r, 'p, F> {
+impl<'r, 'p> Iterator for PageIterator<'r, 'p> {
     type Item = Vec<Value<'p>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.page.no_of_cells() {

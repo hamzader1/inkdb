@@ -219,21 +219,20 @@ impl<'a> BTreePage {
 
         match self.header.page_kind {
             BTreePageType::InteriorTable => {
-                return TableInteriorCell::parse::<Cursor<_>>(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableInterior);
+                TableInteriorCell::parse::<Cursor<_>>(&mut r, cell_ptr, self.usable_size)
+                    .map(BTreeCell::TableInterior)
             }
             BTreePageType::LeafTable => {
-                return TableLeafCell::parse::<Cursor<_>>(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableLeaf);
+                TableLeafCell::parse::<Cursor<_>>(&mut r, cell_ptr, self.usable_size)
+                    .map(BTreeCell::TableLeaf)
             }
 
             BTreePageType::InteriorIndex => {
-                return IndexInteriorCell::parse(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexInterior);
+                IndexInteriorCell::parse(&mut r, cell_ptr, self.usable_size)
+                    .map(BTreeCell::IndexInterior)
             }
             BTreePageType::LeafIndex => {
-                return IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexLeaf);
+                IndexLeafCell::parse(&mut r, cell_ptr, self.usable_size).map(BTreeCell::IndexLeaf)
             }
         }
     }
