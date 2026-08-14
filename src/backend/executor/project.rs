@@ -25,7 +25,7 @@ impl Project {
             let output_row: Vec<Value<'static>> = self
                 .columns
                 .iter()
-                .map(|i| Eval::eval(arena, *i, &row))
+                .map(|i| Eval::eval_row(arena, *i, &row))
                 .collect();
             return Ok(Some(output_row));
         }

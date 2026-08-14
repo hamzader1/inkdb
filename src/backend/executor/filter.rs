@@ -28,7 +28,7 @@ impl Filter {
                 Some(row) => row,
                 _ => return Ok(None),
             };
-            if Eval::eval(&arena, self.predict, &row).to_bool() {
+            if Eval::eval_row(arena, self.predict, &row).to_bool() {
                 return Ok(Some(row));
             }
         }

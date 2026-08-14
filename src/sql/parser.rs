@@ -77,7 +77,7 @@ impl Parser {
     }
 
     // Should be called only if we know there
-    // is at least one token remaining
+    // is at least one token left
     pub fn current_token_span(&self) -> Span {
         self.tokens.get(self.pos).unwrap().span.clone()
     }
