@@ -23,13 +23,16 @@ impl Parser {
         }
         self.expect(From)?;
         let table_name = self.expect_ident()?;
+        let mut where_clause: Option<usize> = None;
+        if self.eat(Where) {
+            where_clause = Some(self.parse_expression()?);
+        }
 
-        // limited to no `where` so far
         Ok(Ast::SelectStmtAst(SelectStmt {
             table_name,
             arena: self.arena.clone(),
             columns,
-            where_clause: None,
+            where_clause,
         }))
     }
 }
