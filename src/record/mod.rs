@@ -724,3 +724,14 @@ impl<'a> std::fmt::Display for Value<'a> {
         }
     }
 }
+impl<'a> Value<'a> {
+    pub fn to_bool(&self) -> bool {
+        match self {
+            Value::Null => false,
+            Value::Integer(n) => *n != 0,
+            Value::Float(f) => *f != 0.0,
+            Value::Text(_) => true,
+            _ => false,
+        }
+    }
+}

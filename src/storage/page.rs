@@ -197,6 +197,25 @@ impl<'p> BTreePageRef<'p> {
         self.get_cell_record(pager, cell, &mut records)?;
         Ok(records)
     }
+
+    pub fn record_of_cell_into(
+        &self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'p>>,
+    ) -> Result<(), SqliteError> {
+        let cell = self.cell(cell_idx)?;
+        self.get_cell_record(pager, &cell, records)
+    }
+
+    pub fn record_of_into(
+        &self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'p>>,
+    ) -> Result<(), SqliteError> {
+        self.get_cell_record(pager, cell, records)
+    }
     fn get_cell_record(
         &self,
         pager: &mut Pager,
@@ -272,18 +291,14 @@ impl<'p> BTreePageRef<'p> {
         self.header.no_of_cells
     }
 
-    pub fn iter<'r>(&'r self, pager: &'r mut Pager) -> PageIterator<'r, 'p>
-    {
+    pub fn iter<'r>(&'r self, pager: &'r mut Pager) -> PageIterator<'r, 'p> {
         PageIterator {
             page: self,
             pager,
             index: 0,
         }
     }
-    pub fn records(
-        &self,
-        pager: &mut Pager,
-    ) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
+    pub fn records(&self, pager: &mut Pager) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
         let mut all = Vec::with_capacity(self.no_of_cells() as usize);
         for cell_idx in 0..self.no_of_cells() {
             all.push(self.record_of_cell(cell_idx, pager)?);
