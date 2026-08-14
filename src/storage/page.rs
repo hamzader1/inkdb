@@ -291,18 +291,14 @@ impl<'p> BTreePageRef<'p> {
         self.header.no_of_cells
     }
 
-    pub fn iter<'r>(&'r self, pager: &'r mut Pager) -> PageIterator<'r, 'p>
-    {
+    pub fn iter<'r>(&'r self, pager: &'r mut Pager) -> PageIterator<'r, 'p> {
         PageIterator {
             page: self,
             pager,
             index: 0,
         }
     }
-    pub fn records(
-        &self,
-        pager: &mut Pager,
-    ) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
+    pub fn records(&self, pager: &mut Pager) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
         let mut all = Vec::with_capacity(self.no_of_cells() as usize);
         for cell_idx in 0..self.no_of_cells() {
             all.push(self.record_of_cell(cell_idx, pager)?);
