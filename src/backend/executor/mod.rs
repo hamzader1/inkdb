@@ -4,6 +4,7 @@ use crate::record::Value;
 
 pub mod eval;
 pub mod filter;
+pub mod limit;
 pub mod project;
 pub mod scan;
 
