@@ -1,11 +1,11 @@
-use super::ast::Ast;
+use super::{ast::Ast, tokens::Span};
 use crate::errors::SqliteError::{self, *};
 
 use super::tokens::{
     Token,
     TokenKind::{self, *},
 };
-use std::string::String;
+use std::{rc::Rc, string::String};
 
 use super::ast::Expr;
 #[derive(Debug, Default, Clone)]
@@ -22,21 +22,24 @@ impl Arena {
     }
 }
 pub struct Parser {
+    pub query: Rc<str>,
     pub tokens: Vec<Token>,
     pub pos: usize,
     pub arena: Arena,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(query: Rc<str>, tokens: Vec<Token>) -> Self {
         Self {
+            query,
             tokens,
             pos: 0,
             arena: Arena::new(),
         }
     }
-    pub fn parse(tokens: Vec<Token>) -> Result<Ast, SqliteError> {
+    pub fn parse(query: Rc<str>, tokens: Vec<Token>) -> Result<Ast, SqliteError> {
         let mut parser = Parser {
+            query,
             tokens,
             pos: 0,
             arena: Arena::new(),
@@ -73,24 +76,62 @@ impl Parser {
         t
     }
 
+    // Should be called only if we know there
+    // is at least one token remaining
+    pub fn current_token_span(&self) -> Span {
+        self.tokens.get(self.pos).unwrap().span.clone()
+    }
+
     pub fn expect(&mut self, t_kind: TokenKind) -> Result<(), SqliteError> {
-        if !self.at(t_kind) {
-            return Err(RuntimeError(
-                "Given token does not match the current token".into(),
-            ));
+        if !self.at(t_kind.clone()) {
+            match self.peek() {
+                Some(t) => {
+                    return Err(TypeMismatch {
+                        input: Rc::clone(&self.query),
+                        expected_token: t_kind,
+                        actual: t.clone(),
+                        span: self.current_token_span(),
+                    });
+                }
+                _ => {
+                    return Err(UnexpectedEndOfExpression {
+                        input: Rc::clone(&self.query),
+                        tkind: t_kind,
+                        span: self.default_end_span(),
+                    });
+                }
+            }
         }
         self.pos += 1;
         Ok(())
     }
+    pub fn default_end_span(&self) -> Span {
+        let s = Span(self.query.len(), self.query.len() + 1);
+        dbg!(&s);
+        s
+    }
     pub fn expect_ident(&mut self) -> Result<String, SqliteError> {
-        match self.next_token() {
-            Some(t) => match t.kind {
-                Identifier(x) => Ok(x),
-                any => Err(RuntimeError("Expected identifier".into())),
+        match self.peek() {
+            Some(TokenKind::Identifier(_)) => match self.next_token() {
+                Some(Token {
+                    kind: TokenKind::Identifier(x),
+                    ..
+                }) => Ok(x),
+
+                _ => unreachable!(),
             },
-            None => Err(RuntimeError(
-                "Unexpected end of input, Expected identifier".into(),
-            )),
+
+            Some(tkind) => Err(ExpectedIdentifier {
+                input: Rc::clone(&self.query),
+                tkind: tkind.clone(),
+                span: self.current_token_span(),
+            }),
+
+            None => Err(UnexpectedEndOfExpression {
+                input: Rc::clone(&self.query),
+                tkind: TokenKind::Identifier(String::new()),
+                span: self.default_end_span(),
+            }),
         }
     }
 
