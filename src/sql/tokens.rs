@@ -113,3 +113,114 @@ pub enum TokenKind {
     Float,
     Bool,
 }
+use std::fmt;
+
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // DDL
+            TokenKind::Create => write!(f, "CREATE"),
+            TokenKind::Table => write!(f, "TABLE"),
+            TokenKind::Index => write!(f, "INDEX"),
+            TokenKind::Drop => write!(f, "DROP"),
+            TokenKind::If => write!(f, "IF"),
+            TokenKind::Constraint => write!(f, "CONSTRAINT"),
+            TokenKind::Primary => write!(f, "PRIMARY"),
+            TokenKind::Key => write!(f, "KEY"),
+            TokenKind::Unique => write!(f, "UNIQUE"),
+            TokenKind::Check => write!(f, "CHECK"),
+            TokenKind::Default => write!(f, "DEFAULT"),
+            TokenKind::Without => write!(f, "WITHOUT"),
+            TokenKind::Rowid => write!(f, "ROWID"),
+            TokenKind::On => write!(f, "ON"),
+            TokenKind::Delete => write!(f, "DELETE"),
+            TokenKind::Update => write!(f, "UPDATE"),
+            TokenKind::Desc => write!(f, "DESC"),
+            TokenKind::Asc => write!(f, "ASC"),
+
+            // DML
+            TokenKind::Insert => write!(f, "INSERT"),
+            TokenKind::Into => write!(f, "INTO"),
+            TokenKind::Values => write!(f, "VALUES"),
+            TokenKind::Select => write!(f, "SELECT"),
+            TokenKind::From => write!(f, "FROM"),
+            TokenKind::Where => write!(f, "WHERE"),
+            TokenKind::And => write!(f, "AND"),
+            TokenKind::Or => write!(f, "OR"),
+            TokenKind::Group => write!(f, "GROUP"),
+            TokenKind::By => write!(f, "BY"),
+            TokenKind::Having => write!(f, "HAVING"),
+            TokenKind::Order => write!(f, "ORDER"),
+            TokenKind::Limit => write!(f, "LIMIT"),
+            TokenKind::Distinct => write!(f, "DISTINCT"),
+            TokenKind::Union => write!(f, "UNION"),
+            TokenKind::All => write!(f, "ALL"),
+            TokenKind::Join => write!(f, "JOIN"),
+            TokenKind::Inner => write!(f, "INNER"),
+            TokenKind::Outer => write!(f, "OUTER"),
+            TokenKind::Left => write!(f, "LEFT"),
+            TokenKind::Right => write!(f, "RIGHT"),
+            TokenKind::Full => write!(f, "FULL"),
+            TokenKind::Cross => write!(f, "CROSS"),
+            TokenKind::As => write!(f, "AS"),
+
+            // Expressions
+            TokenKind::In => write!(f, "IN"),
+            TokenKind::Between => write!(f, "BETWEEN"),
+            TokenKind::Like => write!(f, "LIKE"),
+            TokenKind::Is => write!(f, "IS"),
+            TokenKind::Not => write!(f, "NOT"),
+            TokenKind::Exists => write!(f, "EXISTS"),
+            TokenKind::Case => write!(f, "CASE"),
+            TokenKind::When => write!(f, "WHEN"),
+            TokenKind::Then => write!(f, "THEN"),
+            TokenKind::Else => write!(f, "ELSE"),
+            TokenKind::End => write!(f, "END"),
+            TokenKind::Cast => write!(f, "CAST"),
+            TokenKind::IsNull => write!(f, "IS NULL"),
+            TokenKind::NotNull => write!(f, "NOT NULL"),
+
+            // Values / literals
+            TokenKind::Identifier(_) => write!(f, "IDENTIFIER"),
+            TokenKind::BoolVar(_) => write!(f, "BOOL"),
+            TokenKind::NumberVar(_) => write!(f, "NUMBER"),
+            TokenKind::FloatVar(_) => write!(f, "FLOAT"),
+            TokenKind::String(_) => write!(f, "STRING"),
+            TokenKind::Blob => write!(f, "BLOB"),
+            TokenKind::Null => write!(f, "NULL"),
+
+            // Punctuation / operators
+            TokenKind::Semicolon => write!(f, ";"),
+            TokenKind::Comma => write!(f, ","),
+            TokenKind::LeftParen => write!(f, "("),
+            TokenKind::RightParen => write!(f, ")"),
+
+            TokenKind::Equals => write!(f, "="),
+            TokenKind::NotEquals => write!(f, "!="),
+            TokenKind::Ge => write!(f, ">="),
+            TokenKind::Gt => write!(f, ">"),
+            TokenKind::Le => write!(f, "<="),
+            TokenKind::Lt => write!(f, "<"),
+
+            TokenKind::Plus => write!(f, "+"),
+            TokenKind::Minus => write!(f, "-"),
+            TokenKind::Slash => write!(f, "/"),
+            TokenKind::Star => write!(f, "*"),
+            TokenKind::Modulus => write!(f, "%"),
+            TokenKind::Concat => write!(f, "||"),
+            TokenKind::BitAnd => write!(f, "&"),
+            TokenKind::BitOr => write!(f, "|"),
+            TokenKind::ShiftLeft => write!(f, "<<"),
+            TokenKind::ShiftRight => write!(f, ">>"),
+            TokenKind::Dot => write!(f, "."),
+            TokenKind::Tilde => write!(f, "~"),
+            TokenKind::EmptyIdentifier => write!(f, ""),
+
+            // Types
+            TokenKind::Integer => write!(f, "INTEGER"),
+            TokenKind::Text => write!(f, "TEXT"),
+            TokenKind::Float => write!(f, "FLOAT"),
+            TokenKind::Bool => write!(f, "BOOL"),
+        }
+    }
+}
