@@ -1,7 +1,9 @@
 use super::super::executor::{project::Project, scan::TableScan};
 use crate::backend::analyze::ResolvedQuery;
 use crate::backend::executor::Row;
+use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
+use crate::backend::executor::limit::Limit;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
@@ -11,6 +13,7 @@ use crate::vfs::file::SqliteFile;
 pub enum Plan {
     TableScan(TableScan),
     Filter(Filter),
+    Limit(Limit),
     Project(Project),
 }
 
@@ -28,16 +31,24 @@ impl Arena {
 }
 
 impl Plan {
-    pub fn create_plan(resolved_query: ResolvedQuery, pager: &mut Pager) -> Arena {
+    pub fn create_plan(
+        resolved_query: ResolvedQuery,
+        pager: &mut Pager,
+    ) -> Result<Arena, SqliteError> {
         let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager));
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
+        }
+        if let Some(limit) = resolved_query.limit {
+            let limit = Eval::eval(&resolved_query.arena, limit)?.get_int()? as usize;
+            child = Self::Limit(Limit::new(Box::new(child), limit));
         }
         let parent = Self::Project(Project::new(
             Box::new(child),
             resolved_query.columns.clone(),
         ));
-        Arena::new(parent, resolved_query.arena)
+
+        Ok(Arena::new(parent, resolved_query.arena))
     }
 }
 
@@ -50,6 +61,7 @@ impl Plan {
         match self {
             Self::TableScan(t) => t.next(pager),
             Self::Filter(f) => f.next(pager, arena),
+            Self::Limit(l) => l.next(pager, arena),
             Self::Project(p) => p.next(pager, arena),
         }
     }
