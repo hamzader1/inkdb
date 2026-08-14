@@ -39,7 +39,7 @@ impl Analyze {
             table_name,
             mut arena,
             columns,
-            where_clause,
+            mut where_clause,
         } = select_stmt;
         let table = match sqlite_master.tables.get(&table_name) {
             Some(table) => table,
@@ -60,6 +60,9 @@ impl Analyze {
         if !has_star {
             for idx in columns.iter() {
                 Analyze::fast_bind(table, *idx, &mut arena)?;
+            }
+            if let Some(predict) = where_clause {
+                Analyze::fast_bind(table, predict, &mut arena)?;
             }
             return Ok(ResolvedQuery {
                 root_page: table.root_page,
@@ -94,6 +97,17 @@ impl Analyze {
                 new_cols[col_id] = map[*idx];
                 col_id += 1;
             }
+        }
+        if let Some(ref mut predict) = where_clause {
+            Analyze::slow_bind(
+                table,
+                *predict,
+                &mut arena,
+                &mut new_arena,
+                &mut map,
+                &mut new_cols,
+            )?;
+            *predict = map[*predict];
         }
 
         Ok(ResolvedQuery {
@@ -159,6 +173,36 @@ impl Analyze {
                 map[idx] = new.len() - 1;
             }
             // TODO: Temporary for now, Remove in where clause
+            Expr::And { left, right } => {
+                let left = *left;
+                let right = *right;
+
+                let node = expr.clone();
+                Self::slow_bind(table, left, arena, new, map, new_cols)?;
+                Self::slow_bind(table, right, arena, new, map, new_cols)?;
+                new.push(Expr::remap_l_r(&node, map[left], map[right]));
+                map[idx] = new.len() - 1;
+            }
+            Expr::Or { left, right } => {
+                let left = *left;
+                let right = *right;
+
+                let node = expr.clone();
+                Self::slow_bind(table, left, arena, new, map, new_cols)?;
+                Self::slow_bind(table, right, arena, new, map, new_cols)?;
+                new.push(Expr::remap_l_r(&node, map[left], map[right]));
+                map[idx] = new.len() - 1;
+            }
+            Expr::BinaryOp { left, op, right } => {
+                let left = *left;
+                let right = *right;
+
+                let node = expr.clone();
+                Self::slow_bind(table, left, arena, new, map, new_cols)?;
+                Self::slow_bind(table, right, arena, new, map, new_cols)?;
+                new.push(Expr::remap_l_r(&node, map[left], map[right]));
+                map[idx] = new.len() - 1;
+            }
             _ => {
                 return Err(SqliteError::RuntimeError(
                     "Expression is not allowed in select statement list".into(),
@@ -212,7 +256,27 @@ impl Analyze {
             Expr::Neg(i) => {
                 Self::fast_bind(table, *i, arena)?;
             }
-            // TODO: Temporary for now, Remove in where clause
+            Expr::And { left, right } => {
+                let left = *left;
+                let right = *right;
+
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
+            }
+            Expr::Or { left, right } => {
+                let left = *left;
+                let right = *right;
+
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
+            }
+            Expr::BinaryOp { left, op, right } => {
+                let left = *left;
+                let right = *right;
+
+                Self::fast_bind(table, left, arena)?;
+                Self::fast_bind(table, right, arena)?;
+            }
             _ => {
                 return Err(SqliteError::RuntimeError(
                     "Expression is not allowed in select statement list".into(),
