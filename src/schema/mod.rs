@@ -20,13 +20,6 @@ pub struct Table {
     columns: Vec<Column>,
 }
 impl Table {
-    // pub fn is_col_exists(&self, col_name: &str) -> bool {
-    //     self.columns
-    //         .iter()
-    //         .find(|col| col_name == col.name)
-    //         .is_some()
-    // }
-
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
         for (i, col) in self.columns.iter().enumerate() {
             if col.name == col_name {
