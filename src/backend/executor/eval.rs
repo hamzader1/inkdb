@@ -2,11 +2,11 @@ use std::borrow::Cow;
 
 use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
-use crate::sql::parser::Arena;
+use crate::sql::parser::ExprArena;
 
 pub struct Eval;
 impl Eval {
-    pub fn eval(arena: &Arena, idx: usize, row: &[Value<'static>]) -> Value<'static> {
+    pub fn eval(arena: &ExprArena, idx: usize, row: &[Value<'static>]) -> Value<'static> {
         match arena.nodes[idx] {
             Expr::Number(n) => Value::Integer(n),
             Expr::Float(f) => Value::Float(f),
@@ -78,5 +78,3 @@ impl Eval {
         }
     }
 }
-
-// where age > 12 AND age < 60

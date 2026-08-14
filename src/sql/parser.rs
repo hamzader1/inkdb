@@ -9,10 +9,10 @@ use std::{rc::Rc, string::String};
 
 use super::ast::Expr;
 #[derive(Debug, Default, Clone)]
-pub struct Arena {
+pub struct ExprArena {
     pub nodes: Vec<Expr>,
 }
-impl Arena {
+impl ExprArena {
     pub fn new() -> Self {
         Self { nodes: Vec::new() }
     }
@@ -25,7 +25,7 @@ pub struct Parser {
     pub query: Rc<str>,
     pub tokens: Vec<Token>,
     pub pos: usize,
-    pub arena: Arena,
+    pub arena: ExprArena,
 }
 
 impl Parser {
@@ -34,7 +34,7 @@ impl Parser {
             query,
             tokens,
             pos: 0,
-            arena: Arena::new(),
+            arena: ExprArena::new(),
         }
     }
     pub fn parse(query: Rc<str>, tokens: Vec<Token>) -> Result<Ast, SqliteError> {
@@ -42,7 +42,7 @@ impl Parser {
             query,
             tokens,
             pos: 0,
-            arena: Arena::new(),
+            arena: ExprArena::new(),
         };
         parser.parse_statement()
     }

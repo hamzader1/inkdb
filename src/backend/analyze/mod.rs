@@ -2,7 +2,7 @@ use crate::SqliteMaster;
 use crate::errors::SqliteError;
 use crate::schema::Table;
 use crate::sql::ast::{Expr, SelectStmt};
-use crate::sql::parser::Arena;
+use crate::sql::parser::ExprArena;
 
 type ColumnIndex = usize;
 type ArenaColumnIndex = usize;
@@ -16,7 +16,7 @@ pub struct Analyze;
 #[derive(Debug)]
 pub struct ResolvedQuery {
     pub root_page: u32,
-    pub arena: Arena,
+    pub arena: ExprArena,
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>,
 }
@@ -112,7 +112,7 @@ impl Analyze {
 
         Ok(ResolvedQuery {
             root_page: table.root_page,
-            arena: Arena { nodes: new_arena },
+            arena: ExprArena { nodes: new_arena },
             columns: new_cols,
             where_clause,
         })
@@ -121,7 +121,7 @@ impl Analyze {
     fn slow_bind(
         table: &Table,
         idx: usize,
-        arena: &mut Arena,
+        arena: &mut ExprArena,
         new: &mut Vec<Expr>,
         map: &mut Vec<usize>,
         new_cols: &mut Vec<usize>,
@@ -211,7 +211,7 @@ impl Analyze {
         }
         Ok(())
     }
-    fn fast_bind(table: &Table, idx: usize, arena: &mut Arena) -> Result<(), SqliteError> {
+    fn fast_bind(table: &Table, idx: usize, arena: &mut ExprArena) -> Result<(), SqliteError> {
         let expr = &arena.nodes[idx];
         match expr {
             Expr::Identifier(col_name) => match table.get_col_idx(col_name) {
