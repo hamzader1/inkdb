@@ -19,6 +19,7 @@ pub struct ResolvedQuery {
     pub arena: ExprArena,
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>,
+    pub limit: Option<usize>,
 }
 
 // impl MultiIndexColumn {
@@ -40,6 +41,7 @@ impl Analyze {
             mut arena,
             columns,
             mut where_clause,
+            mut limit,
         } = select_stmt;
         let table = match sqlite_master.tables.get(&table_name) {
             Some(table) => table,
@@ -69,6 +71,7 @@ impl Analyze {
                 arena,
                 columns,
                 where_clause,
+                limit,
             });
         }
         let mut new_arena: Vec<Expr> = Vec::new();
@@ -98,6 +101,7 @@ impl Analyze {
                 col_id += 1;
             }
         }
+        // TODO: Can we optimaze this further to call 'slow_bind' once?
         if let Some(ref mut predict) = where_clause {
             Analyze::slow_bind(
                 table,
@@ -109,12 +113,24 @@ impl Analyze {
             )?;
             *predict = map[*predict];
         }
+        if let Some(ref mut limit) = limit {
+            Analyze::slow_bind(
+                table,
+                *limit,
+                &mut arena,
+                &mut new_arena,
+                &mut map,
+                &mut new_cols,
+            )?;
+            *limit = map[*limit];
+        }
 
         Ok(ResolvedQuery {
             root_page: table.root_page,
             arena: ExprArena { nodes: new_arena },
             columns: new_cols,
             where_clause,
+            limit,
         })
     }
 
@@ -168,11 +184,16 @@ impl Analyze {
             }
             Expr::Neg(i) => {
                 let child = *i;
-                Self::slow_bind(table, idx, arena, new, map, new_cols)?;
+                Self::slow_bind(table, child, arena, new, map, new_cols)?;
                 new.push(Expr::Neg(map[child]));
                 map[idx] = new.len() - 1;
             }
-            // TODO: Temporary for now, Remove in where clause
+            Expr::Not(i) => {
+                let child = *i;
+                Self::slow_bind(table, child, arena, new, map, new_cols)?;
+                new.push(Expr::Not(map[child]));
+                map[idx] = new.len() - 1;
+            }
             Expr::And { left, right } => {
                 let left = *left;
                 let right = *right;
@@ -254,6 +275,9 @@ impl Analyze {
                 Self::fast_bind(table, right, arena)?;
             }
             Expr::Neg(i) => {
+                Self::fast_bind(table, *i, arena)?;
+            }
+            Expr::Not(i) => {
                 Self::fast_bind(table, *i, arena)?;
             }
             Expr::And { left, right } => {
