@@ -79,7 +79,6 @@ pub enum BinaryOperator {
     Le,
     Gt,
     Lt,
-    Contains,
 }
 
 #[derive(Debug)]
