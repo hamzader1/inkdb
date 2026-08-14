@@ -1,5 +1,8 @@
 use std::rc::Rc;
+
 use thiserror::Error;
+
+use crate::sql::tokens::{Span, TokenKind};
 #[derive(Debug, Error)]
 pub enum SqliteError {
     #[error("Failed to open database file: {0}")]
@@ -94,8 +97,56 @@ pub enum SqliteError {
     RuntimeError(String),
 
     #[error("cannot convert {actual} value to {expected}")]
-    TypeMismatch {
+    TypeConversionMismatch {
         expected: &'static str,
         actual: &'static str,
     },
+    #[error("{}", err_formatter(&format!("Expected token type {}, got {}", expected_token, actual), input, span.0, Some(span.1), None))]
+    TypeMismatch {
+        input: Rc<str>,
+        expected_token: TokenKind,
+        actual: TokenKind,
+        span: Span,
+    },
+
+    #[error("{}",
+        err_formatter(&format!("Unexpected end of expression, expected {}", tkind), input, span.0, Some(span.1),None)
+    )]
+    UnexpectedEndOfExpression {
+        input: Rc<str>,
+        tkind: TokenKind,
+        span: Span,
+    },
+    #[error("{}",
+        err_formatter(&format!("Expected identifier but {} token type were given", tkind), input, span.0, Some(span.1),None)
+    )]
+    ExpectedIdentifier {
+        input: Rc<str>,
+        tkind: TokenKind,
+        span: Span,
+    },
+}
+
+fn err_formatter(
+    err_title: &str,
+    input: &str,
+    start: usize,
+    end: Option<usize>,
+    hint: Option<&str>,
+) -> String {
+    let span_symbol_len = end.unwrap_or(1);
+    let pointer = format!(
+        "{}{}",
+        " ".repeat(start + 1),
+        "^".repeat(span_symbol_len - start),
+    );
+
+    if let Some(hint) = hint {
+        format!(
+            "{}\n\t {}\n\t{}\nHint: {}\n",
+            err_title, input, pointer, hint
+        )
+    } else {
+        format!("{}\n\t {}\n\t{}\n", err_title, input, pointer)
+    }
 }
