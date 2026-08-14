@@ -1,4 +1,4 @@
-use super::parser::Arena;
+use super::parser::ExprArena;
 use super::tokens::TokenKind;
 
 #[derive(Debug)]
@@ -84,16 +84,12 @@ pub enum BinaryOperator {
 #[derive(Debug)]
 pub struct SelectStmt {
     pub table_name: String,
-    pub arena: Arena,
+    pub arena: ExprArena,
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>, // same arena used twice
+    pub limit: Option<usize>,
 }
 
-// #[derive(Debqug)]
-// pub struct WhereClause {
-//     arena: Arena,
-//     expr_idx: usize,
-// }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Affinity {
     Text,

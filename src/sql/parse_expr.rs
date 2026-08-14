@@ -19,7 +19,6 @@ impl Parser {
             left = self.arena.push(Expr::Or { left, right });
         }
         Ok(left)
-        // Ok(Expr::Empty)
     }
 
     pub fn parse_logical_and(&mut self) -> Result<usize, SqliteError> {
@@ -119,7 +118,6 @@ impl Parser {
             Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
             Some(BoolVar(x)) => self.arena.push(Expr::Bool(*x)),
             Some(other) => {
-                dbg!(self.pos);
                 return Err(SqliteError::RuntimeError(format!(
                     "Unexpected token {:?} in expression",
                     other

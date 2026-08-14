@@ -7,6 +7,7 @@ use crate::sql::ast::Expr;
 impl Parser {
     pub fn parse_select(&mut self) -> Result<Ast, SqliteError> {
         self.expect(Select);
+        // let k = SmallVec::<[usize; 8]>::new();
         let mut columns = Vec::new();
         loop {
             if self.eat(Star) {
@@ -27,12 +28,17 @@ impl Parser {
         if self.eat(Where) {
             where_clause = Some(self.parse_expression()?);
         }
+        let mut limit: Option<usize> = None;
+        if self.eat(Limit) {
+            limit = Some(self.parse_expression()?);
+        }
 
         Ok(Ast::SelectStmtAst(SelectStmt {
             table_name,
             arena: self.arena.clone(),
             columns,
             where_clause,
+            limit,
         }))
     }
 }

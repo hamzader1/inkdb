@@ -5,6 +5,7 @@ use crate::sql::parser::Parser;
 use crate::storage::btree::BTreeCursor;
 use crate::{errors::SqliteError, sql::ast::Constraint};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::sql::ast::{
     Affinity,
@@ -100,10 +101,11 @@ impl SqliteMaster {
         }
         // Auto indexes have no SQL attached.
         let sql = match &record[4] {
-            Value::Text(t) => t.to_string(),
+            Value::Text(t) => t.as_ref(),
             _ => return Ok(()),
         };
-        let ast = Parser::parse(Lexer::tokenize(&sql)?)?;
+        let query: Rc<str> = Rc::from(sql);
+        let ast = Parser::parse(query, Lexer::tokenize(sql)?)?;
         self.parse_from_ast(ast, record)
     }
 

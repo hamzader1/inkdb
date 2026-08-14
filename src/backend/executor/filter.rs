@@ -2,38 +2,34 @@ use crate::backend::executor::eval::Eval;
 use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::sql::parser::Arena;
+use crate::sql::parser::ExprArena;
 
 use super::Row;
 
 #[derive(Debug)]
 pub struct Filter {
     child: Box<Plan>,
-    arena: Arena,
     predict: usize,
 }
 impl Filter {
-    pub fn new(child: Box<Plan>, arena: Arena, predict: usize) -> Self {
-        Self {
-            child,
-            arena,
-            predict,
-        }
+    pub fn new(child: Box<Plan>, predict: usize) -> Self {
+        Self { child, predict }
     }
 }
 
 impl Filter {
-    pub fn next(&mut self, pager: &mut Pager) -> Result<Option<Row>, SqliteError> {
+    pub fn next(
+        &mut self,
+        pager: &mut Pager,
+        arena: &ExprArena,
+    ) -> Result<Option<Row>, SqliteError> {
         loop {
-            let row = match self.child.next(pager)? {
+            let row = match self.child.next(pager, arena)? {
                 Some(row) => row,
                 _ => return Ok(None),
             };
-            if Eval::eval(&self.arena, self.predict, &row).to_bool() {
+            if Eval::eval_row(arena, self.predict, &row).to_bool() {
                 return Ok(Some(row));
-            } else {
-                // dbg!(self.predict);
-                // dbg!(Eval::eval(&self.arena, self.predict, &row));
             }
         }
     }

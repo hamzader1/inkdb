@@ -1,5 +1,6 @@
 use crate::errors::SqliteError;
 use crate::record::Value;
+use crate::sql::parser::ExprArena;
 use crate::storage::btree::BTreeCursor;
 
 use super::Row;
@@ -18,7 +19,11 @@ impl TableScan {
     }
 }
 impl TableScan {
-    pub fn next(&mut self, pager: &mut Pager) -> Result<Option<Row>, SqliteError> {
+    pub fn next(
+        &mut self,
+        pager: &mut Pager,
+        // arena: &ExprArena,
+    ) -> Result<Option<Row>, SqliteError> {
         if let Some(row) = self.cursor.current_record(pager)? {
             let v: Row = row.iter().map(|v| v.into_owned()).collect();
             self.cursor.next(pager)?;
