@@ -1,3 +1,5 @@
+use crate::record::Value;
+
 use super::parser::ExprArena;
 use super::tokens::TokenKind;
 
@@ -96,6 +98,17 @@ pub enum Affinity {
     Float,
     Int,
     Blob,
+}
+impl<'a> From<Value<'a>> for Affinity {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Integer(_) => Affinity::Int,
+            Value::Float(_) => Affinity::Float,
+            Value::Text(_) => Affinity::Text,
+            Value::Blob(_) => Affinity::Blob,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Affinity {
