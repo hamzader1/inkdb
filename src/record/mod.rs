@@ -259,13 +259,13 @@ fn compare_f64_value(a: f64, b: &Value<'_>) -> Ordering {
     }
 }
 
-impl<'a, 'b> PartialEq<Value<'a>> for &'b str {
+impl<'a> PartialEq<Value<'a>> for &str {
     fn eq(&self, other: &Value<'a>) -> bool {
         compare_str_value(self, other) == Ordering::Equal
     }
 }
 
-impl<'a, 'b> PartialOrd<Value<'a>> for &'b str {
+impl<'a> PartialOrd<Value<'a>> for &str {
     fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
         Some(compare_str_value(self, other))
     }
@@ -321,27 +321,27 @@ impl<'a> PartialOrd<String> for Value<'a> {
     }
 }
 
-impl<'a, 'b> PartialEq<Value<'a>> for &'b [u8] {
+impl<'a> PartialEq<Value<'a>> for &[u8] {
     fn eq(&self, other: &Value<'a>) -> bool {
         compare_bytes_value(self, other) == Ordering::Equal
     }
 }
 
-impl<'a, 'b> PartialOrd<Value<'a>> for &'b [u8] {
+impl<'a> PartialOrd<Value<'a>> for &[u8] {
     fn partial_cmp(&self, other: &Value<'a>) -> Option<Ordering> {
         Some(compare_bytes_value(self, other))
     }
 }
 
-impl<'a, 'b> PartialEq<&'b [u8]> for Value<'a> {
-    fn eq(&self, other: &&'b [u8]) -> bool {
-        compare_bytes_value(*other, self) == Ordering::Equal
+impl<'a> PartialEq<&[u8]> for Value<'a> {
+    fn eq(&self, other: &&[u8]) -> bool {
+        compare_bytes_value(other, self) == Ordering::Equal
     }
 }
 
-impl<'a, 'b> PartialOrd<&'b [u8]> for Value<'a> {
-    fn partial_cmp(&self, other: &&'b [u8]) -> Option<Ordering> {
-        Some(compare_bytes_value(*other, self).reverse())
+impl<'a> PartialOrd<&[u8]> for Value<'a> {
+    fn partial_cmp(&self, other: &&[u8]) -> Option<Ordering> {
+        Some(compare_bytes_value(other, self).reverse())
     }
 }
 
