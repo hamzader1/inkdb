@@ -59,12 +59,16 @@ impl Analyze {
             .find(|node| *node == &Expr::Star)
             .is_some();
 
+        // TODO: THIS NEEDS OPTIMAZATION
         if !has_star {
             for idx in columns.iter() {
                 Analyze::fast_bind(table, *idx, &mut arena)?;
             }
             if let Some(predict) = where_clause {
                 Analyze::fast_bind(table, predict, &mut arena)?;
+            }
+            if let Some(limit) = limit {
+                Analyze::fast_bind(table, limit, &mut arena);
             }
             return Ok(ResolvedQuery {
                 root_page: table.root_page,
