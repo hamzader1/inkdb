@@ -4,6 +4,11 @@ use std::collections::hash_map::VacantEntry;
 
 use crate::errors::SqliteError;
 use std::ops::{Add, Div, Mul, Sub};
+#[rustfmt::skip]
+pub const I8_MASK:  i64 = 0x0000_0000_0000_007F;
+pub const I16_MASK: i64 = 0x0000_0000_0000_7FFF;
+pub const I32_MASK: i64 = 0x0000_0000_7FFF_FFFF;
+pub const I64_MASK: i64 = 0x7FFF_FFFF_FFFF_FFFF;
 
 pub const SERIAL_NULL: u8 = 0;
 pub const SERIAL_INT8: u8 = 1;
@@ -735,3 +740,53 @@ impl<'a> Value<'a> {
         }
     }
 }
+
+enum CompressedNumeric {
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    F32(f32),
+    F64(f64),
+}
+// impl CompressedNumeric {
+//     fn into_int<T: Copy + Clone>(self) -> T {
+//         match self {
+//             Self::I8(x) => {
+//                 let v = (&x as *const i8 as *const T);
+//                 unsafe { *v }
+//             }
+//             _ => todo!(),
+//         }
+//     }
+// }
+impl<'a> From<Value<'a>> for CompressedNumeric {
+    fn from(value: Value<'a>) -> Self {
+        // let value = value.get_int().unwrap();
+        match value.get_int() {
+            Ok(value) => {
+                if value & I8_MASK == value {
+                    Self::I8(value as _)
+                } else if value & I16_MASK == value {
+                    Self::I16(value as _)
+                } else if value & I32_MASK == value {
+                    Self::I32(value as _)
+                } else {
+                    Self::I64(value as _)
+                }
+            }
+            _ => match value.get_float() {
+                Ok(value) => {
+                    if (value as f32) as f64 == value {
+                        Self::F32(value as f32)
+                    } else {
+                        Self::F64(value)
+                    }
+                }
+                _ => panic!("Compressing works only for integers and floats"),
+            },
+        }
+    }
+}
+
+// pub fn encode_value

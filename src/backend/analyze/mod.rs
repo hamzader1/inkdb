@@ -113,6 +113,8 @@ impl Analyze {
             )?;
             *predict = map[*predict];
         }
+
+        // TODO: Can we optimaze this further to call 'slow_bind' once?
         if let Some(ref mut limit) = limit {
             Analyze::slow_bind(
                 table,
@@ -232,6 +234,8 @@ impl Analyze {
         }
         Ok(())
     }
+
+    // General purpose
     fn fast_bind(table: &Table, idx: usize, arena: &mut ExprArena) -> Result<(), SqliteError> {
         let expr = &arena.nodes[idx];
         match expr {

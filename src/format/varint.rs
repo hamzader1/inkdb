@@ -39,7 +39,7 @@ use crate::errors::SqliteError;
 **
 */
 pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
-    let mut temp_buffer = [0u8; 10];
+    let mut temp_buffer = [0u8; 9];
     // in case v=0
     if value == 0 {
         buff[0] = 0;

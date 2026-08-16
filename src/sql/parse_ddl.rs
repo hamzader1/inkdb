@@ -85,7 +85,6 @@ impl Parser {
                     let type_name = type_name.clone();
                     self.next_token();
                     self.eat_type_size()?;
-                    dbg!(&type_name);
                     self.set_affinity(&mut affinity, Affinity::from_type_name(&type_name), &name)?;
                 }
                 Some(Primary) => {
