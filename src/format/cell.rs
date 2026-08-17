@@ -10,14 +10,11 @@ use std::range::Range;
 type SlotIdx = u16;
 type CellOffset = u16;
 use crate::bytes::read_u32_be;
-use crate::decode_varint;
 use crate::errors::SqliteError;
+use crate::varint::*;
 
 const OVERFLOWED_PAGE_SIZE: usize = 4;
-use super::{
-    page::{CellPointer, PageNo},
-    varint::remaining_varint_bytes,
-};
+use super::page::{CellPointer, PageNo};
 
 #[derive(Debug)]
 pub enum BTreeCell {

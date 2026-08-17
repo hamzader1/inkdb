@@ -1,9 +1,9 @@
 use crate::SqliteError;
 use crate::bytes;
-use crate::decode_varint;
 use crate::to_int;
 use crate::util::sqlite_assert_one;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::varint::decode_varint;
 
 #[derive(Debug)]
 pub struct SqliteCursor<'a> {

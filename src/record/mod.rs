@@ -741,6 +741,7 @@ impl<'a> Value<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum CompressedNumeric {
     I8(i8),
     I16(i16),
@@ -796,26 +797,26 @@ pub const fn blob_encoding(len: usize) -> usize {
     (len * 2) + 12
 }
 
-pub fn encode_sqlite(value: Value, output: &mut Vec<u8>) -> CompressedNumeric {
+pub fn encode_sqlite(value: Value, output: &mut Vec<u8>) -> usize {
     match value {
         Value::Integer(n) => {
             let compressed_int = CompressedNumeric::from(value);
             match compressed_int {
                 CompressedNumeric::I8(n) => {
                     output.extend_from_slice(&i8::to_be_bytes(n));
-                    CompressedNumeric::I8(n)
+                    SERIAL_INT8 as _
                 }
                 CompressedNumeric::I16(n) => {
                     output.extend_from_slice(&i16::to_be_bytes(n));
-                    CompressedNumeric::I16(n)
+                    SERIAL_INT16 as _
                 }
                 CompressedNumeric::I32(n) => {
                     output.extend_from_slice(&i32::to_be_bytes(n));
-                    CompressedNumeric::I32(n)
+                    SERIAL_INT32 as _
                 }
                 CompressedNumeric::I64(n) => {
                     output.extend_from_slice(&i64::to_be_bytes(n));
-                    CompressedNumeric::I64(n)
+                    SERIAL_INT64 as _
                 }
                 _ => unreachable!(),
             }
@@ -824,28 +825,25 @@ pub fn encode_sqlite(value: Value, output: &mut Vec<u8>) -> CompressedNumeric {
             let compressed_float = CompressedNumeric::from(value);
             match compressed_float {
                 CompressedNumeric::F32(f) => {
-                    output.extend_from_slice(&f32::to_be_bytes(f));
-                    CompressedNumeric::F32(f)
+                    output.extend_from_slice(&f64::to_be_bytes(f as _));
+                    SERIAL_FLOAT64 as _
                 }
                 CompressedNumeric::F64(f) => {
                     output.extend_from_slice(&f64::to_be_bytes(f));
-                    CompressedNumeric::F64(f)
+                    SERIAL_FLOAT64 as _
                 }
                 _ => unreachable!(),
             }
         }
 
-        Value::Null => CompressedNumeric::I8(0),
+        Value::Null => 0 as _,
         Value::Text(t) => {
             output.extend_from_slice(t.as_bytes());
-            let compressed_text_len = (text_encoding(t.len()) as i64).into_sqlite_value();
-            CompressedNumeric::from(compressed_text_len)
+            text_encoding(t.len())
         }
         Value::Blob(b) => {
             output.extend_from_slice(&b);
-
-            let compressed_blob_len = (text_encoding(b.len()) as i64).into_sqlite_value();
-            CompressedNumeric::from(compressed_blob_len)
+            blob_encoding(b.len())
         }
         _ => unreachable!(),
     }

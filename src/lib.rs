@@ -13,12 +13,14 @@ mod macros;
 pub mod pager;
 pub mod storage;
 mod util;
+
+pub mod varint;
 pub mod vfs;
 use errors::SqliteError;
 use format::header::SqliteDatabaseHeader;
+pub use storage::sqlite_cursor::SqliteCursor;
 use format::overflow::compute_table_local_payload_size;
 use format::page::BTreePage;
-pub use format::varint::{decode_varint, encode_varint};
 use std::path::Path;
 use vfs::SqliteOptions;
 pub type DbError = SqliteError;
