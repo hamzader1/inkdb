@@ -99,10 +99,10 @@ pub struct InsertStmt {
     pub values: Vec<Value<'static>>,
 }
 
-pub enum QueryStmt {
-    Select(SelectStmt),
-    Insert(InsertStmt),
-}
+// pub enum QueryStmt {
+//     Select(SelectStmt),
+//     Insert(InsertStmt),
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Affinity {
@@ -111,14 +111,24 @@ pub enum Affinity {
     Int,
     Blob,
 }
-impl<'a> From<Value<'a>> for Affinity {
-    fn from(value: Value) -> Self {
+impl<'a> From<&Value<'a>> for Affinity {
+    fn from(value: &Value) -> Self {
         match value {
             Value::Integer(_) => Affinity::Int,
             Value::Float(_) => Affinity::Float,
             Value::Text(_) => Affinity::Text,
             Value::Blob(_) => Affinity::Blob,
             _ => unreachable!(),
+        }
+    }
+}
+impl std::fmt::Display for Affinity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blob => write!(f, "Blob"),
+            Self::Text => write!(f, "Text"),
+            Self::Int => write!(f, "Int"),
+            Self::Float => write!(f, "Float"),
         }
     }
 }
