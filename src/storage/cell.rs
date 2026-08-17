@@ -2,6 +2,7 @@ use super::page::{compute_index_local_payload_size, compute_table_local_payload_
 use super::{btree::CellIdx, sqlite_cursor::SqliteCursor};
 use crate::errors::SqliteError;
 use crate::format::page::PageNo;
+use crate::varint::encode_varint;
 use std::range::Range;
 
 #[derive(Debug)]
@@ -211,5 +212,27 @@ impl BTreeCell {
             BTreeCell::TableInterior(x) => x.left_child,
             _ => unreachable!(),
         }
+    }
+}
+
+pub struct Encode;
+impl Encode {
+    pub fn encode_cell(cell_type: BTreeCellType, payload: Vec<u8>, row_id: u32) -> Vec<u8> {
+        match cell_type {
+            BTreeCellType::TableLeaf => return Self::encode_table_leaf_cell(payload, row_id),
+            _ => todo!(),
+        }
+        todo!()
+    }
+
+    fn encode_table_leaf_cell(payload: Vec<u8>, row_id: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        let mut buff = [0u8; 9];
+        let byte_needed_for_len = encode_varint(&mut buff, payload.len() as _);
+        v.extend_from_slice(&buff[..byte_needed_for_len]);
+        let byte_needed_for_row_id = encode_varint(&mut buff, row_id as _);
+        v.extend_from_slice(&buff[..byte_needed_for_row_id]);
+        v.extend_from_slice(&payload);
+        v
     }
 }
