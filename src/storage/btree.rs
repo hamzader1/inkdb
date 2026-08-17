@@ -1,5 +1,7 @@
 use super::cell::BTreeCell;
 use super::page::BTreePageRef;
+use super::page::BTreePagerMut;
+use super::page::InsertionState;
 use crate::PageNo;
 use crate::SqliteError;
 use crate::format::page;
@@ -312,6 +314,13 @@ impl BTreeCursor {
         })
     }
 
+    pub fn last_visited_entry(&self) -> Option<(u32, u16)> {
+        if let Some(path) = self.stack.last() {
+            return Some((path.page_no, path.cell_idx));
+        }
+        return None;
+    }
+
     fn choose_target<'a>(
         &'a self,
         page: &BTreePageRef<'a>,
@@ -390,7 +399,6 @@ impl BTreeCursor {
         let page = BTreePageRef::new(
             page_no,
             page_guard.bytes_as_ref(),
-            &page_guard,
             pager.metadata.page_size,
             pager.metadata.usable_size,
         )?;
@@ -418,13 +426,63 @@ impl BTreeCursor {
         BTreePageRef::new(
             page_no,
             guard.bytes_as_ref(),
-            guard,
             pager.metadata.page_size,
             pager.metadata.usable_size,
         )
     }
 
+    pub fn page_as_mut<'a>(
+        page_no: PageNo,
+        guard: &'a mut PageGuard,
+        pager: &Pager,
+    ) -> Result<BTreePagerMut<'a>, SqliteError> {
+        BTreePagerMut::new(
+            page_no,
+            guard.bytes_as_mut().unwrap(),
+            pager.metadata.page_size,
+            pager.metadata.usable_size,
+        )
+    }
     fn add_path(&mut self, page_no: PageNo, cell_idx: CellIdx, guard: PageGuard) {
         self.stack.push(Path::new(page_no, cell_idx, guard));
+    }
+}
+
+pub struct BTree<'a> {
+    pub root_page: PageNo,
+    pager: &'a mut Pager,
+    pub cursor: BTreeCursor,
+}
+
+impl<'a> BTree<'a> {
+    pub fn new(root_page: PageNo, pager: &'a mut Pager) -> Self {
+        Self {
+            root_page,
+            pager,
+            cursor: BTreeCursor::new(root_page),
+        }
+    }
+    pub fn with_cursor(root_page: PageNo, pager: &'a mut Pager, cursor: BTreeCursor) -> Self {
+        Self {
+            root_page,
+            pager,
+            cursor,
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        content: Vec<u8>,
+        page_no: PageNo,
+        cell_idx: CellIdx,
+    ) -> Result<(), SqliteError> {
+        let mut page_guard = self.pager.get_mut(page_no)?;
+        let mut page = BTreeCursor::page_as_mut(page_no, &mut page_guard, self.pager)?;
+        if let InsertionState::Inserted = page.insert_cell(content, cell_idx)? {
+            return Ok(());
+        } else {
+            todo!("HANDLING SPLIT NOT IMPLEMENETED YET")
+        }
+        Ok(())
     }
 }
