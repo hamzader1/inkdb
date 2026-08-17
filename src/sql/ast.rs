@@ -91,6 +91,16 @@ pub struct SelectStmt {
     pub where_clause: Option<usize>, // same arena used twice
     pub limit: Option<usize>,
 }
+pub struct InsertStmt {
+    pub table_name: String,
+    pub columns: Vec<String>,
+    pub values: Vec<Value<'static>>,
+}
+
+pub enum QueryStmt {
+    Select(SelectStmt),
+    Insert(InsertStmt),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Affinity {

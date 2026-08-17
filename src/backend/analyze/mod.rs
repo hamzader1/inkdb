@@ -1,20 +1,17 @@
 use crate::SqliteMaster;
 use crate::errors::SqliteError;
+use crate::format::page::PageNo;
+use crate::record::Value;
 use crate::schema::Table;
-use crate::sql::ast::{Expr, SelectStmt};
+use crate::sql::ast::{Expr, QueryStmt, SelectStmt};
 use crate::sql::parser::ExprArena;
 
 type ColumnIndex = usize;
 type ArenaColumnIndex = usize;
 
 pub struct Analyze;
-// #[derive(Debug)]
-// pub struct MultiIndexColumn {
-//     pub col_idx: ColumnIndex,
-//     pub arena_col_idx: ArenaColumnIndex,
-// }
 #[derive(Debug)]
-pub struct ResolvedQuery {
+pub struct ResolvedSelectQuery {
     pub root_page: u32,
     pub arena: ExprArena,
     pub columns: Vec<usize>,
@@ -22,17 +19,30 @@ pub struct ResolvedQuery {
     pub limit: Option<usize>,
 }
 
-// impl MultiIndexColumn {
-//     fn new(col_idx: usize, arena_col_idx: usize) -> Self {
-//         Self {
-//             col_idx,
-//             arena_col_idx,
-//         }
-//     }
-// }
+#[derive(Debug)]
+pub struct ResolvedInsertQuery {
+    pub root: PageNo,
+    pub columns: Vec<Value<'static>>,
+    entry_hint: Option<u64>, // row id hint
+}
+
+#[derive(Debug)]
+pub enum ResolvedQuery {
+    SelectQuery(ResolvedSelectQuery),
+    InsertQuery(ResolvedInsertQuery),
+}
 
 impl Analyze {
     pub fn analyze(
+        stmt: QueryStmt,
+        sqlite_master: &SqliteMaster,
+    ) -> Result<ResolvedQuery, SqliteError> {
+        match stmt {
+            QueryStmt::Select(select_stmt) => Self::analyze_select_stmt(select_stmt, sqlite_master),
+            _ => todo!(),
+        }
+    }
+    pub fn analyze_select_stmt(
         select_stmt: SelectStmt,
         sqlite_master: &SqliteMaster,
     ) -> Result<ResolvedQuery, SqliteError> {
@@ -70,13 +80,14 @@ impl Analyze {
             if let Some(limit) = limit {
                 Analyze::fast_bind(table, limit, &mut arena);
             }
-            return Ok(ResolvedQuery {
+            let stmt = ResolvedSelectQuery {
                 root_page: table.root_page,
                 arena,
                 columns,
                 where_clause,
                 limit,
-            });
+            };
+            return Ok(ResolvedQuery::SelectQuery(stmt));
         }
         let mut new_arena: Vec<Expr> = Vec::new();
         let mut map = vec![0; arena.nodes.len()];
@@ -130,14 +141,15 @@ impl Analyze {
             )?;
             *limit = map[*limit];
         }
-
-        Ok(ResolvedQuery {
+        let stmt = ResolvedSelectQuery {
             root_page: table.root_page,
             arena: ExprArena { nodes: new_arena },
             columns: new_cols,
             where_clause,
             limit,
-        })
+        };
+
+        Ok(ResolvedQuery::SelectQuery(stmt))
     }
 
     fn slow_bind(

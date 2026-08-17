@@ -1,5 +1,5 @@
 use super::super::executor::{project::Project, scan::TableScan};
-use crate::backend::analyze::ResolvedQuery;
+use crate::backend::analyze::{ResolvedQuery, ResolvedSelectQuery};
 use crate::backend::executor::Row;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
@@ -33,6 +33,16 @@ impl Arena {
 impl Plan {
     pub fn create_plan(
         resolved_query: ResolvedQuery,
+        pager: &mut Pager,
+    ) -> Result<Arena, SqliteError> {
+        match resolved_query {
+            ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
+            _ => todo!(), // INSERT LATER
+        }
+    }
+
+    pub fn initialize_select_plan(
+        resolved_query: ResolvedSelectQuery,
         pager: &mut Pager,
     ) -> Result<Arena, SqliteError> {
         let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager));
