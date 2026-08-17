@@ -485,4 +485,24 @@ impl<'a> BTree<'a> {
         }
         Ok(())
     }
+
+    pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
+        let max_allocated_pages = self.pager.metadata.max_allocated_pages;
+        let new_page_no = max_allocated_pages + 1;
+        let new_len = self.pager.metadata.page_size * (max_allocated_pages + 1);
+        self.pager.source.set_len(new_len)?;
+        self.pager.metadata.max_allocated_pages += 1;
+        self.update_max_allocated_pages()?;
+        Ok(new_page_no as _)
+    }
+
+    pub fn update_max_allocated_pages(&mut self) -> Result<(), SqliteError> {
+        let mut guard = self.pager.get_mut(1)?;
+        let bytes = guard.bytes_as_mut().unwrap();
+        bytes[DATABASE_SIZE_IN_PAGES_OFFSET
+            ..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
+            .copy_from_slice(&self.pager.metadata.max_allocated_pages.to_be_bytes());
+
+        Ok(())
+    }
 }
