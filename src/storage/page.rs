@@ -58,6 +58,14 @@ impl BTreePageType {
     fn is_interior(&self) -> bool {
         matches!(self, Self::InteriorTable | Self::InteriorIndex)
     }
+    pub fn as_byte(&self) -> u8 {
+        match self {
+            Self::LeafIndex => 0x0a,
+            Self::InteriorIndex => 0x02,
+            Self::LeafTable => 0x0d,
+            Self::InteriorTable => 0x05,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -67,9 +75,19 @@ pub struct BTreePageHeader {
     no_of_cells: u16,
     cell_content_area: u16,
     frag_cnt: u8,
-    right_most_ptr: Option<PageNo>,
+    pub right_most_ptr: Option<PageNo>,
 }
 impl BTreePageHeader {
+    pub fn new(page_kind: BTreePageType, usable_size: usize) -> Self {
+        Self {
+            page_kind,
+            first_freeblock: 0,
+            no_of_cells: 0,
+            cell_content_area: usable_size as _,
+            frag_cnt: 0,
+            right_most_ptr: None,
+        }
+    }
     pub fn parse(bytes: &[u8], header_offsert: u8) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, header_offsert as _)?;
         let page_kind_byte = cursor.read_next_u8()?;
@@ -345,6 +363,35 @@ impl<'p> BTreePagerMut<'p> {
         Ok(page)
     }
 
+    pub fn new_from_scratch(
+        page_no: PageNo,
+        page_kind: BTreePageType,
+        bytes: &'p mut [u8],
+        page_size: usize,
+        usable_size: usize,
+    ) -> Self {
+        let new_header = BTreePageHeader::new(page_kind, usable_size);
+        let header_offset = if page_no == 1 { 100 } else { 0 };
+        let mut page = Self {
+            page_no,
+            page_size,
+            bytes,
+            usable_size,
+            cell_pointers: Vec::new(),
+            header: new_header,
+            header_offset,
+            _marker: PhantomData,
+        };
+        page.update_page_kind();
+        page
+    }
+
+    pub fn update_page_kind(&mut self) {
+        let byte = self.header.page_kind.as_byte();
+        let offset = self.header_offset as usize;
+        self.bytes[offset..offset + 1].copy_from_slice(&byte.to_be_bytes());
+    }
+
     fn get_header_size(&self) -> u8 {
         if self.header.page_kind.is_interior() {
             return INTERIOR_BTREE_PAGE_HEADER_SIZE;
@@ -405,10 +452,31 @@ impl<'p> BTreePagerMut<'p> {
         }
     }
 
+    pub fn update_cell_pointers_with(&mut self, cell_pointers: &[u16]) {
+        let mut offset = self.get_header_size() as usize;
+        for ptr in cell_pointers {
+            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
+            offset += 2;
+        }
+    }
     pub fn calculate_free_space(&self) -> usize {
         self.header.cell_content_area as usize
             - (self.cell_pointers.len() * 2)
             - (self.header_offset + self.get_header_size()) as usize
+    }
+
+    pub fn update_rmp(&mut self) {
+        debug_assert!(
+            self.header.page_kind.is_interior(),
+            "Leaf pages has no right most pointer"
+        );
+        debug_assert!(
+            self.header.right_most_ptr.is_some(),
+            "Right most pointer is not initialiazed yet"
+        );
+        // let offset = RIGHT_MOST_POINTER_OFFSET;
+        self.bytes[RIGHT_MOST_POINTER_OFFSET..RIGHT_MOST_POINTER_OFFSET + RIGHT_MOST_POINTER_SIZE]
+            .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
     }
 }
 

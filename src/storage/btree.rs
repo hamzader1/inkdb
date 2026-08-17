@@ -12,6 +12,8 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::util::sqlite_assert_with_corrupt_err;
 
+pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
+pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
 pub type CellIdx = u16;
 
 #[derive(Debug, PartialEq)]
@@ -318,7 +320,7 @@ impl BTreeCursor {
         if let Some(path) = self.stack.last() {
             return Some((path.page_no, path.cell_idx));
         }
-        return None;
+        None
     }
 
     fn choose_target<'a>(
