@@ -18,7 +18,7 @@ use crate::vfs::file::SqliteFile;
 pub struct Pager {
     pub source: Box<dyn SqliteFile>,
     pub buffer_pool: BufferPool,
-    // dirty pages linked list instead of new allocation
+    // dirty pages linked list instead of new allocations
     pub dp_ll: Option<FrameId>,
     pub metadata: SqliteMetadata,
     pub statistics: SqliteStatistics, // pub configuration: SqliteConfiguration,
