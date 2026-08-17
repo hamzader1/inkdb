@@ -761,8 +761,8 @@ pub enum CompressedNumeric {
 //         }
 //     }
 // }
-impl<'a> From<Value<'a>> for CompressedNumeric {
-    fn from(value: Value<'a>) -> Self {
+impl<'a> From<&Value<'a>> for CompressedNumeric {
+    fn from(value: &Value<'a>) -> Self {
         // let value = value.get_int().unwrap();
         match value.get_int() {
             Ok(value) => {
@@ -797,7 +797,7 @@ pub const fn blob_encoding(len: usize) -> usize {
     (len * 2) + 12
 }
 
-pub fn encode_sqlite(value: Value, output: &mut Vec<u8>) -> usize {
+pub fn encode_sqlite(value: &Value, output: &mut Vec<u8>) -> usize {
     match value {
         Value::Integer(n) => {
             let compressed_int = CompressedNumeric::from(value);
@@ -842,7 +842,7 @@ pub fn encode_sqlite(value: Value, output: &mut Vec<u8>) -> usize {
             text_encoding(t.len())
         }
         Value::Blob(b) => {
-            output.extend_from_slice(&b);
+            output.extend_from_slice(b);
             blob_encoding(b.len())
         }
         _ => unreachable!(),
