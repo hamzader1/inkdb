@@ -115,13 +115,18 @@ impl BTreePageHeader {
     }
 }
 
+pub enum InsertionState {
+    Inserted, // we could use Option instead of this enum but just to improve readability
+    None,
+}
+
 #[derive(Debug)]
 pub struct BTreePageRef<'p> {
     pub page_no: PageNo,
     header_offset: u8,
     header: BTreePageHeader,
     pub bytes: &'p [u8],
-    size: usize,
+    page_size: usize,
     usable_size: usize,
     _marker: PhantomData<&'p PageGuard>,
 }
@@ -129,7 +134,6 @@ impl<'p> BTreePageRef<'p> {
     pub fn new(
         page_no: PageNo,
         bytes: &'p [u8],
-        _guard: &'p PageGuard,
         page_size: usize,
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
@@ -140,7 +144,7 @@ impl<'p> BTreePageRef<'p> {
             header_offset,
             header,
             bytes,
-            size: page_size,
+            page_size,
             usable_size,
             _marker: PhantomData,
         })
@@ -307,10 +311,112 @@ impl<'p> BTreePageRef<'p> {
     }
 }
 
+// 'p pager lifetime
+pub struct BTreePagerMut<'p> {
+    pub page_no: PageNo,
+    header_offset: u8,
+    header: BTreePageHeader,
+    pub bytes: &'p mut [u8],
+    page_size: usize,
+    usable_size: usize,
+    cell_pointers: Vec<u16>,
+    _marker: PhantomData<&'p PageGuard>,
+}
+impl<'p> BTreePagerMut<'p> {
+    pub fn new(
+        page_no: PageNo,
+        bytes: &'p mut [u8],
+        page_size: usize,
+        usable_size: usize,
+    ) -> Result<Self, SqliteError> {
+        let header_offset = if page_no == 1 { 100 } else { 0 };
+        let header = BTreePageHeader::parse(bytes, header_offset)?;
+        let mut page = BTreePagerMut {
+            page_no,
+            header_offset,
+            header,
+            bytes,
+            page_size,
+            usable_size,
+            cell_pointers: Vec::new(),
+            _marker: PhantomData,
+        };
+        page.parse_cell_array_into_page()?;
+        Ok(page)
+    }
+
+    fn get_header_size(&self) -> u8 {
+        if self.header.page_kind.is_interior() {
+            return INTERIOR_BTREE_PAGE_HEADER_SIZE;
+        }
+        LEAF_BTREE_PAGE_HEADER_SIZE
+    }
+    fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteError> {
+        let header_size = self.get_header_size();
+        let Self {
+            header_offset,
+            header,
+            cell_pointers,
+            bytes,
+            ..
+        } = self;
+        let mut cursor = SqliteCursor::with_offset(bytes, (*header_offset + header_size) as _)?;
+        for _ in 0..header.no_of_cells {
+            let cell_pointer = cursor.read_next_u16()?;
+            cell_pointers.push(cell_pointer);
+        }
+        Ok(())
+    }
+
+    pub fn update_no_of_cells(&mut self) {
+        let cell_cnt = self.header.no_of_cells;
+        let offset = CELL_COUNT_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + CELL_COUNT_SIZE].copy_from_slice(&cell_cnt.to_be_bytes());
+    }
+    pub fn update_cell_content_area(&mut self) {
+        let cca = self.header.cell_content_area;
+        let offset = CELL_CONTENT_AREA_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + CELL_CONTENT_AREA_SIZE].copy_from_slice(&cca.to_be_bytes());
+    }
+    pub fn insert_cell(
+        &mut self,
+        content: Vec<u8>,
+        cell_idx: CellIdx,
+    ) -> Result<InsertionState, SqliteError> {
+        if self.calculate_free_space() < content.len() + 2 {
+            return Ok(InsertionState::None); // overflow
+        }
+        let entry_offset = self.header.cell_content_area as usize - content.len();
+        self.bytes[entry_offset..entry_offset + content.len()].copy_from_slice(&content);
+        self.cell_pointers.insert(cell_idx as _, entry_offset as _);
+        self.header.cell_content_area -= content.len() as u16;
+        self.header.no_of_cells += 1;
+        self.update_cell_pointers();
+        self.update_cell_content_area();
+        self.update_no_of_cells();
+        Ok(InsertionState::Inserted)
+    }
+
+    pub fn update_cell_pointers(&mut self) {
+        let mut offset = self.get_header_size() as usize;
+        for ptr in &self.cell_pointers {
+            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
+            offset += 2;
+        }
+    }
+
+    pub fn calculate_free_space(&self) -> usize {
+        self.header.cell_content_area as usize
+            - (self.cell_pointers.len() * 2)
+            - (self.header_offset + self.get_header_size()) as usize
+    }
+}
+
 pub struct OverflowPageRef<'a> {
     pub next: PageNo,
     pub data: &'a [u8],
 }
+
 impl<'a> OverflowPageRef<'a> {
     pub fn new<T: AsRef<[u8]> + ?Sized>(
         bytes: &'a T,
