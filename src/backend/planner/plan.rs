@@ -1,8 +1,9 @@
 use super::super::executor::{project::Project, scan::TableScan};
-use crate::backend::analyze::{ResolvedQuery, ResolvedSelectQuery};
+use crate::backend::analyze::{ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery};
 use crate::backend::executor::Row;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
+use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
@@ -15,8 +16,10 @@ pub enum Plan {
     Filter(Filter),
     Limit(Limit),
     Project(Project),
+    Insert(Insert),
 }
 
+#[derive(Debug)]
 pub struct Arena {
     parent: Plan,
     arena: ExprArena,
@@ -37,6 +40,7 @@ impl Plan {
     ) -> Result<Arena, SqliteError> {
         match resolved_query {
             ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
+            ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
             _ => todo!(), // INSERT LATER
         }
     }
@@ -60,6 +64,20 @@ impl Plan {
 
         Ok(Arena::new(parent, resolved_query.arena))
     }
+
+    pub fn initialize_insert_plan(
+        resolved_query: ResolvedInsertQuery,
+    ) -> Result<Arena, SqliteError> {
+        let plan = Plan::Insert(Insert::new(
+            resolved_query.root,
+            resolved_query.values,
+            resolved_query.entry_hint,
+        ));
+        Ok(Arena {
+            parent: plan,
+            arena: ExprArena::new(),
+        })
+    }
 }
 
 impl Plan {
@@ -73,6 +91,7 @@ impl Plan {
             Self::Filter(f) => f.next(pager, arena),
             Self::Limit(l) => l.next(pager, arena),
             Self::Project(p) => p.next(pager, arena),
+            Self::Insert(i) => i.next(pager),
         }
     }
 }
