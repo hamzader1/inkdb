@@ -15,9 +15,9 @@ use crate::sql::ast::{
 
 #[derive(Debug)]
 pub struct Table {
-    name: String,
+    pub name: String,
     pub root_page: u32,
-    columns: Vec<Column>,
+    pub columns: Vec<Column>,
 }
 impl Table {
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
