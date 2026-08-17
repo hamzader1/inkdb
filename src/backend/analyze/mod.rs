@@ -3,8 +3,9 @@ use crate::errors::SqliteError;
 use crate::format::page::PageNo;
 use crate::record::Value;
 use crate::schema::Table;
-use crate::sql::ast::{Expr, QueryStmt, SelectStmt};
+use crate::sql::ast::{Affinity, Ast, Expr, InsertStmt, SelectStmt};
 use crate::sql::parser::ExprArena;
+use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 
 type ColumnIndex = usize;
 type ArenaColumnIndex = usize;
@@ -22,8 +23,8 @@ pub struct ResolvedSelectQuery {
 #[derive(Debug)]
 pub struct ResolvedInsertQuery {
     pub root: PageNo,
-    pub columns: Vec<Value<'static>>,
-    entry_hint: Option<u64>, // row id hint
+    pub values: Vec<Value<'static>>,
+    pub entry_hint: Option<u64>, // row id hint
 }
 
 #[derive(Debug)]
@@ -33,12 +34,14 @@ pub enum ResolvedQuery {
 }
 
 impl Analyze {
-    pub fn analyze(
-        stmt: QueryStmt,
-        sqlite_master: &SqliteMaster,
-    ) -> Result<ResolvedQuery, SqliteError> {
+    pub fn analyze(stmt: Ast, sqlite_master: &SqliteMaster) -> Result<ResolvedQuery, SqliteError> {
         match stmt {
-            QueryStmt::Select(select_stmt) => Self::analyze_select_stmt(select_stmt, sqlite_master),
+            Ast::SelectStmtAst(select_stmt) => {
+                Self::analyze_select_stmt(select_stmt, sqlite_master)
+            }
+            Ast::InsertStmtAst(insert_stmt) => {
+                Self::analyze_insert_stmt(insert_stmt, sqlite_master)
+            }
             _ => todo!(),
         }
     }
@@ -328,5 +331,47 @@ impl Analyze {
             }
         }
         Ok(())
+    }
+    pub fn analyze_insert_stmt(
+        stmt: InsertStmt,
+        sqlite_master: &SqliteMaster,
+    ) -> Result<ResolvedQuery, SqliteError> {
+        let InsertStmt {
+            table_name,
+            columns,
+            values,
+        } = stmt;
+
+        let table = match sqlite_master.tables.get(&table_name) {
+            Some(table) => table,
+            _ => {
+                return Err(SqliteError::RuntimeError(format!(
+                    "Table {} does not exists",
+                    table_name
+                )));
+            }
+        };
+        // case1: no columns (default for now)
+
+        if columns.is_empty() {
+            assert!(values.len() == table.columns.len());
+            for (i, value) in values.iter().enumerate() {
+                let sqlite_value_type = Affinity::from(value);
+                sqlite_assert_with_corrupt_err(
+                    sqlite_value_type == table.columns[i].affinity,
+                    format!(
+                        "Column '{}' has data type of '{}' but '{}' were given",
+                        table.columns[i].name, table.columns[i].affinity, sqlite_value_type
+                    )
+                    .as_str(),
+                )?;
+            }
+        }
+
+        Ok(ResolvedQuery::InsertQuery(ResolvedInsertQuery {
+            root: table.root_page,
+            values,
+            entry_hint: None,
+        }))
     }
 }
