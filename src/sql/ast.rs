@@ -91,6 +91,8 @@ pub struct SelectStmt {
     pub where_clause: Option<usize>, // same arena used twice
     pub limit: Option<usize>,
 }
+
+#[derive(Debug)]
 pub struct InsertStmt {
     pub table_name: String,
     pub columns: Vec<String>,
@@ -148,6 +150,7 @@ pub enum Ast {
     CreateTableAst(CreateTable),
     CreateIndexAst(CreateIndex),
     SelectStmtAst(SelectStmt),
+    InsertStmtAst(InsertStmt),
 }
 
 impl From<TokenKind> for Affinity {
