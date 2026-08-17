@@ -32,7 +32,7 @@ impl<'a> SqliteCursor<'a> {
             offset,
         })
     }
-    pub fn clone(&self) -> Self {
+    pub fn clone_cursor(&self) -> Self {
         Self {
             bytes: self.bytes,
             offset: self.offset,
