@@ -46,9 +46,17 @@ impl Path {
         }
     }
 }
-enum SearchResult {
+pub enum SearchResult {
     Found { row_id: i64, cell_index: CellIdx },
     Descend { child: u32, cell_index: CellIdx },
+}
+impl SearchResult {
+    pub fn cell_index(&self) -> CellIdx {
+        match self {
+            Self::Found { cell_index, .. } => *cell_index,
+            Self::Descend { cell_index, .. } => *cell_index,
+        }
+    }
 }
 #[derive(Debug)]
 pub struct BTreeCursor {
@@ -469,9 +477,9 @@ pub struct BTree<'a> {
 }
 
 pub struct SplitMetadata {
-    left_page: u32,
-    right_page: u32,
-    boundary: i64,
+    pub left_page: u32,
+    pub right_page: u32,
+    pub boundary: i64,
 }
 impl SplitMetadata {
     pub fn new(left_page: u32, right_page: u32, boundary: i64) -> Self {
@@ -502,34 +510,99 @@ impl<'a> BTree<'a> {
         // TODO: FIND A WAY TO CACHE THIS PAGE BEFORE RELEASE
         self.cursor.seek(self.pager, key.into_owned())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        dbg!(page_no, cell_idx);
         let mut page_guard = self.pager.get_mut(page_no)?;
         let mut page = BTreeCursor::page_as_mut(page_no, &mut page_guard, self.pager)?;
         if let InsertionState::Inserted = page.insert_cell(content.clone(), cell_idx)? {
-            println!("INSERTED");
             return Ok(());
         } else {
-            println!("OVERFLOWWWWWWWWWWWWWWWWWWWWWWWWWWW");
-            let mut page_guard = self.pager.get_mut(page_no)?;
-            self.split_leaf(page, &mut page_guard)?;
+            self.balance(page_no)?;
             self.cursor.seek(self.pager, key)?;
             let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-            dbg!(page_no, cell_idx);
-            let mut page_guard = self.pager.get_mut(page_no)?;
-            let mut page = BTreeCursor::page_as_mut(page_no, &mut page_guard, self.pager)?;
             page.insert_cell(content, cell_idx)?;
-            println!("INSERTED AFTER FIX OVERLOW");
         }
         Ok(())
     }
 
-    pub fn split_leaf(
-        &mut self,
-        mut left_page: BTreePageMut,
-        left_page_guard: &mut PageGuard,
-    ) -> Result<SplitMetadata, SqliteError> {
-        // let mut left_page_guard = self.pager.get_mut(page_no)?;
-        // let mut left_page = BTreeCursor::page_as_mut(page_no, &mut left_page_guard, self.pager)?;
+    pub fn balance(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
+        let split_metadata = self.split_leaf(page_no)?;
+        self.cursor.stack.pop();
+        // LEFT PAGE
+        let mut left_page_guard = self.pager.get_mut(split_metadata.left_page)?;
+        let mut left_page =
+            BTreeCursor::page_as_mut(split_metadata.left_page, &mut left_page_guard, self.pager)?;
+        // RIGHT PAGE
+        let mut right_page_guard = self.pager.get_mut(split_metadata.right_page)?;
+        let right_page =
+            BTreeCursor::page_as_mut(split_metadata.right_page, &mut right_page_guard, self.pager)?;
+
+        if let Some(path) = self.cursor.stack.pop() {
+            let Path {
+                page_no,
+                cell_idx,
+                mut guard,
+            } = path;
+
+            let parent_page_as_ref = BTreeCursor::page_as_ref(page_no, &guard, self.pager)?;
+            let index = self
+                .cursor
+                .choose_child(
+                    &parent_page_as_ref,
+                    self.pager,
+                    &split_metadata.boundary.into_sqlite_value(),
+                )?
+                .cell_index();
+            let left_page_payload =
+                Encode::encode_table_interior_cell(left_page.page_no, split_metadata.boundary as _);
+            let mut parent_page_as_mut = BTreeCursor::page_as_mut(page_no, &mut guard, self.pager)?;
+            if let InsertionState::None =
+                parent_page_as_mut.insert_cell(left_page_payload, cell_idx)?
+            {
+                
+            }
+        } else {
+            let new_left_page_no = self.allocate_page()?;
+            let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
+            let mut new_left_page = BTreePageMut::new_from_scratch(
+                new_left_page_no,
+                BTreePageType::LeafTable,
+                new_left_page_guard.bytes_as_mut().unwrap(),
+                self.pager.metadata.page_size,
+                self.pager.metadata.usable_size,
+            );
+            new_left_page.copy_data_from(&left_page);
+            // TODO REMOVE THIS LATER:
+            left_page.clear();
+            //
+
+            // rebuild metadata
+            let last_cell_ptr = left_page.cell_pointers.len() - 1;
+            let rowid = new_left_page
+                .get_page_as_ref()?
+                .cell(last_cell_ptr as _)?
+                .row_id();
+
+            let mut root = BTreePageMut::new_from_scratch(
+                left_page.page_no,
+                BTreePageType::InteriorTable,
+                left_page_guard.bytes_as_mut().unwrap(),
+                self.pager.metadata.page_size,
+                self.pager.metadata.usable_size,
+            );
+
+            root.header.right_most_ptr = Some(right_page.page_no);
+            root.update_rmp();
+
+            let left_child_payload =
+                Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
+            root.insert_cell(left_child_payload, 0)?;
+        }
+
+        Ok(split_metadata)
+    }
+
+    pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
+        let mut left_page_guard = self.pager.get_mut(page_no)?;
+        let mut left_page = BTreeCursor::page_as_mut(page_no, &mut left_page_guard, self.pager)?;
 
         // TODO add freelist check
         let right_page_no = self.allocate_page()?;
@@ -560,64 +633,17 @@ impl<'a> BTree<'a> {
             prev = current;
         }
 
-        // right_page.update_cell_pointers();
+        let left_page_ref = left_page
+            .get_page_as_ref()?
+            .cell((left_page.cell_pointers.len() - 1) as _)?;
+        let metadata = SplitMetadata::new(
+            left_page.page_no,
+            right_page.page_no,
+            left_page_ref.row_id() as _,
+        );
 
-        // right_page.header.no_of_cells = right_cell_poiners.len() as _;
-        // right_page.update_no_of_cells();
-
-        // let right_last_offset = right_cell_poiners.last().unwrap();
-        // right_page.header.cell_content_area = *right_last_offset;
-        // right_page.update_cell_content_area();
-
-        self.cursor.stack.pop();
-        if let Some(path) = self.cursor.stack.last() {
-            panic!("SPLITTING MULTI PARENT PATH IS NOT IMPLEMENTED YET")
-        } else {
-            println!("CREATED ROOT");
-            let new_page_no = self.allocate_page()?;
-            let mut new_page_guard = self.pager.get_mut(new_page_no)?;
-            let mut new_page = BTreePageMut::new_from_scratch(
-                new_page_no,
-                BTreePageType::LeafTable,
-                new_page_guard.bytes_as_mut().unwrap(),
-                self.pager.metadata.page_size,
-                self.pager.metadata.usable_size,
-            );
-            new_page.copy_data_from(&left_page);
-            left_page.clear();
-
-            // rebuild metadata
-            let last_cell_ptr = left_page.cell_pointers.len() - 1;
-
-            let mut root = BTreePageMut::new_from_scratch(
-                left_page.page_no,
-                BTreePageType::InteriorTable,
-                left_page_guard.bytes_as_mut().unwrap(),
-                self.pager.metadata.page_size,
-                self.pager.metadata.usable_size,
-            );
-
-            root.header.right_most_ptr = Some(right_page.page_no);
-            root.update_rmp();
-
-            let page_ref = new_page.get_page_as_ref()?;
-            let rowid = page_ref.cell(last_cell_ptr as _)?.row_id();
-
-            let left_child_payload = Encode::encode_table_interior_cell(new_page_no, rowid as _);
-            dbg!(&left_child_payload);
-            root.insert_cell(left_child_payload, 0)?;
-            println!("INSERTED NEW CELL");
-            return Ok(SplitMetadata::new(
-                new_page_no,
-                right_page_no,
-                last_cell_ptr as _,
-            ));
-        }
-
-        todo!()
-        // Ok(())
+        Ok(metadata)
     }
-
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
         let max_allocated_pages = self.pager.metadata.max_allocated_pages;
         let new_page_no = max_allocated_pages + 1;
