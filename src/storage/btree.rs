@@ -488,6 +488,43 @@ impl<'a> BTree<'a> {
         Ok(())
     }
 
+    pub fn split_leaf(&mut self, page_no: PageNo) -> Result<(), SqliteError> {
+        let mut left_page_guard = self.pager.get_mut(page_no)?;
+        let mut left_page = BTreeCursor::page_as_mut(page_no, &mut left_page_guard, self.pager)?;
+
+        // TODO add freelist check
+        let new_page = self.allocate_page()?;
+        //
+        let mut right_page_guard = self.pager.get_mut(new_page)?;
+        let mut right_page = BTreePagerMut::new_from_scratch(
+            new_page,
+            BTreePageType::LeafTable,
+            right_page_guard.bytes_as_mut().unwrap(),
+            self.pager.metadata.page_size,
+            self.pager.metadata.usable_size,
+        );
+        let right_cell_poiners = left_page
+            .cell_pointers
+            .split_off((left_page.cell_pointers.len() / 2) + 1);
+
+        let mut prev = *left_page.cell_pointers.last().unwrap() as usize;
+        left_page.header.no_of_cells = left_page.cell_pointers.len() as _;
+        left_page.header.cell_content_area = prev as _;
+        left_page.update_cell_pointers();
+        left_page.update_cell_content_area();
+        left_page.update_no_of_cells();
+
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..right_cell_poiners.len() {
+            let current = right_cell_poiners[i] as usize;
+            let bytes = left_page.bytes[current..prev].as_ref();
+            right_page.insert_cell(bytes, i as _)?;
+            prev = current;
+        }
+
+        Ok(())
+    }
+
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
         let max_allocated_pages = self.pager.metadata.max_allocated_pages;
         let new_page_no = max_allocated_pages + 1;
