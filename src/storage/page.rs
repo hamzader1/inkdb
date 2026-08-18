@@ -173,6 +173,7 @@ impl<'p> BTreePageRef<'p> {
         let end = start + self.no_of_cells() * 2;
 
         let cell_offset = (cell_idx * 2) + self.header_size() as u16;
+        dbg!(start, end, cell_offset);
         sqlite_assert_with_corrupt_err(
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
             "Cell Index Out of Bounds",
@@ -392,7 +393,6 @@ impl<'p> BTreePageMut<'p> {
         let offset = self.header_offset as usize;
         self.bytes[offset..offset + 1].copy_from_slice(&byte.to_be_bytes());
     }
-
     fn get_header_size(&self) -> u8 {
         if self.header.page_kind.is_interior() {
             return INTERIOR_BTREE_PAGE_HEADER_SIZE;
@@ -484,7 +484,7 @@ impl<'p> BTreePageMut<'p> {
     // UNSAFE TO USE THE HEADER
     // UNSAFE TO CALL UNLESS REWRITE THE HEADER
     pub fn clear(&mut self) {
-        self.bytes.copy_from_slice(&vec![0u8; self.usable_size]);
+        self.bytes[0..self.usable_size].copy_from_slice(&vec![0u8; self.usable_size]);
     }
 
     pub fn copy_data_from(&mut self, other: &Self) {

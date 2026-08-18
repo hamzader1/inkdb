@@ -6,7 +6,7 @@ use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::format::page::PageNo;
 use crate::pager::pager::Pager;
-use crate::record::{Value, encode_sqlite};
+use crate::record::{SqlType, Value, encode_sqlite};
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::{BTree, BTreeCursor};
 use crate::storage::cell::{BTreeCellType, Encode};
@@ -47,17 +47,21 @@ impl Insert {
         header.extend_from_slice(&payload);
 
         let mut cursor = BTreeCursor::new(self.root_page);
-        cursor.last(pager)?;
-        let (page_no, cell_idx) = cursor.last_visited_entry().unwrap_or((self.root_page, 0));
+        let is_empty_leaf = cursor.last(pager)?;
+        let (page_no, cell_idx) = cursor.last_visited_entry().unwrap();
         let guard = pager.get(page_no)?;
-        let row_id = (BTreeCursor::page_as_ref(page_no, &guard, pager)?)
-            .cell(cell_idx)?
-            .row_id();
-
-        let payload = Encode::encode_cell(BTreeCellType::TableLeaf, header, (row_id as u32) + 1);
+        let next_row_id = if is_empty_leaf {
+            1
+        } else {
+            (BTreeCursor::page_as_ref(page_no, &guard, pager)?)
+                .cell(cell_idx)?
+                .row_id()
+                + 1
+        };
+        let payload = Encode::encode_cell(BTreeCellType::TableLeaf, header, next_row_id as _);
         let mut btree = BTree::with_cursor(self.root_page, pager, cursor);
 
-        btree.insert(payload, page_no, cell_idx + 1)?;
+        btree.insert(next_row_id.into_sqlite_value(), payload);
         Ok(None)
     }
 }

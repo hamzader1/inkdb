@@ -199,16 +199,23 @@ impl BTreeCursor {
         self.state = CursorState::BeforeFirst;
         Ok(())
     }
-    pub fn last(&mut self, pager: &mut Pager) -> Result<(), SqliteError> {
+    pub fn last(&mut self, pager: &mut Pager) -> Result<bool, SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
             let guard = pager.get(page_no)?;
             let page = Self::page_as_ref(page_no, &guard, pager)?;
             if page.is_leaf() {
-                self.add_path(page_no, page.no_of_cells() - 1, guard);
+                let mut is_leaf_empty = false;
+                let cell_idx = if page.no_of_cells() == 0 {
+                    is_leaf_empty = true;
+                    0
+                } else {
+                    page.no_of_cells() - 1
+                };
+                self.add_path(page_no, cell_idx, guard);
                 self.state = CursorState::At;
-                return Ok(());
+                return Ok(is_leaf_empty);
             }
             let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
                 "interior page has no right-most child".into(),
@@ -322,6 +329,10 @@ impl BTreeCursor {
             return Some((path.page_no, path.cell_idx));
         }
         None
+    }
+    pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
+        let p = self.stack.last().unwrap();
+        (p.page_no, p.cell_idx)
     }
 
     fn choose_target<'a>(
@@ -457,6 +468,20 @@ pub struct BTree<'a> {
     pub cursor: BTreeCursor,
 }
 
+pub struct SplitMetadata {
+    left_page: u32,
+    right_page: u32,
+    boundary: i64,
+}
+impl SplitMetadata {
+    pub fn new(left_page: u32, right_page: u32, boundary: i64) -> Self {
+        Self {
+            left_page,
+            right_page,
+            boundary,
+        }
+    }
+}
 impl<'a> BTree<'a> {
     pub fn new(root_page: PageNo, pager: &'a mut Pager) -> Self {
         Self {
@@ -473,33 +498,44 @@ impl<'a> BTree<'a> {
         }
     }
 
-    pub fn insert(
-        &mut self,
-        content: Vec<u8>,
-        page_no: PageNo,
-        cell_idx: CellIdx,
-    ) -> Result<(), SqliteError> {
+    pub fn insert(&mut self, key: Value, content: Vec<u8>) -> Result<(), SqliteError> {
         // TODO: FIND A WAY TO CACHE THIS PAGE BEFORE RELEASE
+        self.cursor.seek(self.pager, key.into_owned())?;
+        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        dbg!(page_no, cell_idx);
         let mut page_guard = self.pager.get_mut(page_no)?;
         let mut page = BTreeCursor::page_as_mut(page_no, &mut page_guard, self.pager)?;
-        if let InsertionState::Inserted = page.insert_cell(content, cell_idx)? {
+        if let InsertionState::Inserted = page.insert_cell(content.clone(), cell_idx)? {
+            println!("INSERTED");
             return Ok(());
         } else {
-            todo!("HANDLING SPLIT NOT IMPLEMENETED YET")
+            println!("OVERFLOWWWWWWWWWWWWWWWWWWWWWWWWWWW");
+            let mut page_guard = self.pager.get_mut(page_no)?;
+            self.split_leaf(page, &mut page_guard)?;
+            self.cursor.seek(self.pager, key)?;
+            let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+            dbg!(page_no, cell_idx);
+            let mut page_guard = self.pager.get_mut(page_no)?;
+            let mut page = BTreeCursor::page_as_mut(page_no, &mut page_guard, self.pager)?;
+            page.insert_cell(content, cell_idx)?;
+            println!("INSERTED AFTER FIX OVERLOW");
         }
         Ok(())
     }
 
-    pub fn split_leaf(&mut self, page_no: PageNo) -> Result<(), SqliteError> {
-        let mut left_page_guard = self.pager.get_mut(page_no)?;
-        let mut left_page = BTreeCursor::page_as_mut(page_no, &mut left_page_guard, self.pager)?;
+    pub fn split_leaf(
+        &mut self,
+        mut left_page: BTreePageMut,
+        left_page_guard: &mut PageGuard,
+    ) -> Result<SplitMetadata, SqliteError> {
+        // let mut left_page_guard = self.pager.get_mut(page_no)?;
+        // let mut left_page = BTreeCursor::page_as_mut(page_no, &mut left_page_guard, self.pager)?;
 
         // TODO add freelist check
-        let new_page = self.allocate_page()?;
-        //
-        let mut right_page_guard = self.pager.get_mut(new_page)?;
+        let right_page_no = self.allocate_page()?;
+        let mut right_page_guard = self.pager.get_mut(right_page_no)?;
         let mut right_page = BTreePageMut::new_from_scratch(
-            new_page,
+            right_page_no,
             BTreePageType::LeafTable,
             right_page_guard.bytes_as_mut().unwrap(),
             self.pager.metadata.page_size,
@@ -523,19 +559,21 @@ impl<'a> BTree<'a> {
             right_page.insert_cell(bytes, i as _)?;
             prev = current;
         }
-        right_page.update_cell_pointers();
 
-        right_page.header.no_of_cells = right_cell_poiners.len() as _;
-        right_page.update_no_of_cells();
+        // right_page.update_cell_pointers();
 
-        let right_last_offset = right_cell_poiners.last().unwrap();
-        right_page.header.cell_content_area = *right_last_offset;
-        right_page.update_cell_content_area();
+        // right_page.header.no_of_cells = right_cell_poiners.len() as _;
+        // right_page.update_no_of_cells();
 
-        right_page.cell_pointers = right_cell_poiners;
+        // let right_last_offset = right_cell_poiners.last().unwrap();
+        // right_page.header.cell_content_area = *right_last_offset;
+        // right_page.update_cell_content_area();
+
         self.cursor.stack.pop();
         if let Some(path) = self.cursor.stack.last() {
+            panic!("SPLITTING MULTI PARENT PATH IS NOT IMPLEMENTED YET")
         } else {
+            println!("CREATED ROOT");
             let new_page_no = self.allocate_page()?;
             let mut new_page_guard = self.pager.get_mut(new_page_no)?;
             let mut new_page = BTreePageMut::new_from_scratch(
@@ -547,27 +585,37 @@ impl<'a> BTree<'a> {
             );
             new_page.copy_data_from(&left_page);
             left_page.clear();
-            drop(left_page);
+
             // rebuild metadata
-            let last_cell_ptr = *new_page.cell_pointers.last().unwrap();
+            let last_cell_ptr = left_page.cell_pointers.len() - 1;
+
             let mut root = BTreePageMut::new_from_scratch(
-                page_no,
+                left_page.page_no,
                 BTreePageType::InteriorTable,
                 left_page_guard.bytes_as_mut().unwrap(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
+
             root.header.right_most_ptr = Some(right_page.page_no);
             root.update_rmp();
 
-            let page_ref = root.get_page_as_ref()?;
-            let rowid = page_ref.cell(last_cell_ptr)?.row_id();
+            let page_ref = new_page.get_page_as_ref()?;
+            let rowid = page_ref.cell(last_cell_ptr as _)?.row_id();
 
             let left_child_payload = Encode::encode_table_interior_cell(new_page_no, rowid as _);
-            root.insert_cell(left_child_payload, 0);
+            dbg!(&left_child_payload);
+            root.insert_cell(left_child_payload, 0)?;
+            println!("INSERTED NEW CELL");
+            return Ok(SplitMetadata::new(
+                new_page_no,
+                right_page_no,
+                last_cell_ptr as _,
+            ));
         }
 
-        Ok(())
+        todo!()
+        // Ok(())
     }
 
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
@@ -585,7 +633,7 @@ impl<'a> BTree<'a> {
         let bytes = guard.bytes_as_mut().unwrap();
         bytes[DATABASE_SIZE_IN_PAGES_OFFSET
             ..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
-            .copy_from_slice(&self.pager.metadata.max_allocated_pages.to_be_bytes());
+            .copy_from_slice(&(self.pager.metadata.max_allocated_pages as u32).to_be_bytes());
 
         Ok(())
     }
