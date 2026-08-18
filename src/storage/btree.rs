@@ -1,6 +1,7 @@
 use super::cell::BTreeCell;
+use super::cell::Encode;
+use super::page::BTreePageMut;
 use super::page::BTreePageRef;
-use super::page::BTreePagerMut;
 use super::page::InsertionState;
 use crate::PageNo;
 use crate::SqliteError;
@@ -437,8 +438,8 @@ impl BTreeCursor {
         page_no: PageNo,
         guard: &'a mut PageGuard,
         pager: &Pager,
-    ) -> Result<BTreePagerMut<'a>, SqliteError> {
-        BTreePagerMut::new(
+    ) -> Result<BTreePageMut<'a>, SqliteError> {
+        BTreePageMut::new(
             page_no,
             guard.bytes_as_mut().unwrap(),
             pager.metadata.page_size,
@@ -478,6 +479,7 @@ impl<'a> BTree<'a> {
         page_no: PageNo,
         cell_idx: CellIdx,
     ) -> Result<(), SqliteError> {
+        // TODO: FIND A WAY TO CACHE THIS PAGE BEFORE RELEASE
         let mut page_guard = self.pager.get_mut(page_no)?;
         let mut page = BTreeCursor::page_as_mut(page_no, &mut page_guard, self.pager)?;
         if let InsertionState::Inserted = page.insert_cell(content, cell_idx)? {
@@ -496,7 +498,7 @@ impl<'a> BTree<'a> {
         let new_page = self.allocate_page()?;
         //
         let mut right_page_guard = self.pager.get_mut(new_page)?;
-        let mut right_page = BTreePagerMut::new_from_scratch(
+        let mut right_page = BTreePageMut::new_from_scratch(
             new_page,
             BTreePageType::LeafTable,
             right_page_guard.bytes_as_mut().unwrap(),
@@ -520,6 +522,49 @@ impl<'a> BTree<'a> {
             let bytes = left_page.bytes[current..prev].as_ref();
             right_page.insert_cell(bytes, i as _)?;
             prev = current;
+        }
+        right_page.update_cell_pointers();
+
+        right_page.header.no_of_cells = right_cell_poiners.len() as _;
+        right_page.update_no_of_cells();
+
+        let right_last_offset = right_cell_poiners.last().unwrap();
+        right_page.header.cell_content_area = *right_last_offset;
+        right_page.update_cell_content_area();
+
+        right_page.cell_pointers = right_cell_poiners;
+        self.cursor.stack.pop();
+        if let Some(path) = self.cursor.stack.last() {
+        } else {
+            let new_page_no = self.allocate_page()?;
+            let mut new_page_guard = self.pager.get_mut(new_page_no)?;
+            let mut new_page = BTreePageMut::new_from_scratch(
+                new_page_no,
+                BTreePageType::LeafTable,
+                new_page_guard.bytes_as_mut().unwrap(),
+                self.pager.metadata.page_size,
+                self.pager.metadata.usable_size,
+            );
+            new_page.copy_data_from(&left_page);
+            left_page.clear();
+            drop(left_page);
+            // rebuild metadata
+            let last_cell_ptr = *new_page.cell_pointers.last().unwrap();
+            let mut root = BTreePageMut::new_from_scratch(
+                page_no,
+                BTreePageType::InteriorTable,
+                left_page_guard.bytes_as_mut().unwrap(),
+                self.pager.metadata.page_size,
+                self.pager.metadata.usable_size,
+            );
+            root.header.right_most_ptr = Some(right_page.page_no);
+            root.update_rmp();
+
+            let page_ref = root.get_page_as_ref()?;
+            let rowid = page_ref.cell(last_cell_ptr)?.row_id();
+
+            let left_child_payload = Encode::encode_table_interior_cell(new_page_no, rowid as _);
+            root.insert_cell(left_child_payload, 0);
         }
 
         Ok(())

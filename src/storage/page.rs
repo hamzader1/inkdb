@@ -68,13 +68,14 @@ impl BTreePageType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BTreePageHeader {
-    page_kind: BTreePageType,
-    first_freeblock: u16,
-    no_of_cells: u16,
-    cell_content_area: u16,
-    frag_cnt: u8,
+    pub page_kind: BTreePageType,
+    pub first_freeblock: u16,
+    pub no_of_cells: u16,
+    pub cell_content_area: u16,
+
+    pub frag_cnt: u8,
     pub right_most_ptr: Option<PageNo>,
 }
 impl BTreePageHeader {
@@ -138,7 +139,7 @@ pub enum InsertionState {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BTreePageRef<'p> {
     pub page_no: PageNo,
     header_offset: u8,
@@ -330,17 +331,17 @@ impl<'p> BTreePageRef<'p> {
 }
 
 // 'p pager lifetime
-pub struct BTreePagerMut<'p> {
+pub struct BTreePageMut<'p> {
     pub page_no: PageNo,
-    header_offset: u8,
-    header: BTreePageHeader,
+    pub header_offset: u8,
+    pub header: BTreePageHeader,
     pub bytes: &'p mut [u8],
     page_size: usize,
     usable_size: usize,
-    cell_pointers: Vec<u16>,
+    pub cell_pointers: Vec<u16>,
     _marker: PhantomData<&'p PageGuard>,
 }
-impl<'p> BTreePagerMut<'p> {
+impl<'p> BTreePageMut<'p> {
     pub fn new(
         page_no: PageNo,
         bytes: &'p mut [u8],
@@ -349,7 +350,7 @@ impl<'p> BTreePagerMut<'p> {
     ) -> Result<Self, SqliteError> {
         let header_offset = if page_no == 1 { 100 } else { 0 };
         let header = BTreePageHeader::parse(bytes, header_offset)?;
-        let mut page = BTreePagerMut {
+        let mut page = BTreePageMut {
             page_no,
             header_offset,
             header,
@@ -427,14 +428,15 @@ impl<'p> BTreePagerMut<'p> {
     }
     pub fn insert_cell(
         &mut self,
-        content: Vec<u8>,
+        content: impl AsRef<[u8]>,
         cell_idx: CellIdx,
     ) -> Result<InsertionState, SqliteError> {
+        let content = content.as_ref();
         if self.calculate_free_space() < content.len() + 2 {
             return Ok(InsertionState::None); // overflow
         }
         let entry_offset = self.header.cell_content_area as usize - content.len();
-        self.bytes[entry_offset..entry_offset + content.len()].copy_from_slice(&content);
+        self.bytes[entry_offset..entry_offset + content.len()].copy_from_slice(content);
         self.cell_pointers.insert(cell_idx as _, entry_offset as _);
         self.header.cell_content_area -= content.len() as u16;
         self.header.no_of_cells += 1;
@@ -477,6 +479,20 @@ impl<'p> BTreePagerMut<'p> {
         // let offset = RIGHT_MOST_POINTER_OFFSET;
         self.bytes[RIGHT_MOST_POINTER_OFFSET..RIGHT_MOST_POINTER_OFFSET + RIGHT_MOST_POINTER_SIZE]
             .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
+    }
+
+    // UNSAFE TO USE THE HEADER
+    // UNSAFE TO CALL UNLESS REWRITE THE HEADER
+    pub fn clear(&mut self) {
+        self.bytes.copy_from_slice(&vec![0u8; self.usable_size]);
+    }
+
+    pub fn copy_data_from(&mut self, other: &Self) {
+        self.bytes.copy_from_slice(other.bytes);
+    }
+
+    pub fn get_page_as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
+        BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
     }
 }
 

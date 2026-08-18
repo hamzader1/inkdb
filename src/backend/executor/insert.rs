@@ -55,7 +55,7 @@ impl Insert {
             .row_id();
 
         let payload = Encode::encode_cell(BTreeCellType::TableLeaf, header, (row_id as u32) + 1);
-        let mut btree = BTree::new(self.root_page, pager);
+        let mut btree = BTree::with_cursor(self.root_page, pager, cursor);
 
         btree.insert(payload, page_no, cell_idx + 1)?;
         Ok(None)

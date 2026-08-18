@@ -235,4 +235,13 @@ impl Encode {
         v.extend_from_slice(&payload);
         v
     }
+
+    pub fn encode_table_interior_cell(page_no: PageNo, row_id: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&page_no.to_be_bytes());
+        let mut buff = [0u8; 9];
+        let byte_needed_for_row_id = encode_varint(&mut buff, row_id as _);
+        v.extend_from_slice(&buff[..byte_needed_for_row_id]);
+        v
+    }
 }
