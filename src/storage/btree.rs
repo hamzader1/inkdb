@@ -515,10 +515,22 @@ impl<'a> BTree<'a> {
         if let InsertionState::Inserted = page.insert_cell(content.clone(), cell_idx)? {
             return Ok(());
         } else {
-            self.balance(page_no)?;
-            self.cursor.seek(self.pager, key)?;
-            let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-            page.insert_cell(content, cell_idx)?;
+            let sqlite_metadata = self.balance(page_no)?;
+            // let sqlite_metadata = self.cursor.seek(self.pager, key)?;
+            // let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+            // page.insert_cell(content, cell_idx)?;
+            if key <= sqlite_metadata.boundary {
+                let mut page_guard = self.pager.get(sqlite_metadata.left_page)?;
+                let page =
+                    BTreeCursor::page_as_ref(sqlite_metadata.left_page, &page_guard, self.pager)?;
+                let (_, cell_idx) = self.cursor.choose_target(&page, self.pager, &key)?;
+                let mut page_mut = BTreeCursor::page_as_mut(
+                    sqlite_metadata.left_page,
+                    &mut page_guard,
+                    self.pager,
+                )?;
+                page_mut.insert_cell(content, cell_idx)?;
+            }
         }
         Ok(())
     }
