@@ -173,7 +173,6 @@ impl<'p> BTreePageRef<'p> {
         let end = start + self.no_of_cells() * 2;
 
         let cell_offset = (cell_idx * 2) + self.header_size() as u16;
-        dbg!(start, end, cell_offset);
         sqlite_assert_with_corrupt_err(
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
             "Cell Index Out of Bounds",
