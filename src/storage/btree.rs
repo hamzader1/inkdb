@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use super::cell::BTreeCell;
 use super::cell::Encode;
 use super::page::BTreePageMut;
@@ -458,6 +460,7 @@ impl BTreeCursor {
         guard: &'a mut PageGuard,
         pager: &Pager,
     ) -> Result<BTreePageMut<'a>, SqliteError> {
+        // dbg!(&guard, page_no);
         BTreePageMut::new(
             page_no,
             guard.bytes_as_mut().unwrap(),
@@ -476,13 +479,14 @@ pub struct BTree<'a> {
     pub cursor: BTreeCursor,
 }
 
+#[derive(Debug)]
 pub struct SplitMetadata {
     pub left_page: u32,
     pub right_page: u32,
-    pub boundary: i64,
+    pub boundary: Value<'static>,
 }
 impl SplitMetadata {
-    pub fn new(left_page: u32, right_page: u32, boundary: i64) -> Self {
+    pub fn new(left_page: u32, right_page: u32, boundary: Value<'static>) -> Self {
         Self {
             left_page,
             right_page,
@@ -507,7 +511,6 @@ impl<'a> BTree<'a> {
     }
 
     pub fn insert(&mut self, key: Value, content: Vec<u8>) -> Result<(), SqliteError> {
-        // TODO: FIND A WAY TO CACHE THIS PAGE BEFORE RELEASE
         self.cursor.seek(self.pager, key.into_owned())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let mut page_guard = self.pager.get_mut(page_no)?;
@@ -516,16 +519,24 @@ impl<'a> BTree<'a> {
             return Ok(());
         } else {
             let sqlite_metadata = self.balance(page_no)?;
-            // let sqlite_metadata = self.cursor.seek(self.pager, key)?;
-            // let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-            // page.insert_cell(content, cell_idx)?;
             if key <= sqlite_metadata.boundary {
-                let mut page_guard = self.pager.get(sqlite_metadata.left_page)?;
+                let mut page_guard = self.pager.get_mut(sqlite_metadata.left_page)?;
                 let page =
                     BTreeCursor::page_as_ref(sqlite_metadata.left_page, &page_guard, self.pager)?;
                 let (_, cell_idx) = self.cursor.choose_target(&page, self.pager, &key)?;
                 let mut page_mut = BTreeCursor::page_as_mut(
                     sqlite_metadata.left_page,
+                    &mut page_guard,
+                    self.pager,
+                )?;
+                page_mut.insert_cell(content, cell_idx)?;
+            } else {
+                let mut page_guard = self.pager.get_mut(sqlite_metadata.right_page)?;
+                let page =
+                    BTreeCursor::page_as_ref(sqlite_metadata.right_page, &page_guard, self.pager)?;
+                let (_, cell_idx) = self.cursor.choose_target(&page, self.pager, &key)?;
+                let mut page_mut = BTreeCursor::page_as_mut(
+                    sqlite_metadata.right_page,
                     &mut page_guard,
                     self.pager,
                 )?;
@@ -536,8 +547,9 @@ impl<'a> BTree<'a> {
     }
 
     pub fn balance(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
-        let split_metadata = self.split_leaf(page_no)?;
-        self.cursor.stack.pop();
+        let split_metadata = self.split_leaf(page_no)?; // THE TWO LEAVES WE WANT TO RETURN
+
+        self.cursor.stack.pop(); // WE POP LEAF, WE ARE AT PARENT
         // LEFT PAGE
         let mut left_page_guard = self.pager.get_mut(split_metadata.left_page)?;
         let mut left_page =
@@ -548,28 +560,74 @@ impl<'a> BTree<'a> {
             BTreeCursor::page_as_mut(split_metadata.right_page, &mut right_page_guard, self.pager)?;
 
         if let Some(path) = self.cursor.stack.pop() {
-            let Path {
-                page_no,
-                cell_idx,
-                mut guard,
-            } = path;
-
-            let parent_page_as_ref = BTreeCursor::page_as_ref(page_no, &guard, self.pager)?;
+            let parent_page_as_ref =
+                BTreeCursor::page_as_ref(path.page_no, &path.guard, self.pager)?;
             let index = self
                 .cursor
-                .choose_child(
-                    &parent_page_as_ref,
-                    self.pager,
-                    &split_metadata.boundary.into_sqlite_value(),
-                )?
+                .choose_child(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
                 .cell_index();
-            let left_page_payload =
-                Encode::encode_table_interior_cell(left_page.page_no, split_metadata.boundary as _);
-            let mut parent_page_as_mut = BTreeCursor::page_as_mut(page_no, &mut guard, self.pager)?;
+            let left_page_payload = Encode::encode_table_interior_cell(
+                left_page.page_no,
+                split_metadata.boundary.get_int()? as _,
+            );
+            let mut guard = self.pager.get_mut(path.page_no)?;
+            let mut parent_page_as_mut =
+                BTreeCursor::page_as_mut(path.page_no, &mut guard, self.pager)?;
+            let was_rightmost =
+                parent_page_as_mut.header.right_most_ptr() == Some(split_metadata.left_page);
             if let InsertionState::None =
-                parent_page_as_mut.insert_cell(left_page_payload, cell_idx)?
+                parent_page_as_mut.insert_cell(&left_page_payload, index)?
             {
-                
+                let split_interior_metadata = self.split_interior(parent_page_as_mut.page_no)?;
+                let key = split_metadata.boundary.into_owned();
+                if key <= split_interior_metadata.boundary {
+                    let mut page_guard = self.pager.get_mut(split_interior_metadata.left_page)?;
+
+                    let page = BTreeCursor::page_as_ref(
+                        split_interior_metadata.left_page,
+                        &page_guard,
+                        self.pager,
+                    )?;
+
+                    let cell_idx = self
+                        .cursor
+                        .choose_child(&page, self.pager, &key)?
+                        .cell_index();
+
+                    let mut page_mut = BTreeCursor::page_as_mut(
+                        split_interior_metadata.left_page,
+                        &mut page_guard,
+                        self.pager,
+                    )?;
+                    page_mut.insert_cell(left_page_payload, cell_idx)?;
+                } else {
+                    let mut page_guard = self.pager.get_mut(split_interior_metadata.right_page)?;
+
+                    let page = BTreeCursor::page_as_ref(
+                        split_interior_metadata.right_page,
+                        &page_guard,
+                        self.pager,
+                    )?;
+
+                    let cell_idx = self
+                        .cursor
+                        .choose_child(&page, self.pager, &key)?
+                        .cell_index();
+
+                    let mut page_mut = BTreeCursor::page_as_mut(
+                        split_interior_metadata.right_page,
+                        &mut page_guard,
+                        self.pager,
+                    )?;
+
+                    page_mut.insert_cell(left_page_payload, cell_idx)?;
+                }
+            } else {
+                if was_rightmost {
+                    parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
+                    parent_page_as_mut.update_rmp();
+                }
+                return Ok(split_metadata);
             }
         } else {
             let new_left_page_no = self.allocate_page()?;
@@ -607,6 +665,11 @@ impl<'a> BTree<'a> {
             let left_child_payload =
                 Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
             root.insert_cell(left_child_payload, 0)?;
+            return Ok(SplitMetadata::new(
+                new_left_page_no,
+                right_page.page_no,
+                rowid.into_sqlite_value(),
+            ));
         }
 
         Ok(split_metadata)
@@ -651,7 +714,7 @@ impl<'a> BTree<'a> {
         let metadata = SplitMetadata::new(
             left_page.page_no,
             right_page.page_no,
-            left_page_ref.row_id() as _,
+            left_page_ref.row_id().into_sqlite_value() as _,
         );
 
         Ok(metadata)
