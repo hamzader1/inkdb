@@ -611,7 +611,6 @@ impl<'a> BTree<'a> {
             // TODO REMOVE THIS LATER:
             left_page.clear();
             //
-
             // rebuild metadata
             let last_cell_ptr = left_page.cell_pointers.len() - 1;
             let rowid = new_left_page
@@ -762,13 +761,8 @@ impl<'a> BTree<'a> {
                 .cursor
                 .choose_child(&page_as_ref, self.pager, &promoted_key)?
                 .cell_index();
-            let was_rightmost = parent_page.header.right_most_ptr() == Some(interior_page.page_no);
             match parent_page.insert_cell(&promoted_cell_payload, cell_idx)? {
                 InsertionState::Inserted => {
-                    if was_rightmost {
-                        parent_page.header.right_most_ptr = Some(interior_page.page_no);
-                        parent_page.update_rmp();
-                    }
                     Ok(SplitMetadata::new(
                         new_page_no,
                         interior_page.page_no,
@@ -858,6 +852,11 @@ impl<'a> BTree<'a> {
         page_mut.insert_cell(payload, cell_idx)?;
         Ok(())
     }
+
+    // TODO:
+    //     USE FREE LIST AS FIRST THING TO CHECK BEFORE RUSHING
+    //     INTO THE DISK
+    //
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
         let max_allocated_pages = self.pager.metadata.max_allocated_pages;
         let new_page_no = max_allocated_pages + 1;
@@ -867,7 +866,7 @@ impl<'a> BTree<'a> {
         self.update_max_allocated_pages()?;
         Ok(new_page_no as _)
     }
-
+    // TODO: CACHE DATABASE HEADER AS WE NEED TO READ AND WRITE CONSTENTLY FROM IT
     pub fn update_max_allocated_pages(&mut self) -> Result<(), SqliteError> {
         let mut guard = self.pager.get_mut(1)?;
         let bytes = guard.bytes_as_mut().unwrap();
