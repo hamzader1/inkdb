@@ -472,6 +472,47 @@ impl<'p> BTreePageMut<'p> {
         Ok(InsertionState::Inserted)
     }
 
+    pub fn replace_cell(
+        &mut self,
+        cell_idx: CellIdx,
+        content: impl AsRef<[u8]>,
+    ) -> Result<(), SqliteError> {
+        let content = content.as_ref();
+        if cell_idx as usize >= self.cell_pointers.len() {
+            return Err(SqliteError::Corrupt(
+                "replace_cell index out of bounds".into(),
+            ));
+        }
+        let mut cells = Vec::with_capacity(self.cell_pointers.len());
+        for i in 0..self.cell_pointers.len() {
+            let offset = self.cell_pointers[i] as usize;
+            let end = if i == 0 {
+                self.usable_size
+            } else {
+                self.cell_pointers[i - 1] as usize
+            };
+            if i == cell_idx as usize {
+                cells.push(content.to_vec());
+            } else {
+                cells.push(self.bytes[offset..end].to_vec());
+            }
+        }
+        let page_kind = self.header.page_kind;
+        let right_most_ptr = self.header.right_most_ptr;
+        self.bytes[self.header_offset as usize..self.usable_size].fill(0);
+        self.header = BTreePageHeader::new(page_kind, self.usable_size);
+        self.header.right_most_ptr = right_most_ptr;
+        self.cell_pointers.clear();
+        self.update_page_kind();
+        for (i, cell) in cells.iter().enumerate() {
+            self.insert_cell(cell, i as _)?;
+        }
+        if right_most_ptr.is_some() {
+            self.update_rmp();
+        }
+        Ok(())
+    }
+
     pub fn update_cell_pointers(&mut self) {
         let mut offset = self.get_header_size() as usize;
         for ptr in &self.cell_pointers {

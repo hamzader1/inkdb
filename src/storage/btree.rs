@@ -484,13 +484,20 @@ pub struct SplitMetadata {
     pub left_page: u32,
     pub right_page: u32,
     pub boundary: Value<'static>,
+    pub right_max: Value<'static>,
 }
 impl SplitMetadata {
-    pub fn new(left_page: u32, right_page: u32, boundary: Value<'static>) -> Self {
+    pub fn new(
+        left_page: u32,
+        right_page: u32,
+        boundary: Value<'static>,
+        right_max: Value<'static>,
+    ) -> Self {
         Self {
             left_page,
             right_page,
             boundary,
+            right_max,
         }
     }
 }
@@ -570,64 +577,97 @@ impl<'a> BTree<'a> {
                 left_page.page_no,
                 split_metadata.boundary.get_int()? as _,
             );
+            let right_page_payload = Encode::encode_table_interior_cell(
+                right_page.page_no,
+                split_metadata.right_max.get_int()? as _,
+            );
+
             let mut guard = self.pager.get_mut(path.page_no)?;
             let mut parent_page_as_mut =
                 BTreeCursor::page_as_mut(path.page_no, &mut guard, self.pager)?;
+
             let was_rightmost =
                 parent_page_as_mut.header.right_most_ptr() == Some(split_metadata.left_page);
-            if let InsertionState::None =
-                parent_page_as_mut.insert_cell(&left_page_payload, index)?
-            {
-                let split_interior_metadata = self.split_interior(parent_page_as_mut.page_no)?;
-                let key = split_metadata.boundary.into_owned();
-                if key <= split_interior_metadata.boundary {
-                    let mut page_guard = self.pager.get_mut(split_interior_metadata.left_page)?;
 
-                    let page = BTreeCursor::page_as_ref(
-                        split_interior_metadata.left_page,
-                        &page_guard,
-                        self.pager,
-                    )?;
-
-                    let cell_idx = self
-                        .cursor
-                        .choose_child(&page, self.pager, &key)?
-                        .cell_index();
-
-                    let mut page_mut = BTreeCursor::page_as_mut(
-                        split_interior_metadata.left_page,
-                        &mut page_guard,
-                        self.pager,
-                    )?;
-                    page_mut.insert_cell(left_page_payload, cell_idx)?;
-                } else {
-                    let mut page_guard = self.pager.get_mut(split_interior_metadata.right_page)?;
-
-                    let page = BTreeCursor::page_as_ref(
-                        split_interior_metadata.right_page,
-                        &page_guard,
-                        self.pager,
-                    )?;
-
-                    let cell_idx = self
-                        .cursor
-                        .choose_child(&page, self.pager, &key)?
-                        .cell_index();
-
-                    let mut page_mut = BTreeCursor::page_as_mut(
-                        split_interior_metadata.right_page,
-                        &mut page_guard,
-                        self.pager,
-                    )?;
-
-                    page_mut.insert_cell(left_page_payload, cell_idx)?;
+            if was_rightmost {
+                // the divider becomes the parent's new last cell and the
+                // right-most pointer is re-pointed at the new right page
+                match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
+                    InsertionState::Inserted => {
+                        parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
+                        parent_page_as_mut.update_rmp();
+                        return Ok(split_metadata);
+                    }
+                    InsertionState::None => {
+                        let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                        let key = split_metadata.boundary.into_owned();
+                        let target_page = if key <= meta.boundary {
+                            meta.left_page
+                        } else {
+                            meta.right_page
+                        };
+                        let mut page_guard = self.pager.get_mut(target_page)?;
+                        let page = BTreeCursor::page_as_ref(target_page, &page_guard, self.pager)?;
+                        let cell_idx = self
+                            .cursor
+                            .choose_child(&page, self.pager, &key)?
+                            .cell_index();
+                        let mut page_mut =
+                            BTreeCursor::page_as_mut(target_page, &mut page_guard, self.pager)?;
+                        page_mut.insert_cell(left_page_payload, cell_idx)?;
+                        page_mut.header.right_most_ptr = Some(split_metadata.right_page);
+                        page_mut.update_rmp();
+                        return Ok(split_metadata);
+                    }
                 }
             } else {
-                if was_rightmost {
-                    parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
-                    parent_page_as_mut.update_rmp();
+                // the old cell already points at the left page; only its key
+                // becomes the boundary, then a divider for the right page follows
+                parent_page_as_mut.replace_cell(index, &left_page_payload)?;
+                match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
+                    InsertionState::Inserted => return Ok(split_metadata),
+                    InsertionState::None => {
+                        let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                        let key = split_metadata.right_max.into_owned();
+                        if key <= meta.boundary {
+                            let mut page_guard = self.pager.get_mut(meta.left_page)?;
+
+                            let page =
+                                BTreeCursor::page_as_ref(meta.left_page, &page_guard, self.pager)?;
+
+                            let cell_idx = self
+                                .cursor
+                                .choose_child(&page, self.pager, &key)?
+                                .cell_index();
+
+                            let mut page_mut = BTreeCursor::page_as_mut(
+                                meta.left_page,
+                                &mut page_guard,
+                                self.pager,
+                            )?;
+                            page_mut.insert_cell(right_page_payload, cell_idx)?;
+                        } else {
+                            let mut page_guard = self.pager.get_mut(meta.right_page)?;
+
+                            let page =
+                                BTreeCursor::page_as_ref(meta.right_page, &page_guard, self.pager)?;
+
+                            let cell_idx = self
+                                .cursor
+                                .choose_child(&page, self.pager, &key)?
+                                .cell_index();
+
+                            let mut page_mut = BTreeCursor::page_as_mut(
+                                meta.right_page,
+                                &mut page_guard,
+                                self.pager,
+                            )?;
+
+                            page_mut.insert_cell(right_page_payload, cell_idx)?;
+                        }
+                        return Ok(split_metadata);
+                    }
                 }
-                return Ok(split_metadata);
             }
         } else {
             let new_left_page_no = self.allocate_page()?;
@@ -650,6 +690,10 @@ impl<'a> BTree<'a> {
                 .get_page_as_ref()?
                 .cell(last_cell_ptr as _)?
                 .row_id();
+            let right_max = right_page
+                .get_page_as_ref()?
+                .cell((right_page.cell_pointers.len() - 1) as _)?
+                .row_id();
 
             let mut root = BTreePageMut::new_from_scratch(
                 left_page.page_no,
@@ -669,6 +713,7 @@ impl<'a> BTree<'a> {
                 new_left_page_no,
                 right_page.page_no,
                 rowid.into_sqlite_value(),
+                right_max.into_sqlite_value(),
             ));
         }
 
@@ -711,10 +756,14 @@ impl<'a> BTree<'a> {
         let left_page_ref = left_page
             .get_page_as_ref()?
             .cell((left_page.cell_pointers.len() - 1) as _)?;
+        let right_page_ref = right_page
+            .get_page_as_ref()?
+            .cell((right_page.cell_pointers.len() - 1) as _)?;
         let metadata = SplitMetadata::new(
             left_page.page_no,
             right_page.page_no,
             left_page_ref.row_id().into_sqlite_value() as _,
+            right_page_ref.row_id().into_sqlite_value() as _,
         );
 
         Ok(metadata)
@@ -773,10 +822,9 @@ impl<'a> BTree<'a> {
         // PROMOTE KEY STAGE
         //
 
-        let promoted_cell_payload = Encode::encode_table_interior_cell(
-            cell_to_be_promoted.left_child(),
-            cell_to_be_promoted.row_id() as _,
-        );
+        let promoted_cell_payload =
+            Encode::encode_table_interior_cell(new_page.page_no, cell_to_be_promoted.row_id() as _);
+        let promoted_key = cell_to_be_promoted.row_id().into_sqlite_value();
 
         if let Some(path) = self.cursor.stack.pop() {
             let mut parent_guard = self.pager.get_mut(path.page_no)?;
@@ -786,21 +834,25 @@ impl<'a> BTree<'a> {
             let page_as_ref = parent_page.get_page_as_ref()?;
             let cell_idx = self
                 .cursor
-                .choose_child(
-                    &page_as_ref,
-                    self.pager,
-                    &cell_to_be_promoted.row_id().into_sqlite_value(),
-                )?
+                .choose_child(&page_as_ref, self.pager, &promoted_key)?
                 .cell_index();
+            let was_rightmost = parent_page.header.right_most_ptr() == Some(interior_page.page_no);
             match parent_page.insert_cell(&promoted_cell_payload, cell_idx)? {
-                InsertionState::Inserted => Ok(SplitMetadata::new(
-                    new_page_no,
-                    interior_page.page_no,
-                    cell_to_be_promoted.row_id().into_sqlite_value(),
-                )),
+                InsertionState::Inserted => {
+                    if was_rightmost {
+                        parent_page.header.right_most_ptr = Some(interior_page.page_no);
+                        parent_page.update_rmp();
+                    }
+                    Ok(SplitMetadata::new(
+                        new_page_no,
+                        interior_page.page_no,
+                        promoted_key,
+                        cell_to_be_promoted.row_id().into_sqlite_value(),
+                    ))
+                }
                 InsertionState::None => {
                     let split_metadata = self.split_interior(path.page_no)?;
-                    let key = cell_to_be_promoted.row_id().into_sqlite_value();
+                    let key = promoted_key;
                     if key <= split_metadata.boundary {
                         let mut page_guard = self.pager.get_mut(split_metadata.left_page)?;
                         let page = BTreeCursor::page_as_ref(
@@ -836,7 +888,12 @@ impl<'a> BTree<'a> {
                         )?;
                         page_mut.insert_cell(promoted_cell_payload, cell_idx)?;
                     }
-                    Ok(SplitMetadata::new(new_page_no, interior_page.page_no, key))
+                    Ok(SplitMetadata::new(
+                        new_page_no,
+                        interior_page.page_no,
+                        key,
+                        cell_to_be_promoted.row_id().into_sqlite_value(),
+                    ))
                 }
             }
         } else {
@@ -859,11 +916,12 @@ impl<'a> BTree<'a> {
             root.header.right_most_ptr = Some(new_right_page_no);
             root.update_rmp();
 
-            root.insert_cell(promoted_cell_payload, 0);
+            root.insert_cell(promoted_cell_payload, 0)?;
 
             Ok(SplitMetadata::new(
                 new_page_no,
                 new_right_page_no,
+                cell_to_be_promoted.row_id().into_sqlite_value(),
                 cell_to_be_promoted.row_id().into_sqlite_value(),
             ))
         }
