@@ -574,13 +574,13 @@ impl<'a> BTree<'a> {
                     InsertionState::Inserted => {
                         parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
                         parent_page_as_mut.update_rmp();
-                        return Ok(split_metadata);
+                        Ok(split_metadata)
                     }
                     InsertionState::None => {
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
                         let key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&key, left_page_payload, meta)?;
-                        return Ok(split_metadata);
+                        Ok(split_metadata)
                     }
                 }
             } else {
@@ -593,7 +593,7 @@ impl<'a> BTree<'a> {
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
                         let key = split_metadata.right_max.into_owned();
                         self.insert_key_to_interior(&key, right_page_payload, meta)?;
-                        return Ok(split_metadata);
+                        Ok(split_metadata)
                     }
                 }
             }
@@ -637,15 +637,13 @@ impl<'a> BTree<'a> {
             let left_child_payload =
                 Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
             root.insert_cell(left_child_payload, 0)?;
-            return Ok(SplitMetadata::new(
+            Ok(SplitMetadata::new(
                 new_left_page_no,
                 right_page.page_no,
                 rowid.into_sqlite_value(),
                 right_max.into_sqlite_value(),
-            ));
+            ))
         }
-
-        Ok(split_metadata)
     }
 
     pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {

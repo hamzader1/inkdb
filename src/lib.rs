@@ -1,4 +1,5 @@
 #![allow(unused, dead_code)] // temp for now
+// #![warn(unused_results)]
 pub mod backend;
 use backend::planner::plan::*;
 mod bytes;
@@ -18,10 +19,10 @@ pub mod varint;
 pub mod vfs;
 use errors::SqliteError;
 use format::header::SqliteDatabaseHeader;
-pub use storage::sqlite_cursor::SqliteCursor;
 use format::overflow::compute_table_local_payload_size;
 use format::page::BTreePage;
 use std::path::Path;
+pub use storage::sqlite_cursor::SqliteCursor;
 use vfs::SqliteOptions;
 pub type DbError = SqliteError;
 
