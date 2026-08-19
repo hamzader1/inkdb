@@ -783,12 +783,13 @@ impl<'a> BTree<'a> {
 
         let mut cell_pointers = std::mem::take(&mut interior_page.cell_pointers);
 
-        let current_page_cell_pointers = cell_pointers.split_off((cell_pointers.len() / 2));
+        let current_page_cell_pointers = cell_pointers.split_off(cell_pointers.len() / 2);
 
         let last_cell_offset = cell_pointers.pop().unwrap();
 
         let mut prev = self.pager.metadata.usable_size;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..cell_pointers.len() {
             let current = cell_pointers[i] as usize;
             let bytes = &interior_page.bytes[current..prev];
