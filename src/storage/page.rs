@@ -173,7 +173,6 @@ impl<'p> BTreePageRef<'p> {
         let end = start + self.no_of_cells() * 2;
 
         let cell_offset = (cell_idx * 2) + self.header_size() as u16;
-        dbg!(start, end, cell_offset);
         sqlite_assert_with_corrupt_err(
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
             "Cell Index Out of Bounds",
@@ -446,6 +445,74 @@ impl<'p> BTreePageMut<'p> {
         Ok(InsertionState::Inserted)
     }
 
+    #[allow(clippy::missing_safety_doc)]
+    pub unsafe fn insert_cell_raw(
+        &mut self,
+        content: *const u8,
+        content_len: usize,
+        cell_idx: CellIdx,
+    ) -> Result<InsertionState, SqliteError> {
+        if self.calculate_free_space() < content_len + 2 {
+            return Ok(InsertionState::None);
+        }
+        let entry_offset = self.header.cell_content_area as usize - content_len;
+        unsafe {
+            std::ptr::copy(
+                content,
+                self.bytes.as_mut_ptr().add(entry_offset),
+                content_len,
+            );
+        }
+        self.cell_pointers.insert(cell_idx as _, entry_offset as _);
+        self.header.cell_content_area -= content_len as u16;
+        self.header.no_of_cells += 1;
+        self.update_cell_pointers();
+        self.update_cell_content_area();
+        self.update_no_of_cells();
+        Ok(InsertionState::Inserted)
+    }
+
+    pub fn replace_cell(
+        &mut self,
+        cell_idx: CellIdx,
+        content: impl AsRef<[u8]>,
+    ) -> Result<(), SqliteError> {
+        let content = content.as_ref();
+        if cell_idx as usize >= self.cell_pointers.len() {
+            return Err(SqliteError::Corrupt(
+                "replace_cell index out of bounds".into(),
+            ));
+        }
+        let mut cells = Vec::with_capacity(self.cell_pointers.len());
+        for i in 0..self.cell_pointers.len() {
+            let offset = self.cell_pointers[i] as usize;
+            let end = if i == 0 {
+                self.usable_size
+            } else {
+                self.cell_pointers[i - 1] as usize
+            };
+            if i == cell_idx as usize {
+                cells.push(content.to_vec());
+            } else {
+                cells.push(self.bytes[offset..end].to_vec());
+            }
+        }
+        let page_kind = self.header.page_kind;
+        let right_most_ptr = self.header.right_most_ptr;
+        self.bytes[self.header_offset as usize..self.usable_size].fill(0);
+        self.header = BTreePageHeader::new(page_kind, self.usable_size);
+        self.header.right_most_ptr = right_most_ptr;
+        self.cell_pointers.clear();
+        self.update_page_kind();
+        for (i, cell) in cells.iter().enumerate() {
+            self.insert_cell(cell, i as _)?;
+        }
+        if right_most_ptr.is_some() {
+            self.update_rmp();
+        }
+        Ok(())
+    }
+
     pub fn update_cell_pointers(&mut self) {
         let mut offset = self.get_header_size() as usize;
         for ptr in &self.cell_pointers {
@@ -636,5 +703,19 @@ pub fn compute_index_local_payload_size(usable_size: usize, payload_len: usize) 
         let m = ((u - 12) * 32 / 255) - 23;
         let k = m + ((p - m) % (u - 4));
         if k <= x { k } else { m }
+    }
+}
+
+impl<'p> std::fmt::Debug for BTreePageMut<'p> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BTreePageMut")
+            .field("page_no", &self.page_no)
+            .field("header_offset", &self.header_offset)
+            .field("header", &self.header)
+            .field("bytes", &self.bytes.len())
+            .field("page_size", &self.page_size)
+            .field("usable_size", &self.usable_size)
+            .field("cell_pointers", &self.cell_pointers)
+            .finish()
     }
 }

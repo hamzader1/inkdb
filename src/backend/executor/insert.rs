@@ -61,7 +61,7 @@ impl Insert {
         let payload = Encode::encode_cell(BTreeCellType::TableLeaf, header, next_row_id as _);
         let mut btree = BTree::with_cursor(self.root_page, pager, cursor);
 
-        btree.insert(next_row_id.into_sqlite_value(), payload);
+        btree.insert(next_row_id.into_sqlite_value(), payload)?;
         Ok(None)
     }
 }
