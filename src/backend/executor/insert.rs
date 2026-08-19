@@ -50,16 +50,13 @@ impl Insert {
         let is_empty_leaf = cursor.last(pager)?;
         let (page_no, cell_idx) = cursor.last_visited_entry().unwrap();
         let guard = pager.get(page_no)?;
+        let mut btree = BTree::with_cursor(self.root_page, pager, cursor);
         let next_row_id = if is_empty_leaf {
             1
         } else {
-            (BTreeCursor::page_as_ref(page_no, &guard, pager)?)
-                .cell(cell_idx)?
-                .row_id()
-                + 1
+            (btree.page_as_ref(page_no, &guard)?.cell(cell_idx)?.row_id() + 1)
         };
         let payload = Encode::encode_cell(BTreeCellType::TableLeaf, header, next_row_id as _);
-        let mut btree = BTree::with_cursor(self.root_page, pager, cursor);
 
         btree.insert(next_row_id.into_sqlite_value(), payload)?;
         Ok(None)
