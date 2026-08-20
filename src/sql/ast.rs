@@ -166,7 +166,7 @@ pub enum Ast {
 impl From<TokenKind> for Affinity {
     fn from(value: TokenKind) -> Self {
         match value {
-            TokenKind::Integer => Self::Int,
+            TokenKind::Integer | TokenKind::Bool => Self::Int,
             TokenKind::Text => Self::Text,
             TokenKind::Float => Self::Float,
             TokenKind::Blob => Self::Blob,

@@ -74,7 +74,7 @@ impl Parser {
         while !self.at(Comma) && !self.at(RightParen) {
             match self.peek() {
                 // Affinity from a built in type token (INTEGER, TEXT, ...)
-                Some(Integer) | Some(Text) | Some(Float) | Some(Blob) => {
+                Some(Integer) | Some(Text) | Some(Float) | Some(Blob) | Some(Bool) => {
                     let kind = self.next_token().unwrap().kind;
                     self.set_affinity(&mut affinity, Affinity::from(kind), &name)?;
                 }
