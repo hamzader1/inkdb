@@ -56,7 +56,7 @@ impl Insert {
         } else {
             (btree.page_as_ref(page_no, &guard)?.cell(cell_idx)?.row_id() + 1)
         };
-        let payload = Encode::encode_cell(BTreeCellType::TableLeaf, header, next_row_id as _);
+        let payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
 
         btree.insert(next_row_id.into_sqlite_value(), payload)?;
         Ok(None)
