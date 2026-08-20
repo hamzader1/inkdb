@@ -465,10 +465,17 @@ impl<'p> BTreePageMut<'p> {
         }
         self.cell_pointers.insert(cell_idx as _, entry_offset as _);
         self.header.cell_content_area -= content_len as u16;
+
         self.header.no_of_cells += 1;
-        self.update_cell_pointers();
-        self.update_cell_content_area();
-        self.update_no_of_cells();
+        /*
+         * UPDATE INCLUDE:
+         *
+         * UPDATE CELL POINTERS
+         * UPDATE CELL COUNT
+         * UPDATE CELL CONTENT ARE
+         */
+
+        self.update_metadata(None::<fn()>);
         Ok(InsertionState::Inserted)
     }
 
@@ -534,6 +541,19 @@ impl<'p> BTreePageMut<'p> {
             - (self.header_offset + self.get_header_size()) as usize
     }
 
+    pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
+    where
+        F: FnOnce(),
+    {
+        // EXPERIMENTAL SINCE WE MAY NEED TO
+        // UPDATE SOMETHING INCLUDING THE THREE BELOW
+        if let Some(f) = additional_metadata {
+            f()
+        }
+        self.update_cell_content_area();
+        self.update_cell_pointers();
+        self.update_no_of_cells();
+    }
     pub fn update_rmp(&mut self) {
         debug_assert!(
             self.header.page_kind.is_interior(),
