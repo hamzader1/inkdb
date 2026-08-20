@@ -506,7 +506,7 @@ impl<'a> BTree<'a> {
         let mut page_guard = self.pager.get_mut(page_no)?;
         let mut page = self.page_as_mut(page_no, &mut page_guard)?;
         self.fix_overlow(&mut content)?;
-        if let InsertionState::Inserted = page.insert_cell(content.clone(), cell_idx)? {
+        if let InsertionState::Inserted = page.insert_cell(&content, cell_idx)? {
             return Ok(());
         } else {
             let meta = self.balance(page_no)?;
@@ -646,7 +646,7 @@ impl<'a> BTree<'a> {
 
             let left_child_payload =
                 Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
-            root.insert_cell(left_child_payload, 0)?;
+            root.insert_cell(&left_child_payload, 0)?;
             Ok(SplitMetadata::new(
                 new_left_page_no,
                 right_page.page_no,
@@ -685,7 +685,7 @@ impl<'a> BTree<'a> {
         for i in 0..right_cell_poiners.len() {
             let current = right_cell_poiners[i] as usize;
             let bytes = left_page.bytes[current..prev].as_ref();
-            right_page.insert_cell(bytes, i as _)?;
+            right_page.insert_cell(&bytes, i as _)?;
             prev = current;
         }
 
@@ -727,7 +727,7 @@ impl<'a> BTree<'a> {
         for i in 0..cell_pointers.len() {
             let current = cell_pointers[i] as usize;
             let bytes = &interior_page.bytes[current..prev];
-            new_page.insert_cell(bytes, i as _)?;
+            new_page.insert_cell(&bytes, i as _)?;
             prev = current;
         }
 
@@ -809,7 +809,7 @@ impl<'a> BTree<'a> {
             root.header.right_most_ptr = Some(new_right_page_no);
             root.update_rmp();
 
-            root.insert_cell(promoted_cell_payload, 0)?;
+            root.insert_cell(&promoted_cell_payload, 0)?;
 
             Ok(SplitMetadata::new(
                 new_page_no,
@@ -837,7 +837,7 @@ impl<'a> BTree<'a> {
             .cursor
             .choose_child(&page_mut, self.pager, key)?
             .cell_index();
-        page_mut.insert_cell(payload, cell_idx)?;
+        page_mut.insert_cell(&payload, cell_idx)?;
         Ok(())
     }
     pub fn insert_key_to_leaf<T: AsRef<[u8]>>(
@@ -854,7 +854,7 @@ impl<'a> BTree<'a> {
         let mut page_guard = self.pager.get_mut(target_page)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
         let (_, cell_idx) = self.cursor.choose_target(&page_mut, self.pager, key)?;
-        page_mut.insert_cell(payload, cell_idx)?;
+        page_mut.insert_cell(&payload, cell_idx)?;
         Ok(())
     }
     pub fn page_as_ref(

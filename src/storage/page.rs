@@ -425,9 +425,9 @@ impl<'p> BTreePageMut<'p> {
         let offset = CELL_CONTENT_AREA_OFFSET + self.header_offset as usize;
         self.bytes[offset..offset + CELL_CONTENT_AREA_SIZE].copy_from_slice(&cca.to_be_bytes());
     }
-    pub fn insert_cell(
+    pub fn insert_cell<B: AsRef<[u8]>>(
         &mut self,
-        content: impl AsRef<[u8]>,
+        content: &B,
         cell_idx: CellIdx,
     ) -> Result<InsertionState, SqliteError> {
         let content = content.as_ref();
