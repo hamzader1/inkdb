@@ -3,7 +3,9 @@
 pub mod backend;
 use backend::planner::plan::*;
 mod bytes;
+pub mod db;
 pub mod record;
+pub mod shell;
 pub mod sql;
 use sql::parse_ddl;
 mod schema;
