@@ -26,7 +26,7 @@ impl Parser {
 
     fn parse_create_table(&mut self) -> Result<Ast, SqliteError> {
         self.expect(Table)?;
-        let name = self.expect_ident()?.to_lowercase();
+        let name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(LeftParen)?;
         let mut columns: Vec<Column> = Vec::new();
         while !self.at(RightParen) {
@@ -67,7 +67,7 @@ impl Parser {
 
     /// not parse_columns since [`SelectStmt`] (and Insert later) reserved it
     fn parse_create_column(&mut self) -> Result<Column, SqliteError> {
-        let name = self.expect_ident()?.to_lowercase();
+        let name = self.expect_ident()?.to_ascii_lowercase();
         let mut affinity: Option<Affinity> = None;
         let mut constraints = Vec::new();
 

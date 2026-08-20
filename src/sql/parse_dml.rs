@@ -10,7 +10,6 @@ use crate::sql::ast::{Expr, InsertStmt};
 impl Parser {
     pub fn parse_select(&mut self) -> Result<Ast, SqliteError> {
         self.expect(Select)?;
-        // let k = SmallVec::<[usize; 8]>::new();
         let mut columns = Vec::new();
         loop {
             if self.eat(Star) {
@@ -26,7 +25,7 @@ impl Parser {
             }
         }
         self.expect(From)?;
-        let table_name = self.expect_ident()?;
+        let table_name = self.expect_ident()?.to_lowercase();
         let mut where_clause: Option<usize> = None;
         if self.eat(Where) {
             where_clause = Some(self.parse_expression()?);
@@ -48,7 +47,7 @@ impl Parser {
     pub fn parse_insert(&mut self) -> Result<Ast, SqliteError> {
         self.expect(Insert)?;
         self.expect(Into)?;
-        let table_name = self.expect_ident()?;
+        let table_name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(Values)?;
         self.expect(LeftParen)?;
         let mut columns: Vec<std::string::String> = Vec::new();
