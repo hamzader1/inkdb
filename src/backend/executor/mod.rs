@@ -11,6 +11,7 @@ pub mod scan;
 
 pub type Row = Vec<Value<'static>>;
 
+#[repr(transparent)]
 pub struct RowWrapper(pub Row);
 impl std::fmt::Display for RowWrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
