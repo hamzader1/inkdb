@@ -9,7 +9,6 @@ use super::page::InsertionState;
 use crate::PageNo;
 use crate::SqliteCursor;
 use crate::SqliteError;
-use crate::format::page;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
@@ -98,7 +97,7 @@ impl BTreeCursor {
             self.state = CursorState::At;
             let search_result = self.choose_child(&page, pager, &target)?;
             match search_result {
-                SearchResult::Found { row_id, cell_index } => {
+                SearchResult::Found { cell_index, .. } => {
                     self.stack.push(Path::new(page_no, cell_index, guard));
                     return Ok(SeekResult::Exact);
                 }
@@ -386,8 +385,7 @@ impl BTreeCursor {
             let mut r = cell_cnt;
             while l < r {
                 let m: u16 = l + ((r - l) / 2);
-                let mut payload = page.record_of_cell(m, pager)?;
-                let row_id = payload.pop().unwrap().get_int()?;
+                let payload = page.record_of_cell(m, pager)?;
                 let tuple = Value::Tuple(payload);
                 if &tuple == target {
                     return Ok((true, m));
@@ -522,7 +520,7 @@ impl<'a> BTree<'a> {
         }
         // TODO TEMPORARY FOR TABLE BTREE ONLY
         let local_payload_len = compute_table_local_payload_size(usable_size, content.len());
-        let mut overflow_data = content.split_off(local_payload_len);
+        let overflow_data = content.split_off(local_payload_len);
         let first_overflow_page = self.allocate_page()?;
         content.extend_from_slice(&u32::to_be_bytes(first_overflow_page));
 
@@ -531,7 +529,7 @@ impl<'a> BTree<'a> {
         let mut remaining = overflow_data.len();
         while remaining > 0 {
             let mut guard = self.pager.get_mut(curr_page)?;
-            let mut page_bytes = guard.bytes_as_mut().unwrap();
+            let page_bytes = guard.bytes_as_mut().unwrap();
             let bytes_to_write = remaining.min(usable_size - 4);
             let slice = &mut page_bytes[..usable_size];
             cursor.read_next_exact(&mut slice[4..4 + bytes_to_write])?;
