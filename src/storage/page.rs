@@ -719,3 +719,152 @@ impl<'p> std::fmt::Debug for BTreePageMut<'p> {
             .finish()
     }
 }
+
+pub trait BTreePageOps<'g> {
+    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError>;
+    fn record_of_cell(
+        &'g self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+    ) -> Result<Vec<Value<'g>>, SqliteError>;
+    fn record_of(
+        &'g self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+    ) -> Result<Vec<Value<'g>>, SqliteError>;
+    fn record_of_cell_into(
+        &'g self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'g>>,
+    ) -> Result<(), SqliteError>;
+    fn record_of_into(
+        &'g self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'g>>,
+    ) -> Result<(), SqliteError>;
+
+    fn no_of_cells(&self) -> u16;
+    fn right_most_ptr(&self) -> Option<PageNo>;
+    fn is_interior(&self) -> bool;
+    fn is_leaf(&self) -> bool;
+    fn header_size(&self) -> u8;
+    fn page_type(&self) -> BTreePageType;
+}
+
+impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
+    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+        let page = self.get_page_as_ref()?;
+        page.cell(cell_idx)
+    }
+
+    fn record_of_cell(
+        &'a self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+    ) -> Result<Vec<Value<'a>>, SqliteError> {
+        let page = self.get_page_as_ref()?;
+        page.record_of_cell(cell_idx, pager)
+    }
+    fn record_of(
+        &'a self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+    ) -> Result<Vec<Value<'a>>, SqliteError> {
+        let page = self.get_page_as_ref()?;
+        page.record_of(cell, pager)
+    }
+    fn record_of_cell_into<'b>(
+        &'b self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'b>>,
+    ) -> Result<(), SqliteError> {
+        let page = self.get_page_as_ref()?;
+        let cell = self.cell(cell_idx)?;
+        page.get_cell_record(pager, &cell, records)
+    }
+
+    fn record_of_into(
+        &'a self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'a>>,
+    ) -> Result<(), SqliteError> {
+        let page = self.get_page_as_ref()?;
+        page.get_cell_record(pager, cell, records)
+    }
+    fn header_size(&self) -> u8 {
+        self.get_page_as_ref().unwrap().header_size()
+    }
+    fn is_interior(&self) -> bool {
+        self.get_page_as_ref().unwrap().is_interior()
+    }
+    fn is_leaf(&self) -> bool {
+        self.get_page_as_ref().unwrap().is_leaf()
+    }
+    fn no_of_cells(&self) -> u16 {
+        self.get_page_as_ref().unwrap().no_of_cells()
+    }
+    fn page_type(&self) -> BTreePageType {
+        self.get_page_as_ref().unwrap().page_type()
+    }
+    fn right_most_ptr(&self) -> Option<PageNo> {
+        self.get_page_as_ref().unwrap().right_most_ptr()
+    }
+}
+
+impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
+    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+        self.cell(cell_idx)
+    }
+    fn record_of(
+        &'a self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+    ) -> Result<Vec<Value<'a>>, SqliteError> {
+        self.record_of(cell, pager)
+    }
+    fn record_of_cell(
+        &'a self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+    ) -> Result<Vec<Value<'a>>, SqliteError> {
+        self.record_of_cell(cell_idx, pager)
+    }
+    fn record_of_cell_into(
+        &'a self,
+        cell_idx: CellIdx,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'a>>,
+    ) -> Result<(), SqliteError> {
+        self.record_of_cell_into(cell_idx, pager, records)
+    }
+    fn record_of_into(
+        &'a self,
+        cell: &BTreeCell,
+        pager: &mut Pager,
+        records: &mut Vec<Value<'a>>,
+    ) -> Result<(), SqliteError> {
+        self.record_of_into(cell, pager, records)
+    }
+    fn header_size(&self) -> u8 {
+        self.header_size()
+    }
+    fn is_interior(&self) -> bool {
+        self.is_interior()
+    }
+    fn is_leaf(&self) -> bool {
+        self.is_leaf()
+    }
+    fn no_of_cells(&self) -> u16 {
+        self.no_of_cells()
+    }
+    fn page_type(&self) -> BTreePageType {
+        self.page_type()
+    }
+    fn right_most_ptr(&self) -> Option<PageNo> {
+        self.right_most_ptr()
+    }
+}

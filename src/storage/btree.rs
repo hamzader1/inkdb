@@ -3,6 +3,7 @@ use std::cell::Cell;
 use super::cell::BTreeCell;
 use super::cell::Encode;
 use super::page::BTreePageMut;
+use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
 use crate::PageNo;
@@ -269,12 +270,15 @@ impl BTreeCursor {
     fn clear_path(&mut self) {
         self.stack.clear();
     }
-    fn choose_child<'a>(
+    fn choose_child<'g, P>(
         &self,
-        page: &BTreePageRef<'a>,
+        page: &'g P,
         pager: &mut Pager,
         target: &Value,
-    ) -> Result<SearchResult, SqliteError> {
+    ) -> Result<SearchResult, SqliteError>
+    where
+        P: BTreePageOps<'g>,
+    {
         sqlite_assert_with_corrupt_err(
             page.is_interior(),
             "Navigation path of this works only with interior pages",
@@ -345,12 +349,15 @@ impl BTreeCursor {
         (p.page_no, p.cell_idx)
     }
 
-    fn choose_target<'a>(
-        &'a self,
-        page: &BTreePageRef<'a>,
+    fn choose_target<'a, P>(
+        &self,
+        page: &'a P,
         pager: &mut Pager,
         target: &Value<'_>,
-    ) -> Result<(bool, CellIdx), SqliteError> {
+    ) -> Result<(bool, CellIdx), SqliteError>
+    where
+        P: BTreePageOps<'a>,
+    {
         sqlite_assert_with_corrupt_err(
             page.is_leaf(),
             "This navigation path works only for leaves",
@@ -558,7 +565,7 @@ impl<'a> BTree<'a> {
                 // becomes the boundary, then a divider for the right page follows
                 parent_page_as_mut.replace_cell(index, &left_page_payload)?;
                 match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
-                    InsertionState::Inserted => return Ok(split_metadata),
+                    InsertionState::Inserted => Ok(split_metadata),
                     InsertionState::None => {
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
                         let key = split_metadata.right_max.into_owned();
@@ -791,12 +798,11 @@ impl<'a> BTree<'a> {
             meta.right_page
         };
         let mut page_guard = self.pager.get_mut(target_page)?;
-        let page = self.page_as_ref(target_page, &page_guard)?;
+        let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
         let cell_idx = self
             .cursor
-            .choose_child(&page, self.pager, key)?
+            .choose_child(&page_mut, self.pager, key)?
             .cell_index();
-        let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
         page_mut.insert_cell(payload, cell_idx)?;
         Ok(())
     }
@@ -812,9 +818,8 @@ impl<'a> BTree<'a> {
             meta.right_page
         };
         let mut page_guard = self.pager.get_mut(target_page)?;
-        let page = self.page_as_ref(target_page, &page_guard)?;
-        let (_, cell_idx) = self.cursor.choose_target(&page, self.pager, key)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
+        let (_, cell_idx) = self.cursor.choose_target(&page_mut, self.pager, key)?;
         page_mut.insert_cell(payload, cell_idx)?;
         Ok(())
     }
