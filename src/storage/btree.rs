@@ -622,12 +622,8 @@ impl<'a> BTree<'a> {
             //
             // rebuild metadata
             let last_cell_ptr = left_page.cell_pointers.len() - 1;
-            let rowid = new_left_page
-                .get_page_as_ref()?
-                .cell(last_cell_ptr as _)?
-                .row_id();
+            let rowid = new_left_page.cell(last_cell_ptr as _)?.row_id();
             let right_max = right_page
-                .get_page_as_ref()?
                 .cell((right_page.cell_pointers.len() - 1) as _)?
                 .row_id();
 
@@ -675,9 +671,14 @@ impl<'a> BTree<'a> {
         let mut prev = *left_page.cell_pointers.last().unwrap() as usize;
         left_page.header.no_of_cells = left_page.cell_pointers.len() as _;
         left_page.header.cell_content_area = prev as _;
-        left_page.update_cell_pointers();
-        left_page.update_cell_content_area();
-        left_page.update_no_of_cells();
+        /*
+         * UPDATE INCLUDE:
+         *
+         * UPDATE CELL POINTERS
+         * UPDATE CELL COUNT
+         * UPDATE CELL CONTENT ARE
+         */
+        left_page.update_metadata(None::<fn()>);
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..right_cell_poiners.len() {
@@ -906,6 +907,24 @@ impl<'a> BTree<'a> {
             pager.metadata.page_size,
             pager.metadata.usable_size,
         )
+    }
+
+    fn with_page_ref<F, R>(&mut self, page_no: PageNo, f: F) -> Result<Option<R>, SqliteError>
+    where
+        F: FnOnce(&BTreePageRef) -> Result<Option<R>, SqliteError>,
+    {
+        let guard = self.pager.get(page_no)?;
+        let p = self.page_as_ref(page_no, &guard)?;
+        f(&p)
+    }
+
+    fn with_page_mut<F, R>(&mut self, page_no: PageNo, f: F) -> Result<Option<R>, SqliteError>
+    where
+        F: FnOnce(&BTreePageMut) -> Result<Option<R>, SqliteError>,
+    {
+        let mut guard = self.pager.get(page_no)?;
+        let p = self.page_as_mut(page_no, &mut guard)?;
+        f(&p)
     }
 
     // TODO:
