@@ -56,7 +56,7 @@ impl Analyze {
             mut where_clause,
             mut limit,
         } = select_stmt;
-        let table = match sqlite_master.tables.get(&table_name) {
+        let table = match sqlite_master.tables.get(&table_name.to_lowercase()) {
             Some(table) => table,
             _ => {
                 return Err(SqliteError::RuntimeError(format!(
@@ -165,7 +165,7 @@ impl Analyze {
     ) -> Result<(), SqliteError> {
         let expr = &arena.nodes[idx];
         match expr {
-            Expr::Identifier(col_name) => match table.get_col_idx(col_name) {
+            Expr::Identifier(col_name) => match table.get_col_idx(&col_name.to_lowercase()) {
                 Some(col_idx) => {
                     new.push(Expr::ColumnRef(col_idx));
                     map[idx] = new.len() - 1;
@@ -258,7 +258,7 @@ impl Analyze {
     fn fast_bind(table: &Table, idx: usize, arena: &mut ExprArena) -> Result<(), SqliteError> {
         let expr = &arena.nodes[idx];
         match expr {
-            Expr::Identifier(col_name) => match table.get_col_idx(col_name) {
+            Expr::Identifier(col_name) => match table.get_col_idx(&col_name.to_lowercase()) {
                 Some(col_idx) => {
                     arena.nodes[idx] = Expr::ColumnRef(col_idx);
                     return Ok(());
