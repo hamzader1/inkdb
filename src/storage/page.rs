@@ -571,7 +571,7 @@ impl<'p> BTreePageMut<'p> {
     // UNSAFE TO USE THE HEADER
     // UNSAFE TO CALL UNLESS REWRITE THE HEADER
     pub fn clear(&mut self) {
-        self.bytes[0..self.usable_size].copy_from_slice(&vec![0u8; self.usable_size]);
+        self.bytes[0..self.usable_size].fill(0);
     }
 
     pub fn copy_data_from(&mut self, other: &Self) {

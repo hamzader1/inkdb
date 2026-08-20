@@ -688,12 +688,8 @@ impl<'a> BTree<'a> {
             prev = current;
         }
 
-        let left_page_ref = left_page
-            .get_page_as_ref()?
-            .cell((left_page.cell_pointers.len() - 1) as _)?;
-        let right_page_ref = right_page
-            .get_page_as_ref()?
-            .cell((right_page.cell_pointers.len() - 1) as _)?;
+        let left_page_ref = left_page.cell((left_page.cell_pointers.len() - 1) as _)?;
+        let right_page_ref = right_page.cell((right_page.cell_pointers.len() - 1) as _)?;
         let metadata = SplitMetadata::new(
             left_page.page_no,
             right_page.page_no,
@@ -789,7 +785,7 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
-            // AGAIN WE ARE THE ROOOOOT
+            // We are the root
             //
             let new_right_page_no = self.allocate_page()?;
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
@@ -798,6 +794,8 @@ impl<'a> BTree<'a> {
 
             new_right_page.copy_data_from(&interior_page);
             interior_page.clear();
+
+            // SAFE TO USE THE METADATA SINCE ITS CACHED
             let mut root = BTreePageMut::new(
                 interior_page.page_no,
                 interior_page_guard.bytes_as_mut().unwrap(),
