@@ -7,6 +7,7 @@ use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
 use crate::PageNo;
+use crate::SqliteCursor;
 use crate::SqliteError;
 use crate::format::page;
 use crate::pager::guard::PageGuard;
@@ -14,6 +15,7 @@ use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
 use crate::storage::page::BTreePageType;
+use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
@@ -498,16 +500,48 @@ impl<'a> BTree<'a> {
         }
     }
 
-    pub fn insert(&mut self, key: Value, content: Vec<u8>) -> Result<(), SqliteError> {
+    pub fn insert(&mut self, key: Value, mut content: Vec<u8>) -> Result<(), SqliteError> {
         self.cursor.seek(self.pager, key.into_owned())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let mut page_guard = self.pager.get_mut(page_no)?;
         let mut page = self.page_as_mut(page_no, &mut page_guard)?;
+        self.fix_overlow(&mut content)?;
         if let InsertionState::Inserted = page.insert_cell(content.clone(), cell_idx)? {
             return Ok(());
         } else {
             let meta = self.balance(page_no)?;
             self.insert_key_to_leaf(&key, content, meta)?;
+        }
+        Ok(())
+    }
+
+    pub fn fix_overlow(&mut self, content: &mut Vec<u8>) -> Result<(), SqliteError> {
+        let usable_size = self.pager.metadata.usable_size;
+        if content.len() <= self.pager.metadata.usable_size {
+            return Ok(());
+        }
+        // TODO TEMPORARY FOR TABLE BTREE ONLY
+        let local_payload_len = compute_table_local_payload_size(usable_size, content.len());
+        let mut overflow_data = content.split_off(local_payload_len);
+        let first_overflow_page = self.allocate_page()?;
+        content.extend_from_slice(&u32::to_be_bytes(first_overflow_page));
+
+        let mut cursor = SqliteCursor::new(&overflow_data);
+        let mut curr_page = first_overflow_page;
+        let mut remaining = overflow_data.len();
+        while remaining > 0 {
+            let mut guard = self.pager.get_mut(curr_page)?;
+            let mut page_bytes = guard.bytes_as_mut().unwrap();
+            let bytes_to_write = remaining.min(usable_size - 4);
+            let slice = &mut page_bytes[..usable_size];
+            cursor.read_next_exact(&mut slice[4..4 + bytes_to_write])?;
+            remaining -= bytes_to_write;
+            if remaining == 0 {
+                curr_page = 0;
+            } else {
+                curr_page = self.allocate_page()?;
+            }
+            slice[0..4].copy_from_slice(&u32::to_be_bytes(curr_page));
         }
         Ok(())
     }
