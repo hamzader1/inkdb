@@ -55,6 +55,7 @@ impl Insert {
             btree
                 .with_page_ref::<_, u64>(page_no, |page| Ok(Some(page.cell(cell_idx)?.row_id())))?
                 .unwrap()
+                + 1
         };
         let payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
 
