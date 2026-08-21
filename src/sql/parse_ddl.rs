@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use super::ast::Constraint;
 use super::ast::*;
 use super::parser::Parser;
@@ -36,7 +38,11 @@ impl Parser {
             }
         }
         self.expect(RightParen)?;
-        Ok(Ast::CreateTableAst(CreateTable { name, columns }))
+        Ok(Ast::CreateTableAst(CreateTable {
+            query: Rc::clone(&self.query),
+            name,
+            columns,
+        }))
     }
 
     fn parse_create_index(&mut self, unique: bool) -> Result<Ast, SqliteError> {

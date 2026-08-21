@@ -2,9 +2,11 @@ use crate::record::Value;
 
 use super::parser::ExprArena;
 use super::tokens::TokenKind;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct CreateTable {
+    pub query: Rc<str>,
     pub name: String,
     pub columns: Vec<Column>,
 }
