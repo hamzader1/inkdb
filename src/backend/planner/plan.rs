@@ -1,6 +1,7 @@
 use super::super::executor::{project::Project, scan::TableScan};
 use crate::backend::analyze::{ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery};
 use crate::backend::executor::Row;
+use crate::backend::executor::create::CreateTable;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
 use crate::backend::executor::insert::Insert;
@@ -17,6 +18,7 @@ pub enum Plan {
     Limit(Limit),
     Project(Project),
     Insert(Insert),
+    CreateTable(CreateTable),
 }
 
 #[derive(Debug)]
@@ -41,7 +43,11 @@ impl Plan {
         match resolved_query {
             ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
             ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
-            _ => todo!(), // INSERT LATER
+            ResolvedQuery::CreateTableQuery(stmt) => Ok(Arena::new(
+                Plan::CreateTable(CreateTable::new(stmt)),
+                ExprArena::new(),
+            )),
+            _ => todo!(), // ResolvedQuery::CreateTableQuery(stmt) => Ok(ResolvedQuery::
         }
     }
 
@@ -49,7 +55,7 @@ impl Plan {
         resolved_query: ResolvedSelectQuery,
         pager: &mut Pager,
     ) -> Result<Arena, SqliteError> {
-        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager));
+        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
@@ -92,6 +98,8 @@ impl Plan {
             Self::Limit(l) => l.next(pager, arena),
             Self::Project(p) => p.next(pager, arena),
             Self::Insert(i) => i.next(pager),
+            Self::CreateTable(c) => c.next(pager),
+            _ => todo!(),
         }
     }
 }
