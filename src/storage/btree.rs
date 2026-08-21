@@ -461,7 +461,7 @@ pub struct BTree<'a> {
     pub cursor: BTreeCursor,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SplitMetadata {
     pub left_page: u32,
     pub right_page: u32,
@@ -582,20 +582,29 @@ impl<'a> BTree<'a> {
                 // right-most pointer is re-pointed at the new right page
                 match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
                     InsertionState::Inserted => {
+                        println!("INSERTED WHILE WE ARE RMP");
                         parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
                         parent_page_as_mut.update_rmp();
                         Ok(split_metadata)
                     }
                     InsertionState::None => {
+                        println!("INSERTED WHILE WE ARE RMP PART 2");
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
                         let key = split_metadata.boundary.into_owned();
-                        self.insert_key_to_interior(&key, left_page_payload, meta)?;
+                        self.insert_key_to_interior(&key, left_page_payload, meta.clone())?;
+                        let mut guard = self.pager.get_mut(meta.right_page)?;
+                        let mut page = self.page_as_mut(meta.right_page, &mut guard)?;
+                        page.header.right_most_ptr = Some(split_metadata.right_page);
+                        page.update_rmp();
                         Ok(split_metadata)
                     }
                 }
             } else {
+                println!("INSERTED WHILE WE NOT RMP");
                 // the old cell already points at the left page; only its key
                 // becomes the boundary, then a divider for the right page follows
+                //
+                // TODO: optimaze left cell insertion from rebuild to in place insert
                 parent_page_as_mut.replace_cell(index, &left_page_payload)?;
                 match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
                     InsertionState::Inserted => Ok(split_metadata),
@@ -608,6 +617,7 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
+            println!("INSERTED WHILE WE NOT RMP_2");
             let new_left_page_no = self.allocate_page()?;
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
             let mut new_left_page = BTreePageMut::new_from_scratch(
@@ -675,9 +685,9 @@ impl<'a> BTree<'a> {
         /*
          * UPDATE INCLUDE:
          *
-         * UPDATE CELL POINTERS
-         * UPDATE CELL COUNT
-         * UPDATE CELL CONTENT ARE
+         *  CELL POINTERS
+         *  CELL COUNT
+         *  CELL CONTENT AREA
          */
         left_page.update_metadata(None::<fn()>);
 
@@ -709,7 +719,14 @@ impl<'a> BTree<'a> {
         // TO BE LEFT
         let new_page_no = self.allocate_page()?;
         let mut new_page_guard = self.pager.get_mut(new_page_no)?;
-        let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
+        // let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
+        let mut new_page = BTreePageMut::new_from_scratch(
+            new_page_no,
+            BTreePageType::InteriorTable,
+            new_page_guard.bytes_as_mut().unwrap(),
+            self.pager.metadata.page_size,
+            self.pager.metadata.usable_size,
+        );
 
         let mut cell_pointers = std::mem::take(&mut interior_page.cell_pointers);
 
@@ -733,6 +750,10 @@ impl<'a> BTree<'a> {
 
         new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
         new_page.update_rmp();
+
+        interior_page.header.no_of_cells = 0;
+        interior_page.header.cell_content_area = self.pager.metadata.usable_size as _;
+        interior_page.update_metadata(None::<fn()>);
 
         prev = last_cell_offset as _;
         #[allow(clippy::needless_range_loop)]
@@ -786,23 +807,30 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
+            println!("FIRST TIME WE SPLIT THE ROOT");
             // We are the root
             //
             let new_right_page_no = self.allocate_page()?;
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
-            let mut new_right_page =
-                self.page_as_mut(new_right_page_no, &mut new_right_page_guard)?;
+            let mut new_right_page = BTreePageMut::new_from_scratch(
+                new_right_page_no,
+                BTreePageType::InteriorTable,
+                new_right_page_guard.bytes_as_mut().unwrap(),
+                self.pager.metadata.page_size,
+                self.pager.metadata.usable_size,
+            );
 
             new_right_page.copy_data_from(&interior_page);
             interior_page.clear();
 
             // SAFE TO USE THE METADATA SINCE ITS CACHED
-            let mut root = BTreePageMut::new(
+            let mut root = BTreePageMut::new_from_scratch(
                 interior_page.page_no,
+                BTreePageType::InteriorTable,
                 interior_page_guard.bytes_as_mut().unwrap(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
-            )?;
+            );
 
             root.header.right_most_ptr = Some(new_right_page_no);
             root.update_rmp();
