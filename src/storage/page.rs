@@ -74,7 +74,6 @@ pub struct BTreePageHeader {
     pub first_freeblock: u16,
     pub no_of_cells: u16,
     pub cell_content_area: u16,
-
     pub frag_cnt: u8,
     pub right_most_ptr: Option<PageNo>,
 }
@@ -167,6 +166,9 @@ impl<'p> BTreePageRef<'p> {
             usable_size,
             _marker: PhantomData,
         })
+    }
+    pub fn header(&self) -> BTreePageHeader {
+        self.header.to_owned()
     }
     pub fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
         let start = self.header_size() as u16;
@@ -384,6 +386,7 @@ impl<'p> BTreePageMut<'p> {
             _marker: PhantomData,
         };
         page.update_page_kind();
+        page.update_cell_content_area();
         page
     }
 
@@ -445,7 +448,7 @@ impl<'p> BTreePageMut<'p> {
         Ok(InsertionState::Inserted)
     }
 
-    #[allow(clippy::missing_safety_doc)]
+    #[expect(clippy::missing_safety_doc)]
     pub unsafe fn insert_cell_raw(
         &mut self,
         content: *const u8,
@@ -521,7 +524,7 @@ impl<'p> BTreePageMut<'p> {
     }
 
     pub fn update_cell_pointers(&mut self) {
-        let mut offset = self.get_header_size() as usize;
+        let mut offset = (self.get_header_size() + self.header_offset) as usize;
         for ptr in &self.cell_pointers {
             self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
             offset += 2;
@@ -529,7 +532,7 @@ impl<'p> BTreePageMut<'p> {
     }
 
     pub fn update_cell_pointers_with(&mut self, cell_pointers: &[u16]) {
-        let mut offset = self.get_header_size() as usize;
+        let mut offset = (self.get_header_size() + self.header_offset) as usize;
         for ptr in cell_pointers {
             self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
             offset += 2;
