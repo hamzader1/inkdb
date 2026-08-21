@@ -45,16 +45,16 @@ impl Insert {
             header.insert(0, *byte);
         }
         header.extend_from_slice(&payload);
-
-        let mut cursor = BTreeCursor::new(self.root_page);
-        let is_empty_leaf = cursor.last(pager)?;
-        let (page_no, cell_idx) = cursor.last_visited_entry().unwrap();
-        let guard = pager.get(page_no)?;
-        let mut btree = BTree::with_cursor(self.root_page, pager, cursor);
-        let next_row_id = if is_empty_leaf {
+        let mut btree = BTree::new(self.root_page, pager);
+        btree.seek_into_last()?;
+        let is_empty = btree.current_page_header_unchecked()?.no_of_cells == 0;
+        let (page_no, cell_idx) = btree.cursor.last_visited_entry_unchecked();
+        let next_row_id = if is_empty {
             1
         } else {
-            (btree.page_as_ref(page_no, &guard)?.cell(cell_idx)?.row_id() + 1)
+            btree
+                .with_page_ref::<_, u64>(page_no, |page| Ok(Some(page.cell(cell_idx)?.row_id())))?
+                .unwrap()
         };
         let payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
 

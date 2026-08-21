@@ -2,13 +2,13 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 
+pub mod create;
 pub mod eval;
 pub mod filter;
 pub mod insert;
 pub mod limit;
 pub mod project;
 pub mod scan;
-
 pub type Row = Vec<Value<'static>>;
 
 #[repr(transparent)]

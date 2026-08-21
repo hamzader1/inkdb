@@ -3,10 +3,11 @@ use crate::errors::SqliteError;
 use crate::format::page::PageNo;
 use crate::record::Value;
 use crate::schema::Table;
-use crate::sql::ast::{Affinity, Ast, Expr, InsertStmt, SelectStmt};
+use crate::sql::ast::{Affinity, Ast, CreateTable, Expr, InsertStmt, SelectStmt};
 use crate::sql::parser::ExprArena;
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 pub mod bind;
+pub mod create;
 pub mod insert;
 pub mod select;
 
@@ -29,11 +30,16 @@ pub struct ResolvedInsertQuery {
     pub values: Vec<Value<'static>>,
     pub entry_hint: Option<u64>, // row id hint
 }
+#[derive(Debug)]
+pub struct ResolvedCreateTableQuery {
+    pub meta: CreateTable,
+}
 
 #[derive(Debug)]
 pub enum ResolvedQuery {
     SelectQuery(ResolvedSelectQuery),
     InsertQuery(ResolvedInsertQuery),
+    CreateTableQuery(ResolvedCreateTableQuery),
 }
 
 impl Analyze {
@@ -44,6 +50,9 @@ impl Analyze {
             }
             Ast::InsertStmtAst(insert_stmt) => {
                 Self::analyze_insert_stmt(insert_stmt, sqlite_master)
+            }
+            Ast::CreateTableAst(create_stmt) => {
+                Self::analyze_create_table_stmt(create_stmt, sqlite_master)
             }
             _ => todo!(),
         }
