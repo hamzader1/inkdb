@@ -69,7 +69,7 @@ impl RecordMetadata {
 }
 pub type RM = RecordMetadata;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value<'a> {
     Null,
     Integer(i64),

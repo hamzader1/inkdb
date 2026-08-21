@@ -14,14 +14,14 @@ use crate::varint::encode_varint;
 use crate::vfs::cursor;
 
 #[derive(Debug)]
-pub struct Insert {
+pub struct Insert<'a> {
     root_page: PageNo,
-    values: Vec<Value<'static>>,
+    values: Vec<Value<'a>>,
     hint: Option<u64>,
 }
 
-impl Insert {
-    pub fn new(root_page: PageNo, values: Vec<Value<'static>>, hint: Option<u64>) -> Self {
+impl<'a> Insert<'a> {
+    pub fn new(root_page: PageNo, values: Vec<Value<'a>>, hint: Option<u64>) -> Self {
         Self {
             root_page,
             values,
@@ -57,9 +57,9 @@ impl Insert {
                 .unwrap()
                 + 1
         };
-        let payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
+        let cell_payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
 
-        btree.insert(next_row_id.into_sqlite_value(), payload)?;
+        btree.insert(next_row_id.into_sqlite_value(), cell_payload)?;
         Ok(None)
     }
 }

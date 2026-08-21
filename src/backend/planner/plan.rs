@@ -17,7 +17,7 @@ pub enum Plan {
     Filter(Filter),
     Limit(Limit),
     Project(Project),
-    Insert(Insert),
+    Insert(Insert<'static>),
     CreateTable(CreateTable),
 }
 
