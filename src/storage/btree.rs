@@ -9,6 +9,7 @@ use super::page::InsertionState;
 use crate::PageNo;
 use crate::SqliteCursor;
 use crate::SqliteError;
+use crate::format::page::BTreePageHeader;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
@@ -211,7 +212,7 @@ impl BTreeCursor {
         self.state = CursorState::BeforeFirst;
         Ok(())
     }
-    pub fn last(&mut self, pager: &mut Pager) -> Result<bool, SqliteError> {
+    pub fn last(&mut self, pager: &mut Pager) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -227,7 +228,7 @@ impl BTreeCursor {
                 };
                 self.add_path(page_no, cell_idx, guard);
                 self.state = CursorState::At;
-                return Ok(is_leaf_empty);
+                return Ok(());
             }
             let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
                 "interior page has no right-most child".into(),
@@ -490,9 +491,9 @@ impl<'a> BTree<'a> {
             cursor: BTreeCursor::new(root_page),
         }
     }
-    pub fn with_cursor(root_page: PageNo, pager: &'a mut Pager, cursor: BTreeCursor) -> Self {
+    pub fn with_cursor(pager: &'a mut Pager, cursor: BTreeCursor) -> Self {
         Self {
-            root_page,
+            root_page: cursor.root,
             pager,
             cursor,
         }
@@ -907,7 +908,7 @@ impl<'a> BTree<'a> {
         )
     }
 
-    fn with_page_ref<F, R>(&mut self, page_no: PageNo, f: F) -> Result<Option<R>, SqliteError>
+    pub fn with_page_ref<F, R>(&mut self, page_no: PageNo, f: F) -> Result<Option<R>, SqliteError>
     where
         F: FnOnce(&BTreePageRef) -> Result<Option<R>, SqliteError>,
     {
@@ -916,7 +917,7 @@ impl<'a> BTree<'a> {
         f(&p)
     }
 
-    fn with_page_mut<F, R>(&mut self, page_no: PageNo, f: F) -> Result<Option<R>, SqliteError>
+    pub fn with_page_mut<F, R>(&mut self, page_no: PageNo, f: F) -> Result<Option<R>, SqliteError>
     where
         F: FnOnce(&BTreePageMut) -> Result<Option<R>, SqliteError>,
     {
@@ -947,5 +948,22 @@ impl<'a> BTree<'a> {
             .copy_from_slice(&(self.pager.metadata.max_allocated_pages as u32).to_be_bytes());
 
         Ok(())
+    }
+
+    pub fn seek_into_first(&mut self) -> Result<(), SqliteError> {
+        self.cursor.first(self.pager)
+    }
+    pub fn seek_into_last(&mut self) -> Result<(), SqliteError> {
+        self.cursor.last(self.pager)
+    }
+    pub fn current_page_header_unchecked(
+        &mut self,
+    ) -> Result<super::page::BTreePageHeader, SqliteError> {
+        let (pn, _) = self.cursor.last_visited_entry_unchecked();
+
+        let header = self
+            .with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(Some(page.header())))?
+            .expect("Error while trying to get the page header");
+        Ok(header)
     }
 }
