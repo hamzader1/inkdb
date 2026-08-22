@@ -7,10 +7,12 @@ use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
-use crate::PageNo;
+
+use crate::pager::pager::PageNo;
+
 use crate::SqliteCursor;
 use crate::SqliteError;
-use crate::format::page::BTreePageHeader;
+
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;

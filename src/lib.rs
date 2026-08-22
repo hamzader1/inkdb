@@ -4,6 +4,7 @@ pub mod backend;
 use backend::planner::plan::*;
 mod bytes;
 pub mod db;
+use crate::db::header::SqliteDatabaseHeader;
 pub mod record;
 pub mod shell;
 pub mod sql;
@@ -11,7 +12,7 @@ use sql::parse_ddl;
 mod schema;
 pub use schema::SqliteMaster;
 pub mod errors;
-pub mod format;
+
 mod macros;
 pub mod pager;
 pub mod storage;
@@ -20,15 +21,13 @@ mod util;
 pub mod varint;
 pub mod vfs;
 use errors::SqliteError;
-use format::header::SqliteDatabaseHeader;
-use format::overflow::compute_table_local_payload_size;
-use format::page::BTreePage;
+
 use std::path::Path;
 pub use storage::sqlite_cursor::SqliteCursor;
 use vfs::SqliteOptions;
 pub type DbError = SqliteError;
 
-use self::format::page::PageNo;
+use self::pager::pager::PageNo;
 use self::vfs::Vfs;
 use self::vfs::cursor::FileCursor;
 use self::vfs::disk::{DiskFile, DiskVfs};
@@ -101,21 +100,21 @@ impl SqliteDatabase {
         &self.header
     }
 
-    pub fn page(&mut self, page_no: PageNo) -> Result<BTreePage, SqliteError> {
-        self.validate_page(page_no, None::<fn(_) -> bool>)?;
-        let page_size = self.header.database_page_size;
-        let offset = page_size * (page_no - 1);
+    // pub fn page(&mut self, page_no: PageNo) -> Result<BTreePage, SqliteError> {
+    //     self.validate_page(page_no, None::<fn(_) -> bool>)?;
+    //     let page_size = self.header.database_page_size;
+    //     let offset = page_size * (page_no - 1);
 
-        let mut buff = vec![0u8; page_size as usize];
-        self.pager.source.read_exact_at(offset as u64, &mut buff)?;
+    //     let mut buff = vec![0u8; page_size as usize];
+    //     self.pager.source.read_exact_at(offset as u64, &mut buff)?;
 
-        BTreePage::parse(
-            buff,
-            page_no,
-            page_size as usize,
-            (page_size - self.header.reserved_space as u32) as usize,
-        )
-    }
+    //     BTreePage::parse(
+    //         buff,
+    //         page_no,
+    //         page_size as usize,
+    //         (page_size - self.header.reserved_space as u32) as usize,
+    //     )
+    // }
     pub fn usable_size(&self) -> u32 {
         self.header.database_page_size - self.header.reserved_space as u32
     }

@@ -5,14 +5,14 @@ use crate::backend::planner::plan::Plan;
 // use crate::pager::pager::Pager;
 // use crate::vfs::disk::DiskVfs;
 use crate::errors::SqliteError;
-use crate::format::header::SqliteDatabaseHeader;
-use crate::format::overflow::compute_table_local_payload_size;
-use crate::format::page::BTreePage;
+
+pub mod header;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 pub use crate::storage::sqlite_cursor::SqliteCursor;
 use crate::vfs::mem::MemVfs;
 use crate::vfs::{SqliteOptions, Vfs};
+use header::SqliteDatabaseHeader;
 use std::path::Path;
 use std::rc::Rc;
 pub type DbError = SqliteError;

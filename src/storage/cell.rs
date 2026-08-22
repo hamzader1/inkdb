@@ -1,7 +1,9 @@
 use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
 use super::{btree::CellIdx, sqlite_cursor::SqliteCursor};
 use crate::errors::SqliteError;
-use crate::format::page::PageNo;
+
+use crate::pager::pager::PageNo;
+
 use crate::varint::encode_varint;
 use std::range::Range;
 
