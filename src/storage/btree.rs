@@ -664,7 +664,6 @@ impl<'a> BTree<'a> {
     pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
         let mut left_page_guard = self.pager.get_mut(page_no)?;
         let mut left_page = self.page_as_mut(page_no, &mut left_page_guard)?;
-
         // TODO add freelist check
         let right_page_no = self.allocate_page()?;
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
@@ -677,27 +676,31 @@ impl<'a> BTree<'a> {
         );
         let right_cell_poiners = left_page
             .cell_pointers
-            .split_off((left_page.cell_pointers.len() / 2) + 1);
+            .split_off(left_page.cell_pointers.len() / 2);
 
-        let mut prev = *left_page.cell_pointers.last().unwrap() as usize;
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..right_cell_poiners.len() {
+            let cell_offset = right_cell_poiners[i];
+            let cell = left_page.cell_by_ptr(cell_offset)?;
+            let end = cell.payload_range().end;
+            let bytes = left_page.bytes[cell_offset as usize..end].as_ref();
+            right_page.insert_cell(&bytes, i as _)?;
+        }
+        let mut cca = usize::MAX;
+        for cell_ptr in left_page.cell_pointers.iter() {
+            cca = cca.min(*cell_ptr as _)
+        }
         left_page.header.no_of_cells = left_page.cell_pointers.len() as _;
-        left_page.header.cell_content_area = prev as _;
+        left_page.header.cell_content_area = cca as _;
         /*
          * UPDATE INCLUDE:
          *
          *  CELL POINTERS
          *  CELL COUNT
          *  CELL CONTENT AREA
+         *
          */
         left_page.update_metadata(None::<fn()>);
-
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..right_cell_poiners.len() {
-            let current = right_cell_poiners[i] as usize;
-            let bytes = left_page.bytes[current..prev].as_ref();
-            right_page.insert_cell(&bytes, i as _)?;
-            prev = current;
-        }
 
         let left_page_ref = left_page.cell((left_page.cell_pointers.len() - 1) as _)?;
         let right_page_ref = right_page.cell((right_page.cell_pointers.len() - 1) as _)?;
