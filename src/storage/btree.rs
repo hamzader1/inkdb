@@ -739,6 +739,7 @@ impl<'a> BTree<'a> {
 
         let last_cell_offset = cell_pointers.pop().unwrap();
 
+        // REMOVE THIS
         let mut prev = self.pager.metadata.usable_size;
 
         #[allow(clippy::needless_range_loop)]
@@ -760,28 +761,60 @@ impl<'a> BTree<'a> {
         new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
         new_page.update_rmp();
 
+        // interior_page.header.no_of_cells = 0;
+        // interior_page.header.cell_content_area = self.pager.metadata.usable_size as _;
+        // interior_page.update_metadata(None::<fn()>);
+
+        // prev = last_cell_offset as _;
+        // #[allow(clippy::needless_range_loop)]
+        // for i in 0..current_page_cell_pointers.len() {
+        //     let current = current_page_cell_pointers[i] as usize;
+        //     //  OMPTIMAZE THIS
+        //     // unsafe {
+        //     //     let ptr = interior_page.bytes.as_ptr().add(current);
+        //     //     let len = prev - current;
+        //     //     interior_page.insert_cell_raw(ptr, len, i as _);
+        //     // }
+        //     //
+        //     let bytes = interior_page.bytes[current..prev].to_vec();
+        //     interior_page.insert_cell(&bytes, i as _)?;
+        //     prev = current;
+        // }
+
+        new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
+        new_page.update_rmp();
+
+        interior_page.cell_pointers = current_page_cell_pointers;
         interior_page.header.no_of_cells = 0;
         interior_page.header.cell_content_area = self.pager.metadata.usable_size as _;
-        interior_page.update_metadata(None::<fn()>);
+        interior_page.update_no_of_cells();
+        interior_page.update_cell_content_area();
 
-        prev = last_cell_offset as _;
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..current_page_cell_pointers.len() {
-            let current = current_page_cell_pointers[i] as usize;
-            //  OMPTIMAZE THIS
-            // unsafe {
-            //     let ptr = interior_page.bytes.as_ptr().add(current);
-            //     let len = prev - current;
-            //     interior_page.insert_cell_raw(ptr, len, i as _);
-            // }
-            //
-            let bytes = interior_page.bytes[current..prev].to_vec();
-            interior_page.insert_cell(&bytes, i as _)?;
-            prev = current;
+        // #[allow(clippy::needless_range_loop)]
+        // for i in 0..interior_page.cell_pointers.len() {
+        //     let cell_offset = interior_page.cell_pointers[i];
+        //     let cell = interior_page.cell_by_ptr(cell_offset)?;
+        //     let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
+        //     let start = cell_offset as usize;
+        //     let end = start + (4 + cell_rowid_varint_len);
+        //     let bytes = &interior_page.bytes[start..end].to_vec();
+        //     interior_page.insert_cell(&bytes, i as _)?;
+        // }
+
+        let mut staged: Vec<Vec<u8>> = Vec::with_capacity(interior_page.cell_pointers.len());
+        for &cell_offset in interior_page.cell_pointers.iter() {
+            let cell = interior_page.cell_by_ptr(cell_offset)?;
+            let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
+            let start = cell_offset as usize;
+            let end = start + (4 + cell_rowid_varint_len);
+            staged.push(interior_page.bytes[start..end].to_vec());
         }
 
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..staged.len() {
+            interior_page.insert_cell(&staged[i], i as _)?;
+        }
         // PROMOTE KEY STAGE
-        //
 
         let promoted_cell_payload =
             Encode::encode_table_interior_cell(new_page.page_no, cell_to_be_promoted.row_id() as _);
