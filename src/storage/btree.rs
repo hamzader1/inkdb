@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::fmt::Debug;
 
 use super::cell::BTreeCell;
 use super::cell::Encode;
@@ -287,6 +288,7 @@ impl BTreeCursor {
             page.is_interior(),
             "Navigation path of this works only with interior pages",
         )?;
+        println!("choose_child@FnCALLE");
         let cell_count = page.no_of_cells();
         if page.page_type() == BTreePageType::InteriorTable {
             let mut l = 0;
@@ -360,8 +362,9 @@ impl BTreeCursor {
         target: &Value<'_>,
     ) -> Result<(bool, CellIdx), SqliteError>
     where
-        P: BTreePageOps<'a>,
+        P: BTreePageOps<'a> + Debug,
     {
+        println!("choose_target@FnCALLE");
         sqlite_assert_with_corrupt_err(
             page.is_leaf(),
             "This navigation path works only for leaves",

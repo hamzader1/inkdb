@@ -582,8 +582,8 @@ impl<'p> BTreePageMut<'p> {
             self.header.right_most_ptr.is_some(),
             "Right most pointer is not initialiazed yet"
         );
-        // let offset = RIGHT_MOST_POINTER_OFFSET;
-        self.bytes[RIGHT_MOST_POINTER_OFFSET..RIGHT_MOST_POINTER_OFFSET + RIGHT_MOST_POINTER_SIZE]
+        let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE]
             .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
     }
 
