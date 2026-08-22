@@ -3,7 +3,6 @@ use std::fmt::Debug;
 
 use super::cell::BTreeCell;
 use super::cell::Encode;
-use super::cell::TableInteriorCell;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
@@ -19,7 +18,6 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
-use crate::varint::encode_varint;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
@@ -587,13 +585,11 @@ impl<'a> BTree<'a> {
                 // right-most pointer is re-pointed at the new right page
                 match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
                     InsertionState::Inserted => {
-                        println!("INSERTED WHILE WE ARE RMP");
                         parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
                         parent_page_as_mut.update_rmp();
                         Ok(split_metadata)
                     }
                     InsertionState::None => {
-                        println!("INSERTED WHILE WE ARE RMP PART 2");
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
                         let key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&key, left_page_payload, meta.clone())?;
@@ -605,7 +601,6 @@ impl<'a> BTree<'a> {
                     }
                 }
             } else {
-                println!("INSERTED WHILE WE NOT RMP");
                 // the old cell already points at the left page; only its key
                 // becomes the boundary, then a divider for the right page follows
                 //
@@ -622,7 +617,6 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
-            println!("INSERTED WHILE WE NOT RMP_2");
             let new_left_page_no = self.allocate_page()?;
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
             let mut new_left_page = BTreePageMut::new_from_scratch(
@@ -632,16 +626,20 @@ impl<'a> BTree<'a> {
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
-            new_left_page.copy_data_from(&left_page);
-            // TODO REMOVE THIS LATER:
+            new_left_page.copy_data_from(&left_page)?;
+            // TODO REMOVE THIS LATER IF WE DONE FROM IT:
             left_page.clear();
             //
             // rebuild metadata
-            let last_cell_ptr = left_page.cell_pointers.len() - 1;
-            let rowid = new_left_page.cell(last_cell_ptr as _)?.row_id();
-            let right_max = right_page
-                .cell((right_page.cell_pointers.len() - 1) as _)?
-                .row_id();
+            let left_last_ptr =
+                new_left_page.cell_pointers.last().copied().ok_or_else(|| {
+                    SqliteError::Corrupt("root split with an empty left leaf".into())
+                })?;
+            let rowid = new_left_page.parse_cell_at(left_last_ptr)?.row_id();
+            let right_last_ptr = right_page.cell_pointers.last().copied().ok_or_else(|| {
+                SqliteError::Corrupt("root split with an empty right leaf".into())
+            })?;
+            let right_max = right_page.parse_cell_at(right_last_ptr)?.row_id();
 
             let mut root = BTreePageMut::new_from_scratch(
                 left_page.page_no,
@@ -704,12 +702,7 @@ impl<'a> BTree<'a> {
                 ));
             }
         }
-        let mut cca = usize::MAX;
-        for cell_ptr in left_page.cell_pointers.iter() {
-            cca = cca.min(*cell_ptr as _)
-        }
-        left_page.header.no_of_cells = left_page.cell_pointers.len() as _;
-        left_page.header.cell_content_area = cca as _;
+
         /*
          * UPDATE INCLUDE:
          *
@@ -755,6 +748,12 @@ impl<'a> BTree<'a> {
         // ORIGINAL PAGE
         let mut interior_page_guard = self.pager.get_mut(page_no)?;
         let mut interior_page = self.page_as_mut(page_no, &mut interior_page_guard)?;
+        // one cell would make the pop below panic, two would leave the new page
+        // without a single cell
+        debug_assert!(
+            interior_page.cell_pointers.len() >= 3,
+            "cannot split an interior page holding fewer than three cells",
+        );
 
         // TO BE LEFT
         let new_page_no = self.allocate_page()?;
@@ -768,86 +767,43 @@ impl<'a> BTree<'a> {
             self.pager.metadata.usable_size,
         );
 
-        let mut cell_pointers = std::mem::take(&mut interior_page.cell_pointers);
+        let mut left_cell_pointers = std::mem::take(&mut interior_page.cell_pointers);
+        let right_cell_pointers = left_cell_pointers.split_off(left_cell_pointers.len() / 2);
+        let promoted_cell_offset = left_cell_pointers
+            .pop()
+            .ok_or_else(|| SqliteError::Corrupt("interior split left half is empty".into()))?;
+        let cell_to_be_promoted = interior_page.parse_cell_at(promoted_cell_offset)?;
 
-        let current_page_cell_pointers = cell_pointers.split_off(cell_pointers.len() / 2);
-
-        let last_cell_offset = cell_pointers.pop().unwrap();
-
-        // REMOVE THIS
-        let mut prev = self.pager.metadata.usable_size;
-
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..cell_pointers.len() {
-            let cell_offset = cell_pointers[i];
-            let cell = interior_page.cell_by_ptr(cell_offset)?;
-            let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
-            let start = cell_offset as usize;
-            let end = start + (4 + cell_rowid_varint_len);
-            let bytes = &interior_page.bytes[start..end];
-            let test_cell = TableInteriorCell::parse(bytes, 0, bytes.len());
-            new_page.insert_cell(&bytes, i as _)?;
+        // stage both halves before writing anything, both are read from the
+        // bytes of the original page
+        let mut left_cells: Vec<&[u8]> = Vec::with_capacity(left_cell_pointers.len());
+        for &cell_offset in left_cell_pointers.iter() {
+            let span = interior_page.cell_span(cell_offset)?;
+            left_cells.push(&interior_page.bytes[span]);
+        }
+        let mut right_cells: Vec<Vec<u8>> = Vec::with_capacity(right_cell_pointers.len());
+        for &cell_offset in right_cell_pointers.iter() {
+            let span = interior_page.cell_span(cell_offset)?;
+            right_cells.push(interior_page.bytes[span].to_vec());
         }
 
-        let cell_to_be_promoted = interior_page
-            .get_page_as_ref()?
-            .cell(cell_pointers.len() as _)?;
-
+        for (i, cell) in left_cells.iter().enumerate() {
+            if new_page.insert_cell(cell, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "new interior page overflowed during split".into(),
+                ));
+            }
+        }
         new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
         new_page.update_rmp();
 
-        // interior_page.header.no_of_cells = 0;
-        // interior_page.header.cell_content_area = self.pager.metadata.usable_size as _;
-        // interior_page.update_metadata(None::<fn()>);
-
-        // prev = last_cell_offset as _;
-        // #[allow(clippy::needless_range_loop)]
-        // for i in 0..current_page_cell_pointers.len() {
-        //     let current = current_page_cell_pointers[i] as usize;
-        //     //  OMPTIMAZE THIS
-        //     // unsafe {
-        //     //     let ptr = interior_page.bytes.as_ptr().add(current);
-        //     //     let len = prev - current;
-        //     //     interior_page.insert_cell_raw(ptr, len, i as _);
-        //     // }
-        //     //
-        //     let bytes = interior_page.bytes[current..prev].to_vec();
-        //     interior_page.insert_cell(&bytes, i as _)?;
-        //     prev = current;
-        // }
-
-        new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
-        new_page.update_rmp();
-
-        interior_page.cell_pointers = current_page_cell_pointers;
-        interior_page.header.no_of_cells = 0;
-        interior_page.header.cell_content_area = self.pager.metadata.usable_size as _;
-        interior_page.update_no_of_cells();
-        interior_page.update_cell_content_area();
-
-        // #[allow(clippy::needless_range_loop)]
-        // for i in 0..interior_page.cell_pointers.len() {
-        //     let cell_offset = interior_page.cell_pointers[i];
-        //     let cell = interior_page.cell_by_ptr(cell_offset)?;
-        //     let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
-        //     let start = cell_offset as usize;
-        //     let end = start + (4 + cell_rowid_varint_len);
-        //     let bytes = &interior_page.bytes[start..end].to_vec();
-        //     interior_page.insert_cell(&bytes, i as _)?;
-        // }
-
-        let mut staged: Vec<Vec<u8>> = Vec::with_capacity(interior_page.cell_pointers.len());
-        for &cell_offset in interior_page.cell_pointers.iter() {
-            let cell = interior_page.cell_by_ptr(cell_offset)?;
-            let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
-            let start = cell_offset as usize;
-            let end = start + (4 + cell_rowid_varint_len);
-            staged.push(interior_page.bytes[start..end].to_vec());
-        }
-
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..staged.len() {
-            interior_page.insert_cell(&staged[i], i as _)?;
+        interior_page.reset_for_rebuild();
+        for (i, cell) in right_cells.iter().enumerate() {
+            if interior_page.insert_cell(cell, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "interior page overflowed during split".into(),
+                ));
+            }
         }
         // PROMOTE KEY STAGE
 
@@ -884,7 +840,6 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
-            println!("FIRST TIME WE SPLIT THE ROOT");
             // We are the root
             //
             let new_right_page_no = self.allocate_page()?;
@@ -897,7 +852,7 @@ impl<'a> BTree<'a> {
                 self.pager.metadata.usable_size,
             );
 
-            new_right_page.copy_data_from(&interior_page);
+            new_right_page.copy_data_from(&interior_page)?;
             interior_page.clear();
 
             // SAFE TO USE THE METADATA SINCE ITS CACHED
