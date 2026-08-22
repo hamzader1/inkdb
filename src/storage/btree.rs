@@ -2,6 +2,7 @@ use std::cell::Cell;
 
 use super::cell::BTreeCell;
 use super::cell::Encode;
+use super::cell::TableInteriorCell;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
@@ -17,6 +18,7 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::varint::encode_varint;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
@@ -741,10 +743,14 @@ impl<'a> BTree<'a> {
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..cell_pointers.len() {
-            let current = cell_pointers[i] as usize;
-            let bytes = &interior_page.bytes[current..prev];
+            let cell_offset = cell_pointers[i];
+            let cell = interior_page.cell_by_ptr(cell_offset)?;
+            let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
+            let start = cell_offset as usize;
+            let end = start + (4 + cell_rowid_varint_len);
+            let bytes = &interior_page.bytes[start..end];
+            let test_cell = TableInteriorCell::parse(bytes, 0, bytes.len());
             new_page.insert_cell(&bytes, i as _)?;
-            prev = current;
         }
 
         let cell_to_be_promoted = interior_page
