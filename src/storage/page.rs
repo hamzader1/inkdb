@@ -31,6 +31,9 @@ pub const FRAGMENTED_FREE_BYTES_SIZE: usize = 1;
 pub const RIGHT_MOST_POINTER_OFFSET: usize = 8;
 pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 
+pub const LEFT_CHILD_POINTER_SIZE: usize = 4;
+pub const OVERFLOW_POINTER_SIZE: usize = 4;
+
 pub const SQLITE3_HEADER_SIZE: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -391,6 +394,9 @@ impl<'p> BTreePageMut<'p> {
         };
         page.update_page_kind();
         page.update_cell_content_area();
+        // a recycled frame is not guaranteed to be zeroed, so the cell count
+        // has to be written out too instead of relying on the old bytes
+        page.update_no_of_cells();
         page
     }
 
@@ -432,6 +438,77 @@ impl<'p> BTreePageMut<'p> {
         let offset = CELL_CONTENT_AREA_OFFSET + self.header_offset as usize;
         self.bytes[offset..offset + CELL_CONTENT_AREA_SIZE].copy_from_slice(&cca.to_be_bytes());
     }
+
+    /// Parses the cell at `cell_ptr` directly from the page bytes.
+    ///
+    /// Unlike `BTreePageOps::cell_by_ptr` this does not go through
+    /// `get_page_as_ref`, so it borrows the page only for the duration of the
+    /// call and stays usable while the page is being rebuilt.
+    pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
+        match self.header.page_kind {
+            BTreePageType::InteriorTable => {
+                TableInteriorCell::parse(self.bytes, cell_ptr, self.usable_size)
+                    .map(BTreeCell::TableInterior)
+            }
+            BTreePageType::LeafTable => {
+                TableLeafCell::parse(self.bytes, cell_ptr, self.usable_size)
+                    .map(BTreeCell::TableLeaf)
+            }
+            BTreePageType::InteriorIndex => {
+                IndexInteriorCell::parse(self.bytes, cell_ptr, self.usable_size)
+                    .map(BTreeCell::IndexInterior)
+            }
+            BTreePageType::LeafIndex => {
+                IndexLeafCell::parse(self.bytes, cell_ptr, self.usable_size)
+                    .map(BTreeCell::IndexLeaf)
+            }
+        }
+    }
+
+    /// The exact byte span the cell occupies on this page.
+    ///
+    /// Cell pointers are stored in KEY order while the bodies are laid out in
+    /// ALLOCATION order, so the distance to the next pointer says nothing about
+    /// a cell's length: the span has to be derived from the cell itself.
+    pub fn cell_span(&self, cell_ptr: u16) -> Result<std::ops::Range<usize>, SqliteError> {
+        let start = cell_ptr as usize;
+        let cell = self.parse_cell_at(cell_ptr)?;
+        let end = if self.header.page_kind == BTreePageType::InteriorTable {
+            // left child pointer + rowid varint, no payload
+            start
+                + LEFT_CHILD_POINTER_SIZE
+                + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
+        } else {
+            // payload_range() covers the LOCAL payload only, the overflow page
+            // pointer that follows it belongs to the cell as well
+            cell.payload_range().end
+                + if cell.overflow_page().is_some() {
+                    OVERFLOW_POINTER_SIZE
+                } else {
+                    0
+                }
+        };
+        debug_assert!(
+            end > start && end <= self.usable_size,
+            "cell span out of page bounds",
+        );
+        Ok(start..end)
+    }
+
+    /// Drops all cell bookkeeping so the page can be rebuilt from staged cell
+    /// bodies. Page kind and right most pointer are preserved.
+    ///
+    /// We MUST copy out every cell body we still need BEFORE calling
+    /// this: the following `insert_cell` calls start allocating at
+    /// `usable_size` again and will overwrite the old bodies.
+    pub fn reset_for_rebuild(&mut self) {
+        self.header.no_of_cells = 0;
+        self.header.cell_content_area = self.usable_size as u16;
+        self.cell_pointers.clear();
+        self.update_no_of_cells();
+        self.update_cell_content_area();
+    }
+
     pub fn insert_cell<B: AsRef<[u8]>>(
         &mut self,
         content: &B,
@@ -507,34 +584,19 @@ impl<'p> BTreePageMut<'p> {
                 cells.push(content.to_vec());
                 continue;
             }
-            let offset = self.cell_pointers[i];
-            let cell = self.cell_by_ptr(offset)?;
-            let start = offset as usize;
-            let end = if self.header.page_kind.is_interior() {
-                // child ptr (4 bytes) + rowid varint
-                start + 4 + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
-            } else {
-                cell.payload_range().end
-            };
-            cells.push(self.bytes[start..end].to_vec());
+            let span = self.cell_span(self.cell_pointers[i])?;
+            cells.push(self.bytes[span].to_vec());
         }
 
-        let page_kind = self.header.page_kind;
-        let right_most_ptr = self.header.right_most_ptr;
-        self.bytes[self.header_offset as usize..self.usable_size].fill(0);
-        self.header = BTreePageHeader::new(page_kind, self.usable_size);
-        self.header.right_most_ptr = right_most_ptr;
-        self.cell_pointers.clear();
-        self.update_page_kind();
+        // every body is staged, the page can be rebuilt in place now. this also
+        // reclaims the space of the cell being replaced
+        self.reset_for_rebuild();
         for (i, cell) in cells.iter().enumerate() {
             if self.insert_cell(cell, i as _)? == InsertionState::None {
                 return Err(SqliteError::Corrupt(
                     "replace_cell: replacement does not fit in page".into(),
                 ));
             }
-        }
-        if right_most_ptr.is_some() {
-            self.update_rmp();
         }
         Ok(())
     }
@@ -590,11 +652,25 @@ impl<'p> BTreePageMut<'p> {
     // UNSAFE TO USE THE HEADER
     // UNSAFE TO CALL UNLESS REWRITE THE HEADER
     pub fn clear(&mut self) {
-        self.bytes[0..self.usable_size].fill(0);
+        self.bytes[self.header_offset as usize..self.usable_size].fill(0);
     }
 
-    pub fn copy_data_from(&mut self, other: &Self) {
-        self.bytes.copy_from_slice(other.bytes);
+    pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
+        // cell pointers are absolute page offsets, so a raw copy is only valid
+        // between pages that keep their btree header at the same offset
+        debug_assert!(
+            self.header_offset == other.header_offset,
+            "copy_data_from between pages with different header offsets",
+        );
+        debug_assert!(
+            self.usable_size == other.usable_size && self.bytes.len() >= other.usable_size,
+            "copy_data_from between pages with different usable sizes",
+        );
+        self.bytes[..other.usable_size].copy_from_slice(&other.bytes[..other.usable_size]);
+        // the cached header/cell pointers described the page BEFORE the copy
+        self.header = other.header.clone();
+        self.cell_pointers = other.cell_pointers.clone();
+        Ok(())
     }
 
     pub fn get_page_as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
