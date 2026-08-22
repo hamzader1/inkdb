@@ -1,7 +1,7 @@
 use super::frame::FRAME_SIZE;
 use super::frame::{Frame, FrameId, FrameIndex};
 use crate::errors::SqliteError;
-use crate::format::page::PageNo;
+use crate::pager::pager::PageNo;
 use crate::util::sqlite_assert_one;
 use std::collections::HashMap;
 use std::ptr::NonNull;

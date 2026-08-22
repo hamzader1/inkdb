@@ -1,6 +1,7 @@
 use crate::SqliteMaster;
 use crate::errors::SqliteError;
-use crate::format::page::PageNo;
+use crate::pager::pager::PageNo;
+
 use crate::record::Value;
 use crate::schema::Table;
 use crate::sql::ast::{Affinity, Ast, Expr, InsertStmt, SelectStmt};

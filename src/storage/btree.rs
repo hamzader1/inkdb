@@ -6,17 +6,17 @@ use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
-use crate::PageNo;
 use crate::SqliteCursor;
 use crate::SqliteError;
-use crate::format::page::BTreePageHeader;
 use crate::pager::guard::PageGuard;
+use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::varint::encode_varint;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
@@ -582,13 +582,11 @@ impl<'a> BTree<'a> {
                 // right-most pointer is re-pointed at the new right page
                 match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
                     InsertionState::Inserted => {
-                        println!("INSERTED WHILE WE ARE RMP");
                         parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
                         parent_page_as_mut.update_rmp();
                         Ok(split_metadata)
                     }
                     InsertionState::None => {
-                        println!("INSERTED WHILE WE ARE RMP PART 2");
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
                         let key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&key, left_page_payload, meta.clone())?;
@@ -600,7 +598,6 @@ impl<'a> BTree<'a> {
                     }
                 }
             } else {
-                println!("INSERTED WHILE WE NOT RMP");
                 // the old cell already points at the left page; only its key
                 // becomes the boundary, then a divider for the right page follows
                 //
@@ -617,7 +614,6 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
-            println!("INSERTED WHILE WE NOT RMP_2");
             let new_left_page_no = self.allocate_page()?;
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
             let mut new_left_page = BTreePageMut::new_from_scratch(
@@ -628,11 +624,15 @@ impl<'a> BTree<'a> {
                 self.pager.metadata.usable_size,
             );
             new_left_page.copy_data_from(&left_page);
+
+            // compute the last-cell index from left_page BEFORE clearing it,
+            // since clear() empties cell_pointers and made this underflow before
+            let last_cell_ptr = left_page.cell_pointers.len() - 1;
+
             // TODO REMOVE THIS LATER:
             left_page.clear();
             //
             // rebuild metadata
-            let last_cell_ptr = left_page.cell_pointers.len() - 1;
             let rowid = new_left_page.cell(last_cell_ptr as _)?.row_id();
             let right_max = right_page
                 .cell((right_page.cell_pointers.len() - 1) as _)?
@@ -660,11 +660,9 @@ impl<'a> BTree<'a> {
             ))
         }
     }
-
     pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
         let mut left_page_guard = self.pager.get_mut(page_no)?;
         let mut left_page = self.page_as_mut(page_no, &mut left_page_guard)?;
-
         // TODO add freelist check
         let right_page_no = self.allocate_page()?;
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
@@ -677,27 +675,31 @@ impl<'a> BTree<'a> {
         );
         let right_cell_poiners = left_page
             .cell_pointers
-            .split_off((left_page.cell_pointers.len() / 2) + 1);
+            .split_off(left_page.cell_pointers.len() / 2);
 
-        let mut prev = *left_page.cell_pointers.last().unwrap() as usize;
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..right_cell_poiners.len() {
+            let cell_offset = right_cell_poiners[i];
+            let cell = left_page.cell_by_ptr(cell_offset)?;
+            let end = cell.payload_range().end;
+            let bytes = left_page.bytes[cell_offset as usize..end].as_ref();
+            right_page.insert_cell(&bytes, i as _)?;
+        }
+        let mut cca = usize::MAX;
+        for cell_ptr in left_page.cell_pointers.iter() {
+            cca = cca.min(*cell_ptr as _)
+        }
         left_page.header.no_of_cells = left_page.cell_pointers.len() as _;
-        left_page.header.cell_content_area = prev as _;
+        left_page.header.cell_content_area = cca as _;
         /*
          * UPDATE INCLUDE:
          *
          *  CELL POINTERS
          *  CELL COUNT
          *  CELL CONTENT AREA
+         *
          */
         left_page.update_metadata(None::<fn()>);
-
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..right_cell_poiners.len() {
-            let current = right_cell_poiners[i] as usize;
-            let bytes = left_page.bytes[current..prev].as_ref();
-            right_page.insert_cell(&bytes, i as _)?;
-            prev = current;
-        }
 
         let left_page_ref = left_page.cell((left_page.cell_pointers.len() - 1) as _)?;
         let right_page_ref = right_page.cell((right_page.cell_pointers.len() - 1) as _)?;
@@ -719,7 +721,6 @@ impl<'a> BTree<'a> {
         // TO BE LEFT
         let new_page_no = self.allocate_page()?;
         let mut new_page_guard = self.pager.get_mut(new_page_no)?;
-        // let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
         let mut new_page = BTreePageMut::new_from_scratch(
             new_page_no,
             BTreePageType::InteriorTable,
@@ -734,46 +735,63 @@ impl<'a> BTree<'a> {
 
         let last_cell_offset = cell_pointers.pop().unwrap();
 
-        let mut prev = self.pager.metadata.usable_size;
-
         #[allow(clippy::needless_range_loop)]
         for i in 0..cell_pointers.len() {
-            let current = cell_pointers[i] as usize;
-            let bytes = &interior_page.bytes[current..prev];
+            let cell_offset = cell_pointers[i];
+            let cell = interior_page.cell_by_ptr(cell_offset)?;
+            let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
+            let start = cell_offset as usize;
+            let end = start + (4 + cell_rowid_varint_len);
+            let bytes = &interior_page.bytes[start..end];
             new_page.insert_cell(&bytes, i as _)?;
-            prev = current;
         }
 
         let cell_to_be_promoted = interior_page
             .get_page_as_ref()?
             .cell(cell_pointers.len() as _)?;
 
+        // restore field so the staging loop below can read the right-half offsets
+        interior_page.cell_pointers = current_page_cell_pointers;
+
         new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
         new_page.update_rmp();
-
-        interior_page.header.no_of_cells = 0;
-        interior_page.header.cell_content_area = self.pager.metadata.usable_size as _;
-        interior_page.update_metadata(None::<fn()>);
-
-        prev = last_cell_offset as _;
         #[allow(clippy::needless_range_loop)]
-        for i in 0..current_page_cell_pointers.len() {
-            let current = current_page_cell_pointers[i] as usize;
-            //  OMPTIMAZE THIS
-            // unsafe {
-            //     let ptr = interior_page.bytes.as_ptr().add(current);
-            //     let len = prev - current;
-            //     interior_page.insert_cell_raw(ptr, len, i as _);
-            // }
-            //
-            let bytes = interior_page.bytes[current..prev].to_vec();
+        for i in 0..interior_page.cell_pointers.len() {
+            let cell_offset = interior_page.cell_pointers[i];
+            let cell = interior_page.cell_by_ptr(cell_offset)?;
+            let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
+            let start = cell_offset as usize;
+            let end = start + (4 + cell_rowid_varint_len);
+            let bytes = &interior_page.bytes[start..end].to_vec();
             interior_page.insert_cell(&bytes, i as _)?;
-            prev = current;
         }
 
-        // PROMOTE KEY STAGE
-        //
+        // snapshot all cell bytes before mutating interior_page, to avoid
+        // reading offsets that a prior insert_cell call already overwrote
+        // let mut staged: Vec<Vec<u8>> = Vec::with_capacity(interior_page.cell_pointers.len());
+        // for &cell_offset in interior_page.cell_pointers.iter() {
+        //     let cell = interior_page.cell_by_ptr(cell_offset)?;
+        //     let cell_rowid_varint_len = encode_varint(&mut [0u8; 9], cell.row_id());
+        //     let start = cell_offset as usize;
+        //     let end = start + (4 + cell_rowid_varint_len);
+        //     staged.push(interior_page.bytes[start..end].to_vec());
+        // }
 
+        // #[allow(clippy::needless_range_loop)]
+        // for i in 0..staged.len() {
+        //     interior_page.insert_cell(&staged[i], i as _)?;
+        // }
+
+        // metadata reflects the page AFTER the real reinsert, not before
+        interior_page.header.no_of_cells = interior_page.cell_pointers.len() as _;
+        let mut cca = usize::MAX;
+        for cell_ptr in interior_page.cell_pointers.iter() {
+            cca = cca.min(*cell_ptr as _)
+        }
+        interior_page.header.cell_content_area = cca as _;
+        interior_page.update_metadata(None::<fn()>);
+
+        // PROMOTE KEY STAGE
         let promoted_cell_payload =
             Encode::encode_table_interior_cell(new_page.page_no, cell_to_be_promoted.row_id() as _);
         let promoted_key = cell_to_be_promoted.row_id().into_sqlite_value();
@@ -807,9 +825,7 @@ impl<'a> BTree<'a> {
                 }
             }
         } else {
-            println!("FIRST TIME WE SPLIT THE ROOT");
             // We are the root
-            //
             let new_right_page_no = self.allocate_page()?;
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
             let mut new_right_page = BTreePageMut::new_from_scratch(
@@ -845,7 +861,6 @@ impl<'a> BTree<'a> {
             ))
         }
     }
-
     pub fn insert_key_to_interior<T: AsRef<[u8]>>(
         &mut self,
         key: &Value,

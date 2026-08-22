@@ -4,8 +4,8 @@ use super::btree::CellIdx;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::errors::SqliteError;
-use crate::format::page::PageNo;
 use crate::pager::guard::PageGuard;
+use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::{Record, RecordMetadata, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
@@ -133,12 +133,13 @@ impl BTreePageHeader {
     }
 }
 
+#[derive(PartialEq)]
 pub enum InsertionState {
     Inserted, // we could use Option instead of this enum but just to improve readability
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BTreePageRef<'p> {
     pub page_no: PageNo,
     header_offset: u8,
@@ -179,10 +180,13 @@ impl<'p> BTreePageRef<'p> {
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
             "Cell Index Out of Bounds",
         )?;
-
         let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
         let cell_ptr = cursor.read_next_u16()?;
+        self.cell_by_ptr(cell_ptr)
+    }
 
+    pub fn cell_by_ptr(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
+        debug_assert!(cell_ptr as usize <= self.usable_size);
         let bytes = self.bytes;
 
         match self.header.page_kind {
@@ -493,20 +497,28 @@ impl<'p> BTreePageMut<'p> {
                 "replace_cell index out of bounds".into(),
             ));
         }
+
+        // cell pointers are in KEY order, not OFFSET order anymore
+        // (random inserts allocate each new cell at the lowest offset),
+        // so derive each cell's real span from its parsed cell
         let mut cells = Vec::with_capacity(self.cell_pointers.len());
         for i in 0..self.cell_pointers.len() {
-            let offset = self.cell_pointers[i] as usize;
-            let end = if i == 0 {
-                self.usable_size
-            } else {
-                self.cell_pointers[i - 1] as usize
-            };
             if i == cell_idx as usize {
                 cells.push(content.to_vec());
-            } else {
-                cells.push(self.bytes[offset..end].to_vec());
+                continue;
             }
+            let offset = self.cell_pointers[i];
+            let cell = self.cell_by_ptr(offset)?;
+            let start = offset as usize;
+            let end = if self.header.page_kind.is_interior() {
+                // child ptr (4 bytes) + rowid varint
+                start + 4 + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
+            } else {
+                cell.payload_range().end
+            };
+            cells.push(self.bytes[start..end].to_vec());
         }
+
         let page_kind = self.header.page_kind;
         let right_most_ptr = self.header.right_most_ptr;
         self.bytes[self.header_offset as usize..self.usable_size].fill(0);
@@ -515,7 +527,11 @@ impl<'p> BTreePageMut<'p> {
         self.cell_pointers.clear();
         self.update_page_kind();
         for (i, cell) in cells.iter().enumerate() {
-            self.insert_cell(cell, i as _)?;
+            if self.insert_cell(cell, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "replace_cell: replacement does not fit in page".into(),
+                ));
+            }
         }
         if right_most_ptr.is_some() {
             self.update_rmp();
@@ -743,6 +759,19 @@ impl<'p> std::fmt::Debug for BTreePageMut<'p> {
     }
 }
 
+impl<'p> std::fmt::Debug for BTreePageRef<'p> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BTreePageMut")
+            .field("page_no", &self.page_no)
+            .field("header_offset", &self.header_offset)
+            .field("header", &self.header)
+            .field("bytes", &self.bytes.len())
+            .field("page_size", &self.page_size)
+            .field("usable_size", &self.usable_size)
+            .finish()
+    }
+}
+
 pub trait BTreePageOps<'g> {
     fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError>;
     fn record_of_cell(
@@ -774,6 +803,7 @@ pub trait BTreePageOps<'g> {
     fn is_leaf(&self) -> bool;
     fn header_size(&self) -> u8;
     fn page_type(&self) -> BTreePageType;
+    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
 }
 
 impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
@@ -836,6 +866,10 @@ impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
     fn right_most_ptr(&self) -> Option<PageNo> {
         self.get_page_as_ref().unwrap().right_most_ptr()
     }
+    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
+        let page = self.get_page_as_ref()?;
+        page.cell_by_ptr(cell_offset)
+    }
 }
 
 impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
@@ -889,5 +923,8 @@ impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
     }
     fn right_most_ptr(&self) -> Option<PageNo> {
         self.right_most_ptr()
+    }
+    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
+        self.cell_by_ptr(cell_offset)
     }
 }

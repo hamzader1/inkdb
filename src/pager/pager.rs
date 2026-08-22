@@ -10,9 +10,10 @@ use super::guard::{BorrowState, PageGuard};
 use super::metadata::SqliteMetadata;
 use super::statistics::SqliteStatistics;
 use crate::DbError;
-use crate::format::page::{self, PageNo};
 use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
+
+pub type PageNo = u32;
 
 // #[derive(Debug)]
 pub struct Pager {

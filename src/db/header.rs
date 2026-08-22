@@ -6,7 +6,6 @@ use std::io::SeekFrom;
 
 use crate::bytes::*;
 use crate::errors::SqliteError;
-use crate::format::header;
 use crate::seek_c;
 use crate::seek_s;
 use crate::sqlite_assert_all;
