@@ -669,6 +669,11 @@ impl<'a> BTree<'a> {
     pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
         let mut left_page_guard = self.pager.get_mut(page_no)?;
         let mut left_page = self.page_as_mut(page_no, &mut left_page_guard)?;
+
+        debug_assert!(
+            left_page.cell_pointers.len() >= 2,
+            "cannot split a leaf page holding fewer than two cells",
+        );
         // TODO add freelist check
         let right_page_no = self.allocate_page()?;
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
