@@ -133,6 +133,7 @@ impl BTreePageHeader {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum InsertionState {
     Inserted, // we could use Option instead of this enum but just to improve readability
     None,
@@ -496,20 +497,28 @@ impl<'p> BTreePageMut<'p> {
                 "replace_cell index out of bounds".into(),
             ));
         }
+
+        // cell pointers are in KEY order, not OFFSET order anymore
+        // (random inserts allocate each new cell at the lowest offset),
+        // so derive each cell's real span from its parsed cell
         let mut cells = Vec::with_capacity(self.cell_pointers.len());
         for i in 0..self.cell_pointers.len() {
-            let offset = self.cell_pointers[i] as usize;
-            let end = if i == 0 {
-                self.usable_size
-            } else {
-                self.cell_pointers[i - 1] as usize
-            };
             if i == cell_idx as usize {
                 cells.push(content.to_vec());
-            } else {
-                cells.push(self.bytes[offset..end].to_vec());
+                continue;
             }
+            let offset = self.cell_pointers[i];
+            let cell = self.cell_by_ptr(offset)?;
+            let start = offset as usize;
+            let end = if self.header.page_kind.is_interior() {
+                // child ptr (4 bytes) + rowid varint
+                start + 4 + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
+            } else {
+                cell.payload_range().end
+            };
+            cells.push(self.bytes[start..end].to_vec());
         }
+
         let page_kind = self.header.page_kind;
         let right_most_ptr = self.header.right_most_ptr;
         self.bytes[self.header_offset as usize..self.usable_size].fill(0);
@@ -518,7 +527,11 @@ impl<'p> BTreePageMut<'p> {
         self.cell_pointers.clear();
         self.update_page_kind();
         for (i, cell) in cells.iter().enumerate() {
-            self.insert_cell(cell, i as _)?;
+            if self.insert_cell(cell, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "replace_cell: replacement does not fit in page".into(),
+                ));
+            }
         }
         if right_most_ptr.is_some() {
             self.update_rmp();
