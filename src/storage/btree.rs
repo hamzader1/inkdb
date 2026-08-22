@@ -713,15 +713,34 @@ impl<'a> BTree<'a> {
          *  CELL CONTENT AREA
          *
          */
-        left_page.update_metadata(None::<fn()>);
+        left_page.reset_for_rebuild();
+        for (i, cell) in left_cells.iter().enumerate() {
+            if left_page.insert_cell(cell, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "left leaf page overflowed during split".into(),
+                ));
+            }
+        }
 
-        let left_page_ref = left_page.cell((left_page.cell_pointers.len() - 1) as _)?;
-        let right_page_ref = right_page.cell((right_page.cell_pointers.len() - 1) as _)?;
+        let left_last_ptr =
+            left_page.cell_pointers.last().copied().ok_or_else(|| {
+                SqliteError::Corrupt("left leaf page is empty after split".into())
+            })?;
+        let right_last_ptr =
+            right_page.cell_pointers.last().copied().ok_or_else(|| {
+                SqliteError::Corrupt("right leaf page is empty after split".into())
+            })?;
         let metadata = SplitMetadata::new(
             left_page.page_no,
             right_page.page_no,
-            left_page_ref.row_id().into_sqlite_value() as _,
-            right_page_ref.row_id().into_sqlite_value() as _,
+            left_page
+                .parse_cell_at(left_last_ptr)?
+                .row_id()
+                .into_sqlite_value(),
+            right_page
+                .parse_cell_at(right_last_ptr)?
+                .row_id()
+                .into_sqlite_value(),
         );
 
         Ok(metadata)
