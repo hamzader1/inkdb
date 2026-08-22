@@ -138,7 +138,7 @@ pub enum InsertionState {
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BTreePageRef<'p> {
     pub page_no: PageNo,
     header_offset: u8,
@@ -179,10 +179,13 @@ impl<'p> BTreePageRef<'p> {
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
             "Cell Index Out of Bounds",
         )?;
-
         let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
         let cell_ptr = cursor.read_next_u16()?;
+        self.cell_by_ptr(cell_ptr)
+    }
 
+    pub fn cell_by_ptr(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
+        debug_assert!(cell_ptr as usize <= self.usable_size);
         let bytes = self.bytes;
 
         match self.header.page_kind {
@@ -743,6 +746,19 @@ impl<'p> std::fmt::Debug for BTreePageMut<'p> {
     }
 }
 
+impl<'p> std::fmt::Debug for BTreePageRef<'p> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BTreePageMut")
+            .field("page_no", &self.page_no)
+            .field("header_offset", &self.header_offset)
+            .field("header", &self.header)
+            .field("bytes", &self.bytes.len())
+            .field("page_size", &self.page_size)
+            .field("usable_size", &self.usable_size)
+            .finish()
+    }
+}
+
 pub trait BTreePageOps<'g> {
     fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError>;
     fn record_of_cell(
@@ -774,6 +790,7 @@ pub trait BTreePageOps<'g> {
     fn is_leaf(&self) -> bool;
     fn header_size(&self) -> u8;
     fn page_type(&self) -> BTreePageType;
+    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
 }
 
 impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
@@ -836,6 +853,10 @@ impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
     fn right_most_ptr(&self) -> Option<PageNo> {
         self.get_page_as_ref().unwrap().right_most_ptr()
     }
+    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
+        let page = self.get_page_as_ref()?;
+        page.cell_by_ptr(cell_offset)
+    }
 }
 
 impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
@@ -889,5 +910,8 @@ impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
     }
     fn right_most_ptr(&self) -> Option<PageNo> {
         self.right_most_ptr()
+    }
+    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
+        self.cell_by_ptr(cell_offset)
     }
 }
