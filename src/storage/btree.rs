@@ -679,17 +679,25 @@ impl<'a> BTree<'a> {
             self.pager.metadata.page_size,
             self.pager.metadata.usable_size,
         );
-        let right_cell_poiners = left_page
-            .cell_pointers
-            .split_off(left_page.cell_pointers.len() / 2);
+        let split_at = left_page.cell_pointers.len() / 2;
+        let right_cell_pointers = left_page.cell_pointers.split_off(split_at);
+        let mut left_cells: Vec<Vec<u8>> = Vec::with_capacity(left_page.cell_pointers.len());
+        for i in 0..left_page.cell_pointers.len() {
+            let span = left_page.cell_span(left_page.cell_pointers[i])?;
+            left_cells.push(left_page.bytes[span].to_vec());
+        }
+        let mut right_cells: Vec<&[u8]> = Vec::with_capacity(right_cell_pointers.len());
+        for &cell_offset in right_cell_pointers.iter() {
+            let span = left_page.cell_span(cell_offset)?;
+            right_cells.push(&left_page.bytes[span]);
+        }
 
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..right_cell_poiners.len() {
-            let cell_offset = right_cell_poiners[i];
-            let cell = left_page.cell_by_ptr(cell_offset)?;
-            let end = cell.payload_range().end;
-            let bytes = left_page.bytes[cell_offset as usize..end].as_ref();
-            right_page.insert_cell(&bytes, i as _)?;
+        for (i, cell) in right_cells.iter().enumerate() {
+            if right_page.insert_cell(cell, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "right leaf page overflowed during split".into(),
+                ));
+            }
         }
         let mut cca = usize::MAX;
         for cell_ptr in left_page.cell_pointers.iter() {
