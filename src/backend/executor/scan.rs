@@ -3,18 +3,19 @@ use crate::record::Value;
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::BTreeCursor;
 use crate::storage::page::BTreePageRef;
+use crate::pager::pager::Pager;
+use crate::vfs::file::SqliteFile;
 
 use super::Row;
-use crate::pager::pager::Pager;
 
 #[derive(Debug)]
-pub struct TableScan {
+pub struct TableScan<F: SqliteFile> {
     root_page: u32,
-    cursor: BTreeCursor,
+    cursor: BTreeCursor<F>,
     is_done: bool,
 }
-impl TableScan {
-    pub fn new(root_page: u32, pager: &mut Pager) -> Result<Self, SqliteError> {
+impl<F: SqliteFile> TableScan<F> {
+    pub fn new(root_page: u32, pager: &mut Pager<F>) -> Result<Self, SqliteError> {
         let mut cursor = BTreeCursor::new(root_page);
         cursor.first(pager)?;
         let (page_no, _) = cursor.last_visited_entry_unchecked();
@@ -34,10 +35,10 @@ impl TableScan {
         })
     }
 }
-impl TableScan {
+impl<F: SqliteFile> TableScan<F> {
     pub fn next(
         &mut self,
-        pager: &mut Pager,
+        pager: &mut Pager<F>,
         // arena: &ExprArena,
     ) -> Result<Option<Row>, SqliteError> {
         if self.is_done {

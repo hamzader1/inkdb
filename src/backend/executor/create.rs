@@ -6,6 +6,7 @@ use crate::storage::btree::{BTree, BTreeCursor};
 use crate::storage::cell::Encode;
 use crate::storage::page::{BTreePageMut, BTreePageType};
 use crate::varint::encode_varint;
+use crate::vfs::file::SqliteFile;
 
 use super::Row;
 use super::insert::Insert;
@@ -19,7 +20,7 @@ impl CreateTable {
         Self { meta }
     }
 
-    pub fn next(&self, pager: &mut Pager) -> Result<Option<Row>, SqliteError> {
+    pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         let name = &self.meta.meta.name;
         // Allocating the new pager
         let mut temp_btree = BTree::new(1, pager);

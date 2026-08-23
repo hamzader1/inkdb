@@ -3,6 +3,7 @@ use crate::record::Value;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 use crate::storage::btree::BTreeCursor;
+use crate::vfs::file::SqliteFile;
 use crate::{errors::SqliteError, sql::ast::Constraint};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -63,7 +64,7 @@ pub struct SqliteMaster {
 }
 
 impl SqliteMaster {
-    pub fn new(pager: &mut Pager) -> Result<Self, SqliteError> {
+    pub fn new<F: crate::vfs::file::SqliteFile>(pager: &mut Pager<F>) -> Result<Self, SqliteError> {
         let mut sqlite_master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),

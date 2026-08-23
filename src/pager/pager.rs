@@ -16,24 +16,24 @@ use crate::vfs::file::SqliteFile;
 pub type PageNo = u32;
 
 // #[derive(Debug)]
-pub struct Pager {
-    pub source: Box<dyn SqliteFile>,
+pub struct Pager<F: SqliteFile> {
+    pub source: F,
     pub buffer_pool: BufferPool,
     // dirty pages linked list instead of new allocations
     pub dp_ll: Option<FrameId>,
     pub metadata: SqliteMetadata,
-    pub statistics: SqliteStatistics, // pub configuration: SqliteConfiguration,
+    pub statistics: SqliteStatistics,
 }
 
-impl Pager {
+impl<F: SqliteFile> Pager<F> {
     pub fn new(
-        source: impl SqliteFile + 'static,
+        source: F,
         page_size: usize,
         usable_size: usize,
         max_allocated_pages: usize,
     ) -> Self {
         Self {
-            source: Box::new(source),
+            source,
             buffer_pool: BufferPool::new(page_size),
             dp_ll: None,
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
@@ -42,14 +42,14 @@ impl Pager {
     }
 
     pub fn with_cache(
-        source: impl SqliteFile + 'static,
+        source: F,
         page_size: usize,
         usable_size: usize,
         max_allocated_pages: usize,
         cache_size: usize,
     ) -> Self {
         Self {
-            source: Box::new(source),
+            source,
             buffer_pool: BufferPool::with_cache(cache_size, page_size),
             dp_ll: None,
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
@@ -321,7 +321,7 @@ impl Pager {
     }
 }
 
-impl Drop for Pager {
+impl<F: SqliteFile> Drop for Pager<F> {
     fn drop(&mut self) {
         self.flush_all();
     }

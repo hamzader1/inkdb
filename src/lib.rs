@@ -1,3 +1,4 @@
+
 #![allow(unused, dead_code)] // temp for now
 // #![warn(unused_results)]
 pub mod backend;
@@ -34,12 +35,12 @@ use self::vfs::disk::{DiskFile, DiskVfs};
 use self::vfs::file::SqliteFile;
 use crate::pager::pager::Pager;
 
-pub struct SqliteDatabase {
-    pub pager: Pager,
+pub struct SqliteDatabase<F: SqliteFile> {
+    pub pager: Pager<F>,
     header: SqliteDatabaseHeader,
 }
 
-impl SqliteDatabase {
+impl SqliteDatabase<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
         let sqlite_default_vfs = DiskVfs;
         Self::with_source(sqlite_default_vfs, db_path)
@@ -51,11 +52,10 @@ impl SqliteDatabase {
 }
 
 // 'f file source
-impl SqliteDatabase {
+impl<F: SqliteFile> SqliteDatabase<F> {
     pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteError>
     where
-        V: Vfs,
-        V::File: 'static,
+        V: Vfs<File = F>,
     {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
@@ -73,8 +73,7 @@ impl SqliteDatabase {
         cache_size: usize,
     ) -> Result<Self, SqliteError>
     where
-        V: Vfs,
-        V::File: 'static,
+        V: Vfs<File = F>,
     {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
@@ -87,14 +86,14 @@ impl SqliteDatabase {
         );
         Ok(Self { pager, header })
     }
-    fn source(&self) -> &dyn SqliteFile {
-        &*self.pager.source
+    fn source(&self) -> &F {
+        &self.pager.source
     }
-    fn cursor(&self) -> FileCursor<'_, dyn SqliteFile> {
-        FileCursor::new(&*self.pager.source)
+    fn cursor(&self) -> FileCursor<'_, F> {
+        FileCursor::new(&self.pager.source)
     }
-    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, dyn SqliteFile> {
-        FileCursor::with_offset(&*self.pager.source, offset)
+    fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, F> {
+        FileCursor::with_offset(&self.pager.source, offset)
     }
     pub fn header(&self) -> &'_ SqliteDatabaseHeader {
         &self.header
@@ -140,9 +139,9 @@ impl SqliteDatabase {
         Ok(())
     }
 
-    fn validate_page<F>(&mut self, page_no: PageNo, exception: Option<F>) -> Result<(), SqliteError>
+    fn validate_page<E>(&mut self, page_no: PageNo, exception: Option<E>) -> Result<(), SqliteError>
     where
-        F: Fn(PageNo) -> bool,
+        E: Fn(PageNo) -> bool,
     {
         if let Some(exc) = exception
             && exc(page_no)

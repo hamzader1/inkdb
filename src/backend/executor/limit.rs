@@ -2,18 +2,19 @@ use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
+use crate::vfs::file::SqliteFile;
 
 use super::Row;
 
 #[derive(Debug)]
-pub struct Limit {
-    child: Box<Plan>,
+pub struct Limit<F: SqliteFile> {
+    child: Box<Plan<F>>,
     limit: usize,
     is_done: bool,
 }
 
-impl Limit {
-    pub fn new(child: Box<Plan>, limit: usize) -> Self {
+impl<F: SqliteFile> Limit<F> {
+    pub fn new(child: Box<Plan<F>>, limit: usize) -> Self {
         Self {
             child,
             limit,
@@ -22,7 +23,7 @@ impl Limit {
     }
     pub fn next(
         &mut self,
-        pager: &mut Pager,
+        pager: &mut Pager<F>,
         arena: &ExprArena,
     ) -> Result<Option<Row>, SqliteError> {
         if self.is_done {

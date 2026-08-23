@@ -20,12 +20,12 @@ pub type DbError = SqliteError;
 use crate::pager::pager::Pager;
 use crate::vfs::disk::{DiskFile, DiskVfs};
 
-pub struct Database {
-    pub pager: Pager,
+pub struct Database<F: crate::vfs::file::SqliteFile> {
+    pub pager: Pager<F>,
     header: SqliteDatabaseHeader,
 }
 
-impl Database {
+impl Database<DiskFile> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
         let sqlite_default_vfs = DiskVfs;
         Self::with_source(sqlite_default_vfs, db_path)
@@ -53,11 +53,10 @@ impl Database {
     }
 }
 
-impl Database {
+impl<F: crate::vfs::file::SqliteFile> Database<F> {
     pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteError>
     where
-        V: Vfs,
-        V::File: 'static,
+        V: Vfs<File = F>,
     {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
@@ -75,8 +74,7 @@ impl Database {
         cache_size: usize,
     ) -> Result<Self, SqliteError>
     where
-        V: Vfs,
-        V::File: 'static,
+        V: Vfs<File = F>,
     {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
