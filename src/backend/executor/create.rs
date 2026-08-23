@@ -1,7 +1,7 @@
 use crate::backend::analyze::ResolvedCreateTableQuery;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::record::{SqlType, Value, encode_sqlite};
+use crate::record::{SqlType, Value};
 use crate::storage::btree::{BTree, BTreeCursor};
 use crate::storage::cell::Encode;
 use crate::storage::page::{BTreePageMut, BTreePageType};

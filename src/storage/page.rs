@@ -7,7 +7,8 @@ use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
-use crate::record::{Record, RecordMetadata, Value};
+use crate::record::tuple::Tuple;
+use crate::record::{RecordMetadata, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
@@ -278,9 +279,9 @@ impl<'p> BTreePageRef<'p> {
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
-            let record_metadata = Record::content_size(serial_type);
+            let record_metadata = Tuple::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
-            collector.push(Record::decode_sqltype_owned(data, &record_metadata));
+            collector.push(Tuple::decode_sqltype_owned(data, &record_metadata));
             remaining -= consumed;
         }
         Ok(())
@@ -296,9 +297,9 @@ impl<'p> BTreePageRef<'p> {
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
-            let record_metadata = Record::content_size(serial_type);
+            let record_metadata = Tuple::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
-            collector.push(Record::decode_sqltype_borrowed(data, &record_metadata));
+            collector.push(Tuple::decode_sqltype_borrowed(data, &record_metadata));
             remaining -= consumed;
         }
         Ok(())

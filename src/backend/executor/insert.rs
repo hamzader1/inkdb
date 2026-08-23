@@ -5,7 +5,7 @@ use crate::backend::executor::eval::Eval;
 use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::{PageNo, Pager};
-use crate::record::{SqlType, Value, encode_sqlite};
+use crate::record::{SqlType, Value, tuple::Tuple};
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::{BTree, BTreeCursor};
 use crate::storage::cell::{BTreeCellType, Encode};
@@ -33,7 +33,7 @@ impl<'a> Insert<'a> {
         let mut header = Vec::<u8>::new();
         let mut buffer = [0u8; 9];
         for value in self.values.iter() {
-            let data_type = encode_sqlite(value, &mut payload);
+            let data_type = Tuple::encode_sqltype(value, &mut payload);
             let vint = encode_varint(&mut buffer, data_type as _);
             header.extend_from_slice(&buffer[..vint]);
         }
