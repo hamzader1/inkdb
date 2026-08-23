@@ -21,7 +21,7 @@ impl Project {
         pager: &mut crate::pager::pager::Pager,
         arena: &ExprArena,
     ) -> Result<Option<super::Row>, crate::errors::SqliteError> {
-        if let Some(row) = self.child.next(pager, arena)? {
+        if let Some(row) = self.child.next(pager, Some(arena))? {
             let output_row: Vec<Value<'static>> = self
                 .columns
                 .iter()

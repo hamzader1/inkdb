@@ -29,7 +29,7 @@ impl Limit {
             return Ok(None);
         }
         if self.limit > 0
-            && let Some(row) = self.child.next(pager, arena)?
+            && let Some(row) = self.child.next(pager, Some(arena))?
         {
             self.limit -= 1;
             if self.limit == 0 {

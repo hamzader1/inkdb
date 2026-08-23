@@ -273,7 +273,6 @@ impl Pager {
         self.buffer_pool.frame_buffer[frameid].reset_to(CLEAN);
         self.source.write_all_at(offset as _, bytes)?;
         self.statistics.inc_disk_write();
-        self.source.sync()?; // temporary for now !!
         Ok(())
     }
     pub fn flush_all(&mut self) -> Result<(), SqliteError> {
@@ -290,6 +289,7 @@ impl Pager {
             tail = frame.prev;
             self.dp_ll_remove(tail_f_id);
         }
+        self.source.sync()?; // temporary for now !!
         Ok(())
     }
 

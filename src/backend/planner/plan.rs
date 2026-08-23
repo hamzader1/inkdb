@@ -24,14 +24,14 @@ pub enum Plan {
 #[derive(Debug)]
 pub struct Arena {
     parent: Plan,
-    arena: ExprArena,
+    arena: Option<ExprArena>,
 }
 impl Arena {
-    pub fn new(parent: Plan, arena: ExprArena) -> Self {
+    pub fn new(parent: Plan, arena: Option<ExprArena>) -> Self {
         Self { parent, arena }
     }
     pub fn next(&mut self, pager: &mut Pager) -> Result<Option<Row>, SqliteError> {
-        self.parent.next(pager, &self.arena)
+        self.parent.next(pager, self.arena.as_ref())
     }
 }
 
@@ -43,10 +43,9 @@ impl Plan {
         match resolved_query {
             ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
             ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
-            ResolvedQuery::CreateTableQuery(stmt) => Ok(Arena::new(
-                Plan::CreateTable(CreateTable::new(stmt)),
-                ExprArena::new(),
-            )),
+            ResolvedQuery::CreateTableQuery(stmt) => {
+                Ok(Arena::new(Plan::CreateTable(CreateTable::new(stmt)), None))
+            }
             _ => todo!(), // ResolvedQuery::CreateTableQuery(stmt) => Ok(ResolvedQuery::
         }
     }
@@ -68,7 +67,7 @@ impl Plan {
             resolved_query.columns.clone(),
         ));
 
-        Ok(Arena::new(parent, resolved_query.arena))
+        Ok(Arena::new(parent, Some(resolved_query.arena)))
     }
 
     pub fn initialize_insert_plan(
@@ -81,7 +80,7 @@ impl Plan {
         ));
         Ok(Arena {
             parent: plan,
-            arena: ExprArena::new(),
+            arena: None,
         })
     }
 }
@@ -90,13 +89,13 @@ impl Plan {
     pub fn next(
         &mut self,
         pager: &mut Pager,
-        arena: &ExprArena,
+        arena: Option<&ExprArena>,
     ) -> Result<Option<Row>, SqliteError> {
         match self {
             Self::TableScan(t) => t.next(pager),
-            Self::Filter(f) => f.next(pager, arena),
-            Self::Limit(l) => l.next(pager, arena),
-            Self::Project(p) => p.next(pager, arena),
+            Self::Filter(f) => f.next(pager, arena.unwrap()),
+            Self::Limit(l) => l.next(pager, arena.unwrap()),
+            Self::Project(p) => p.next(pager, arena.unwrap()),
             Self::Insert(i) => i.next(pager),
             Self::CreateTable(c) => c.next(pager),
             _ => todo!(),

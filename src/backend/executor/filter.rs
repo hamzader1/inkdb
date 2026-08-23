@@ -24,7 +24,7 @@ impl Filter {
         arena: &ExprArena,
     ) -> Result<Option<Row>, SqliteError> {
         loop {
-            let row = match self.child.next(pager, arena)? {
+            let row = match self.child.next(pager, Some(arena))? {
                 Some(row) => row,
                 _ => return Ok(None),
             };
