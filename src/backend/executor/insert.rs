@@ -59,6 +59,34 @@ impl<'a> Insert<'a> {
         let cell_payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
 
         btree.insert(next_row_id.into_sqlite_value(), cell_payload)?;
+        #[cfg(feature = "debug-instrument")]
+        {
+            crate::trace_event!(
+                crate::debug::trace::EventKind::Insert,
+                crate::debug::trace::EventData::insert(
+                    next_row_id as i64,
+                    0,
+                    page_no,
+                    cell_idx,
+                    false,
+                    false
+                )
+            );
+            crate::debug::breakpoint::check_breakpoint(&crate::debug::trace::TraceEvent {
+                seq: crate::debug::seq::current_seq(),
+                parent_seq: 0,
+                kind: crate::debug::trace::EventKind::Insert,
+                timestamp_ns: 0,
+                data: crate::debug::trace::EventData::insert(
+                    next_row_id as i64,
+                    0,
+                    page_no,
+                    cell_idx,
+                    false,
+                    false,
+                ),
+            });
+        }
         Ok(None)
     }
 }

@@ -1,5 +1,7 @@
 #![allow(unused, dead_code)] // temp for now
 // #![warn(unused_results)]
+#[cfg(feature = "debug-instrument")]
+use ink_debug_macro::instrument;
 pub mod backend;
 use backend::planner::plan::*;
 mod bytes;
@@ -13,6 +15,7 @@ mod schema;
 pub use schema::SqliteMaster;
 pub mod errors;
 
+pub mod debug;
 mod macros;
 pub mod pager;
 pub mod storage;

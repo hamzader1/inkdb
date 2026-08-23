@@ -13,6 +13,8 @@ use crate::pager::pager::PageNo;
 use crate::SqliteCursor;
 use crate::SqliteError;
 
+#[cfg(feature = "debug-instrument")]
+use crate::debug::{trace::EventData, trace::EventKind};
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
@@ -20,6 +22,8 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
+#[cfg(feature = "debug-instrument")]
+use ink_debug_macro::instrument;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
@@ -516,6 +520,11 @@ impl<'a> BTree<'a> {
             let meta = self.balance(page_no)?;
             self.insert_key_to_leaf(&key, content, meta)?;
         }
+        #[cfg(feature = "debug-instrument")]
+        crate::trace_event!(
+            crate::debug::trace::EventKind::Insert,
+            crate::debug::trace::EventData::insert(0, 0, page_no, cell_idx, false, false)
+        );
         Ok(())
     }
 
@@ -547,6 +556,11 @@ impl<'a> BTree<'a> {
             }
             slice[0..4].copy_from_slice(&u32::to_be_bytes(curr_page));
         }
+        #[cfg(feature = "debug-instrument")]
+        crate::trace_event!(
+            crate::debug::trace::EventKind::Overflow,
+            crate::debug::trace::EventData::page(first_overflow_page, 0, 0, 0, true)
+        );
         Ok(())
     }
 
@@ -646,7 +660,7 @@ impl<'a> BTree<'a> {
             let mut root = BTreePageMut::new_from_scratch(
                 left_page.page_no,
                 BTreePageType::InteriorTable,
-                left_page_guard.bytes_as_mut().unwrap(),
+                left_page.bytes,
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
@@ -657,6 +671,16 @@ impl<'a> BTree<'a> {
             let left_child_payload =
                 Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
             root.insert_cell(&left_child_payload, 0)?;
+            #[cfg(feature = "debug-instrument")]
+            crate::trace_event!(
+                crate::debug::trace::EventKind::Split,
+                crate::debug::trace::EventData::split(
+                    new_left_page_no,
+                    right_page.page_no,
+                    left_page.page_no,
+                    rowid as i64
+                )
+            );
             Ok(SplitMetadata::new(
                 new_left_page_no,
                 right_page.page_no,
@@ -991,7 +1015,6 @@ impl<'a> BTree<'a> {
     // TODO:
     //     USE FREE LIST AS FIRST THING TO CHECK BEFORE RUSHING
     //     INTO THE DISK
-    //
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
         let max_allocated_pages = self.pager.metadata.max_allocated_pages;
         let new_page_no = max_allocated_pages + 1;
@@ -999,6 +1022,11 @@ impl<'a> BTree<'a> {
         self.pager.source.set_len(new_len)?;
         self.pager.metadata.max_allocated_pages += 1;
         self.update_max_allocated_pages()?;
+        #[cfg(feature = "debug-instrument")]
+        crate::trace_event!(
+            crate::debug::trace::EventKind::PageAlloc,
+            crate::debug::trace::EventData::page(new_page_no as u32, 0, 0, 0, true)
+        );
         Ok(new_page_no as _)
     }
     // TODO: CACHE DATABASE HEADER AS WE NEED TO READ AND WRITE CONSTENTLY FROM IT

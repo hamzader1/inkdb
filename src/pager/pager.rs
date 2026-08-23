@@ -10,8 +10,12 @@ use super::guard::{BorrowState, PageGuard};
 use super::metadata::SqliteMetadata;
 use super::statistics::SqliteStatistics;
 use crate::DbError;
+#[cfg(feature = "debug-instrument")]
+use crate::debug::{trace::EventData, trace::EventKind};
 use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
+#[cfg(feature = "debug-instrument")]
+use ink_debug_macro::instrument;
 
 pub type PageNo = u32;
 
@@ -65,6 +69,11 @@ impl Pager {
             None::<fn(_) -> bool>,
         )?;
         self.ensure_page_loaded(page_no)?;
+        #[cfg(feature = "debug-instrument")]
+        crate::trace_event!(
+            crate::debug::trace::EventKind::PageRead,
+            crate::debug::trace::EventData::page(page_no, 0, 0, 0, false)
+        );
         Ok(self
             .try_get_fast(page_no)
             .expect("page should be present after get_impl"))
@@ -77,6 +86,11 @@ impl Pager {
             None::<fn(_) -> bool>,
         )?;
         let was_dirty = self.ensure_page_loaded(page_no)?;
+        #[cfg(feature = "debug-instrument")]
+        crate::trace_event!(
+            crate::debug::trace::EventKind::PageWrite,
+            crate::debug::trace::EventData::page(page_no, 0, 0, 0, true)
+        );
         Ok(self
             .try_get_fast_mut(page_no, was_dirty)
             .expect("page should be present after get_impl"))
@@ -274,6 +288,11 @@ impl Pager {
         self.source.write_all_at(offset as _, bytes)?;
         self.statistics.inc_disk_write();
         self.source.sync()?; // temporary for now !!
+        #[cfg(feature = "debug-instrument")]
+        crate::trace_event!(
+            crate::debug::trace::EventKind::PageWrite,
+            crate::debug::trace::EventData::page(page_no, 0, 0, 0, true)
+        );
         Ok(())
     }
     pub fn flush_all(&mut self) -> Result<(), SqliteError> {
