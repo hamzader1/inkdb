@@ -242,7 +242,11 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             page_no = child;
         }
     }
-    fn descend_to_last(&mut self, pager: &mut Pager<F>, page_no: PageNo) -> Result<(), SqliteError> {
+    fn descend_to_last(
+        &mut self,
+        pager: &mut Pager<F>,
+        page_no: PageNo,
+    ) -> Result<(), SqliteError> {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
@@ -405,14 +409,20 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         }
     }
 
-    pub fn current_page_as_ref<'a>(&'a self, pager: &mut Pager<F>) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
+    pub fn current_page_as_ref<'a>(
+        &'a self,
+        pager: &mut Pager<F>,
+    ) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let page = page_as_ref_with_pager(path.page_no, &path.guard, pager)?;
             return Ok(Some(page));
         }
         Ok(None)
     }
-    pub fn current_record<'a>(&'a self, pager: &mut Pager<F>) -> Result<Option<Vec<Value<'a>>>, SqliteError> {
+    pub fn current_record<'a>(
+        &'a self,
+        pager: &mut Pager<F>,
+    ) -> Result<Option<Vec<Value<'a>>>, SqliteError> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current(pager)?
         {
@@ -938,7 +948,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         )
     }
 
-    pub fn with_page_ref<Func, R>(&mut self, page_no: PageNo, f: Func) -> Result<Option<R>, SqliteError>
+    pub fn with_page_ref<Func, R>(
+        &mut self,
+        page_no: PageNo,
+        f: Func,
+    ) -> Result<Option<R>, SqliteError>
     where
         Func: FnOnce(&BTreePageRef) -> Result<Option<R>, SqliteError>,
     {
@@ -947,7 +961,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         f(&p)
     }
 
-    pub fn with_page_mut<Func, R>(&mut self, page_no: PageNo, f: Func) -> Result<Option<R>, SqliteError>
+    pub fn with_page_mut<Func, R>(
+        &mut self,
+        page_no: PageNo,
+        f: Func,
+    ) -> Result<Option<R>, SqliteError>
     where
         Func: FnOnce(&BTreePageMut) -> Result<Option<R>, SqliteError>,
     {
@@ -998,10 +1016,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     }
 }
 
-// Free functions instead of associated functions on `BTree<'a, F>`: neither
-// uses `self` nor the struct's `F`/`'a`, and unlike the struct's `F` the
-// generic `P` here IS constrained by the `pager` argument, so callers get
-// inference for free instead of needing a turbofish.
 fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
     page_no: PageNo,
     guard: &'b PageGuard,
