@@ -20,6 +20,7 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::vfs::file::SqliteFile;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;

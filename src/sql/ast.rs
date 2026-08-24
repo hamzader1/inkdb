@@ -163,6 +163,8 @@ pub enum Ast {
     CreateIndexAst(CreateIndex),
     SelectStmtAst(SelectStmt),
     InsertStmtAst(InsertStmt),
+    BeginTransaction,
+    CommitTransaction,
 }
 
 impl From<TokenKind> for Affinity {

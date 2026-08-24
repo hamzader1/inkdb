@@ -9,6 +9,7 @@ pub mod insert;
 pub mod limit;
 pub mod project;
 pub mod scan;
+pub mod transaction;
 pub type Row = Vec<Value<'static>>;
 
 #[repr(transparent)]
