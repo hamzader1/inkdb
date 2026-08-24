@@ -109,7 +109,7 @@ impl<F: SqliteFile> Pager<F> {
         )?;
         let was_dirty = self.ensure_page_loaded(page_no)?;
         if !self.journal.is_init() {
-            self.journal.init();
+            self.journal.init()?;
         }
         Ok(self
             .get_fast_mut(page_no, was_dirty)?
