@@ -7,6 +7,7 @@ pub mod cursor;
 pub mod disk;
 pub mod file;
 pub mod mem;
+mod temp;
 
 const READ: u8 = 1 << 0;
 const WRITE: u8 = 1 << 1;
@@ -57,6 +58,12 @@ impl SqliteOptions {
 
     pub fn is_create(&self) -> bool {
         self.options & CREATE != 0
+    }
+
+    pub fn all() -> Self {
+        Self {
+            options: READ | WRITE | CREATE,
+        }
     }
 }
 

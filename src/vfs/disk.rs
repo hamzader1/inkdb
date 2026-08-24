@@ -11,6 +11,7 @@ use std::os::unix::fs::FileExt;
 
 #[cfg(windows)]
 use std::os::windows::fs::FileExt;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct DiskVfs;
@@ -18,6 +19,7 @@ pub struct DiskVfs;
 #[derive(Debug)]
 pub struct DiskFile {
     pub file: std::fs::File,
+    pub path: PathBuf,
 }
 
 impl Vfs for DiskVfs {
@@ -29,13 +31,27 @@ impl Vfs for DiskVfs {
         options: super::SqliteOptions,
     ) -> Result<Self::File, crate::DbError> {
         let options = OpenOptions::from(options);
-        let file = options.open(f)?;
-        Ok(DiskFile { file })
+        let file = options.open(&f)?;
+        Ok(DiskFile {
+            file,
+            path: f.as_ref().to_path_buf(),
+        })
     }
 }
 
 #[cfg(unix)]
 impl SqliteFile for DiskFile {
+    fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    fn name(&self) -> &str {
+        self.path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .expect("Error while trying to convert OsStr")
+    }
     fn len(&self) -> Result<u64, DbError> {
         let len = self.file.metadata()?.len();
         Ok(len)
@@ -76,6 +92,17 @@ impl SqliteFile for DiskFile {
 
 #[cfg(windows)]
 impl SqliteFile for DiskFile {
+    fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    fn name(&self) -> &str {
+        self.path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .expect("Error while trying to convert OsStr")
+    }
     fn len(&self) -> Result<u64, DbError> {
         let len = self.file.metadata()?.len();
         Ok(len)

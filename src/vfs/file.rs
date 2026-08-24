@@ -1,7 +1,13 @@
+use std::path::PathBuf;
+
 use crate::DbError;
 
 #[allow(clippy::len_without_is_empty)]
 pub trait SqliteFile {
+    fn name(&self) -> &str;
+
+    fn path(&self) -> PathBuf;
+
     fn len(&self) -> Result<u64, DbError>;
 
     fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), DbError>;
@@ -11,4 +17,5 @@ pub trait SqliteFile {
     fn set_len(&self, len: usize) -> Result<(), DbError>;
 
     fn sync(&self) -> Result<(), DbError>;
+
 }
