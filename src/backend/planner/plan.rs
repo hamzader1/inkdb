@@ -27,56 +27,56 @@ pub struct Arena<F: SqliteFile> {
     arena: Option<ExprArena>,
 }
 impl<F: SqliteFile> Arena<F> {
-        pub fn new(parent: Plan<F>, arena: Option<ExprArena>) -> Self {
-            Self { parent, arena }
-        }
-        pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
-            self.parent.next(pager, self.arena.as_ref())
+    pub fn new(parent: Plan<F>, arena: Option<ExprArena>) -> Self {
+        Self { parent, arena }
+    }
+    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+        self.parent.next(pager, self.arena.as_ref())
+    }
+}
+
+impl<F: SqliteFile> Plan<F> {
+    pub fn create_plan(
+        resolved_query: ResolvedQuery,
+        pager: &mut Pager<F>,
+    ) -> Result<Arena<F>, SqliteError> {
+        match resolved_query {
+            ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
+            ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
+            ResolvedQuery::CreateTableQuery(stmt) => {
+                Ok(Arena::new(Plan::CreateTable(CreateTable::new(stmt)), None))
+            }
+            _ => todo!(),
         }
     }
 
-    impl<F: SqliteFile> Plan<F> {
-        pub fn create_plan(
-            resolved_query: ResolvedQuery,
-            pager: &mut Pager<F>,
-        ) -> Result<Arena<F>, SqliteError> {
-            match resolved_query {
-                ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
-                ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
-                ResolvedQuery::CreateTableQuery(stmt) => {
-                    Ok(Arena::new(Plan::CreateTable(CreateTable::new(stmt)), None))
-                }
-                _ => todo!(),
-            }
+    pub fn initialize_select_plan(
+        resolved_query: ResolvedSelectQuery,
+        pager: &mut Pager<F>,
+    ) -> Result<Arena<F>, SqliteError> {
+        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        if let Some(predict) = resolved_query.where_clause {
+            child = Self::Filter(Filter::new(Box::new(child), predict));
         }
-
-        pub fn initialize_select_plan(
-            resolved_query: ResolvedSelectQuery,
-            pager: &mut Pager<F>,
-        ) -> Result<Arena<F>, SqliteError> {
-            let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
-            if let Some(predict) = resolved_query.where_clause {
-                child = Self::Filter(Filter::new(Box::new(child), predict));
-            }
-            if let Some(limit) = resolved_query.limit {
-                let limit = Eval::eval(&resolved_query.arena, limit)?.get_int()? as usize;
-                child = Self::Limit(Limit::new(Box::new(child), limit));
-            }
-            let parent = Self::Project(Project::new(
-                Box::new(child),
-                resolved_query.columns.clone(),
-            ));
-
-            Ok(Arena::new(parent, Some(resolved_query.arena)))
+        if let Some(limit) = resolved_query.limit {
+            let limit = Eval::eval(&resolved_query.arena, limit)?.get_int()? as usize;
+            child = Self::Limit(Limit::new(Box::new(child), limit));
         }
+        let parent = Self::Project(Project::new(
+            Box::new(child),
+            resolved_query.columns.clone(),
+        ));
 
-        pub fn initialize_insert_plan(
-            resolved_query: ResolvedInsertQuery,
-        ) -> Result<Arena<F>, SqliteError> {
-            let plan = Plan::Insert(Insert::new(
-                resolved_query.root,
-                resolved_query.values,
-                resolved_query.entry_hint,
+        Ok(Arena::new(parent, Some(resolved_query.arena)))
+    }
+
+    pub fn initialize_insert_plan(
+        resolved_query: ResolvedInsertQuery,
+    ) -> Result<Arena<F>, SqliteError> {
+        let plan = Plan::Insert(Insert::new(
+            resolved_query.root,
+            resolved_query.values,
+            resolved_query.entry_hint,
         ));
         Ok(Arena {
             parent: plan,

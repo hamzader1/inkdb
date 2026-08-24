@@ -1,7 +1,7 @@
 use crate::backend::planner::plan::Plan;
+use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::parser::ExprArena;
-use crate::pager::pager::Pager;
 use crate::vfs::file::SqliteFile;
 
 use super::eval::Eval;

@@ -5,13 +5,13 @@ use crate::backend::executor::eval::Eval;
 use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::{PageNo, Pager};
-use crate::vfs::file::SqliteFile;
 use crate::record::{SqlType, Value, tuple::Tuple};
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::{BTree, BTreeCursor};
 use crate::storage::cell::{BTreeCellType, Encode};
 use crate::varint::encode_varint;
 use crate::vfs::cursor;
+use crate::vfs::file::SqliteFile;
 
 #[derive(Debug)]
 pub struct Insert<'a, F: SqliteFile> {

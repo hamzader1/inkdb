@@ -1,9 +1,9 @@
 use crate::errors::SqliteError;
+use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::BTreeCursor;
 use crate::storage::page::BTreePageRef;
-use crate::pager::pager::Pager;
 use crate::vfs::file::SqliteFile;
 
 use super::Row;
