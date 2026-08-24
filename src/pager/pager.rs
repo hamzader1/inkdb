@@ -97,7 +97,7 @@ impl<F: SqliteFile> Pager<F> {
         )?;
         self.ensure_page_loaded(page_no)?;
         Ok(self
-            .try_get_fast(page_no)
+            .get_fast(page_no)
             .expect("page should be present after get_impl"))
     }
 
@@ -108,13 +108,16 @@ impl<F: SqliteFile> Pager<F> {
             None::<fn(_) -> bool>,
         )?;
         let was_dirty = self.ensure_page_loaded(page_no)?;
+        if !self.journal.is_init() {
+            self.journal.init();
+        }
         Ok(self
-            .try_get_fast_mut(page_no, was_dirty)
+            .get_fast_mut(page_no, was_dirty)?
             .expect("page should be present after get_impl"))
     }
 
     // cache look up
-    fn try_get_fast(&mut self, page_no: PageNo) -> Option<PageGuard> {
+    fn get_fast(&mut self, page_no: PageNo) -> Option<PageGuard> {
         if let Some(frame_id) = self.buffer_pool.page_table.get(&page_no) {
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
@@ -126,8 +129,16 @@ impl<F: SqliteFile> Pager<F> {
         None
     }
 
-    fn try_get_fast_mut(&mut self, page_no: PageNo, was_dirty: bool) -> Option<PageGuard> {
+    fn get_fast_mut(
+        &mut self,
+        page_no: PageNo,
+        was_dirty: bool,
+    ) -> Result<Option<PageGuard>, SqliteError> {
         if let Some(frame_id) = self.buffer_pool.page_table.get(&page_no) {
+            debug_assert!(
+                self.in_transaction,
+                "Cannot mutably access a page outside of a transaction"
+            );
             let frame_id = *frame_id;
             let frame = &mut self.buffer_pool.frame_buffer[frame_id];
             frame.incr_pin_count();
@@ -142,10 +153,15 @@ impl<F: SqliteFile> Pager<F> {
             if !was_dirty {
                 self.dp_ll_insert(frame_id);
             }
-            let page_guard = self.page_guard_mut(frame_id);
-            return Some(page_guard);
+            let mut page_guard = self.page_guard_mut(frame_id);
+            if !self.journal_pages.contains(&page_no) {
+                self.journal_pages.insert(page_no);
+                self.journal
+                    .add_page(page_no, page_guard.bytes_as_mut().unwrap());
+            }
+            return Ok(Some(page_guard));
         }
-        None
+        Ok(None)
     }
     // page not in cache
     fn ensure_page_loaded(&mut self, page_no: PageNo) -> Result<bool, DbError> {
@@ -199,6 +215,8 @@ impl<F: SqliteFile> Pager<F> {
         // if the frame is dirty, flush it to the disk first
         if frame.is(DIRTY) {
             self.flush_page(frame_page_no, frameid)?;
+            self.source.sync()?;
+            self.journal_pages.remove(&frame_page_no);
             self.dp_ll_remove(frameid);
         }
 
@@ -320,7 +338,6 @@ impl<F: SqliteFile> Pager<F> {
             tail = frame.prev;
             self.dp_ll_remove(tail_f_id);
         }
-        self.source.sync()?; // temporary for now !!
         Ok(())
     }
 
