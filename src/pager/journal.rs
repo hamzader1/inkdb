@@ -84,4 +84,67 @@ impl<'s> Journal<'s> {
         file.sync()?;
         Ok(())
     }
+
+    pub fn make_iterator<'a>(&'a self) -> Result<JournalIter<'a>, SqliteError> {
+        JournalIter::new(
+            &self.buffer,
+            self.page_count as _,
+            (self.page_size + 4) as _,
+        )
+    }
+
+    pub fn rollback(&mut self) {
+        unsafe {
+            self.buffer.set_len(JOURNAL_HEADER_SIZE);
+            self.buffer[8..12].copy_from_slice(&[0, 0, 0, 0]);
+        }
+    }
+}
+
+pub struct JournalIter<'a> {
+    cursor: SqliteCursor<'a>,
+    hint: usize,
+    count: usize,
+    step_by: usize,
+}
+pub struct JournalPage<'a> {
+    pub page_no: PageNo,
+    pub data: &'a [u8],
+}
+impl<'a> JournalPage<'a> {
+    pub fn new(bytes: &'a [u8]) -> Self {
+        debug_assert!(
+            bytes.len() >= 4,
+            "Jounal page should at least hold the page number"
+        );
+        let page_no_bytes: [u8; 4] = *bytes[0..4].as_array().unwrap();
+        let page_no = u32::from_be_bytes(page_no_bytes);
+        Self {
+            page_no,
+            data: &bytes[4..],
+        }
+    }
+}
+
+impl<'a> JournalIter<'a> {
+    pub fn new(bytes: &'a [u8], hint: usize, step_by: usize) -> Result<Self, SqliteError> {
+        let cursor = SqliteCursor::with_offset(bytes, JOURNAL_HEADER_SIZE as _)?;
+        Ok(Self {
+            cursor,
+            hint,
+            step_by,
+            count: 0,
+        })
+    }
+
+    pub fn iter(&mut self) -> Result<Option<JournalPage<'a>>, SqliteError> {
+        if self.hint == self.count {
+            return Ok(None);
+        }
+        if let Ok(bytes) = self.cursor.read_to(self.step_by as _) {
+            self.count += 1;
+            return Ok(Some(JournalPage::new(bytes)));
+        }
+        Ok(None)
+    }
 }
