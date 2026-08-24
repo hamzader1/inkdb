@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Rem;
 use std::ptr::NonNull;
 
@@ -7,6 +8,7 @@ use super::buffer_pool::{self, BufferPool};
 use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::guard::{BorrowState, PageGuard};
+use super::journal::{Journal, JournalMeta};
 use super::metadata::SqliteMetadata;
 use super::statistics::SqliteStatistics;
 use crate::DbError;
@@ -19,10 +21,13 @@ pub type PageNo = u32;
 pub struct Pager<F: SqliteFile> {
     pub source: F,
     pub buffer_pool: BufferPool,
+    journal: Journal,
+    journal_pages: HashSet<PageNo>,
     // dirty pages linked list instead of new allocations
     pub dp_ll: Option<FrameId>,
     pub metadata: SqliteMetadata,
     pub statistics: SqliteStatistics,
+    in_transaction: bool,
 }
 
 impl<F: SqliteFile> Pager<F> {
@@ -32,12 +37,21 @@ impl<F: SqliteFile> Pager<F> {
         usable_size: usize,
         max_allocated_pages: usize,
     ) -> Self {
+        let journal_meta = JournalMeta {
+            db_name: source.name().to_string(),
+            path: source.path(),
+            p_size: page_size as _,
+            db_size: source.len().expect("Error while trying to get the db len") as _,
+        };
         Self {
             source,
             buffer_pool: BufferPool::new(page_size),
             dp_ll: None,
+            journal: Journal::new(journal_meta),
+            journal_pages: HashSet::new(),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
             statistics: SqliteStatistics::default(),
+            in_transaction: false,
         }
     }
 
@@ -48,15 +62,32 @@ impl<F: SqliteFile> Pager<F> {
         max_allocated_pages: usize,
         cache_size: usize,
     ) -> Self {
+        let journal_meta = JournalMeta {
+            db_name: source.name().to_string(),
+            path: source.path(),
+            p_size: page_size as _,
+            db_size: source.len().expect("Error while trying to get the db len") as _,
+        };
         Self {
             source,
             buffer_pool: BufferPool::with_cache(cache_size, page_size),
             dp_ll: None,
+            journal: Journal::new(journal_meta),
+            journal_pages: HashSet::new(),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
             statistics: SqliteStatistics::default(),
+            in_transaction: false,
         }
     }
 
+    pub fn in_transaction(&self) -> bool {
+        self.in_transaction
+    }
+    /// We do not start transaction immediately until
+    /// we get a second sign by calling [`Pager::get_mut(..)`]
+    pub fn start_transaction(&mut self) {
+        self.in_transaction = true;
+    }
     // PageGuard holds lifetime of self
     pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {
         Self::validate_page(
