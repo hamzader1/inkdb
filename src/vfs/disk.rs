@@ -42,7 +42,7 @@ impl Vfs for DiskVfs {
 #[cfg(unix)]
 impl SqliteFile for DiskFile {
     fn path(&self) -> PathBuf {
-        self.path.clone()
+        self.path.parent().unwrap().to_path_buf()
     }
 
     fn name(&self) -> &str {
@@ -93,7 +93,7 @@ impl SqliteFile for DiskFile {
 #[cfg(windows)]
 impl SqliteFile for DiskFile {
     fn path(&self) -> PathBuf {
-        self.path.clone()
+        self.path.parent.clone()
     }
 
     fn name(&self) -> &str {
