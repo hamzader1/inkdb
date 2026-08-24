@@ -339,6 +339,8 @@ impl<'a> Lexer<'a> {
                         "ELSE" => TokenKind::Else,
                         "END" => TokenKind::End,
                         "CAST" => TokenKind::Cast,
+                        "BEGIN" => TokenKind::Begin,
+                        "COMMIT" => TokenKind::Commit,
 
                         // NULL-related keywords
                         "ISNULL" => TokenKind::IsNull,

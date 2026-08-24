@@ -112,6 +112,9 @@ pub enum TokenKind {
     Text,
     Float,
     Bool,
+
+    Begin,
+    Commit,
 }
 use std::fmt;
 
@@ -134,6 +137,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Rowid => write!(f, "ROWID"),
             TokenKind::On => write!(f, "ON"),
             TokenKind::Delete => write!(f, "DELETE"),
+            TokenKind::Begin => write!(f, "BEGIN"),
+            TokenKind::Commit => write!(f, "COMMIT"),
             TokenKind::Update => write!(f, "UPDATE"),
             TokenKind::Desc => write!(f, "DESC"),
             TokenKind::Asc => write!(f, "ASC"),
