@@ -66,6 +66,9 @@ impl Journal {
         self.jfile = Some(file);
         Ok(())
     }
+    pub fn is_init(&self) -> bool {
+        self.jfile.is_some()
+    }
 
     pub fn add_page(&mut self, page_no: PageNo, data: &[u8]) {
         assert!(self.jfile.is_some());
@@ -89,7 +92,7 @@ impl Journal {
         Ok(())
     }
 
-    pub fn make_iterator<'a>(&'a self) -> Result<JournalIter<'a>, SqliteError> {
+    pub fn make_iterator(&self) -> Result<JournalIter, SqliteError> {
         JournalIter::new(
             &self.buffer,
             self.page_count as _,
@@ -103,10 +106,17 @@ impl Journal {
             self.buffer[8..12].copy_from_slice(&[0, 0, 0, 0]);
         }
     }
+
+    pub fn destroy(&mut self) {
+        let file_path = self.path.join(format!("{}-journal", self.db_name));
+        std::fs::remove_file(file_path);
+    }
 }
 
-pub struct JournalIter<'a> {
-    cursor: SqliteCursor<'a>,
+pub struct JournalIter {
+    bytes: Vec<u8>,
+    start: usize,
+    end: usize,
     hint: usize,
     count: usize,
     step_by: usize,
@@ -130,22 +140,26 @@ impl<'a> JournalPage<'a> {
     }
 }
 
-impl<'a> JournalIter<'a> {
-    pub fn new(bytes: &'a [u8], hint: usize, step_by: usize) -> Result<Self, SqliteError> {
-        let cursor = SqliteCursor::with_offset(bytes, JOURNAL_HEADER_SIZE as _)?;
+impl JournalIter {
+    pub fn new(bytes: &[u8], hint: usize, step_by: usize) -> Result<Self, SqliteError> {
         Ok(Self {
-            cursor,
             hint,
+            bytes: bytes.to_vec(),
+            start: JOURNAL_HEADER_SIZE,
+            end: JOURNAL_HEADER_SIZE + step_by,
             step_by,
             count: 0,
         })
     }
 
-    pub fn iter(&mut self) -> Result<Option<JournalPage<'a>>, SqliteError> {
+    pub fn iter<'a>(&'a mut self) -> Result<Option<JournalPage<'a>>, SqliteError> {
         if self.hint == self.count {
             return Ok(None);
         }
-        if let Ok(bytes) = self.cursor.read_to(self.step_by as _) {
+        if self.end <= self.bytes.len() {
+            let bytes = &self.bytes[self.start..self.end];
+            self.end += self.step_by;
+            self.start += self.step_by;
             self.count += 1;
             return Ok(Some(JournalPage::new(bytes)));
         }
