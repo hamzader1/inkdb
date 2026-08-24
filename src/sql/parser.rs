@@ -140,6 +140,8 @@ impl Parser {
             Some(Create) => self.parse_create(),
             Some(Select) => self.parse_select(),
             Some(Insert) => self.parse_insert(),
+            Some(Begin) => Ok(Ast::BeginTransaction),
+            Some(Commit) => Ok(Ast::CommitTransaction),
             _ => todo!(),
         }
     }
