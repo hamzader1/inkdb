@@ -6,6 +6,7 @@ use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
+use crate::backend::executor::transaction::{BeginTransaction, CommitTransaction};
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
@@ -19,6 +20,8 @@ pub enum Plan<F: SqliteFile> {
     Project(Project<F>),
     Insert(Insert<'static, F>),
     CreateTable(CreateTable),
+    BeginTransaction(BeginTransaction),
+    CommitTransaction(CommitTransaction),
 }
 
 #[derive(Debug)]
@@ -45,6 +48,12 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
             ResolvedQuery::CreateTableQuery(stmt) => {
                 Ok(Arena::new(Plan::CreateTable(CreateTable::new(stmt)), None))
+            }
+            ResolvedQuery::BeginTransactionQuery => {
+                Ok(Arena::new(Plan::BeginTransaction(BeginTransaction), None))
+            }
+            ResolvedQuery::CommitTransactionQuery => {
+                Ok(Arena::new(Plan::CommitTransaction(CommitTransaction), None))
             }
             _ => todo!(),
         }
@@ -98,6 +107,8 @@ impl<F: SqliteFile> Plan<F> {
             Self::Project(p) => p.next(pager, arena.unwrap()),
             Self::Insert(i) => i.next(pager),
             Self::CreateTable(c) => c.next(pager),
+            Self::BeginTransaction(bt) => bt.next(pager),
+            Self::CommitTransaction(ct) => ct.next(pager),
             _ => todo!(),
         }
     }
