@@ -1,3 +1,5 @@
+use crate::SqliteCursor;
+use crate::db::header::HEADER_STRING_SIZE;
 use crate::errors::SqliteError;
 use crate::vfs::disk::{DiskFile, DiskVfs};
 use crate::vfs::file::SqliteFile;
@@ -7,36 +9,38 @@ use std::path::PathBuf;
 use super::pager::PageNo;
 
 const JOURNAL_CAP: usize = 8;
-
+// 1: 0..8
 const JOURNAL_MAGIC: u64 = 0x4655434B494E474A; // DO NOT (HEX -> TEXT) IT
+// 2: 8..12
 const DEFAULT_JOURNAL_PAGE_COUNT: u32 = 0;
+// 3: 12..16
 const DATABASE_SIZE: u32 = 4;
 const JOURNAL_HEADER_SIZE: usize = 16;
 
-struct Journal<'s> {
+pub struct Journal {
     buffer: Vec<u8>,
     path: PathBuf,
     page_size: u16,
-    db_name: &'s str,
+    db_name: String,
     page_count: u32,
     jfile: Option<DiskFile>,
 }
 
-struct JournalMeta<'s> {
-    db_name: &'s str,
-    db_size: u32,
-    p_size: u16,
-    path: PathBuf,
+pub struct JournalMeta {
+    pub db_name: String,
+    pub db_size: u32,
+    pub p_size: u16,
+    pub path: PathBuf,
 }
 
-impl<'s> Journal<'s> {
+impl Journal {
     pub fn new(
         JournalMeta {
             db_name,
             db_size,
             p_size,
             path,
-        }: JournalMeta<'s>,
+        }: JournalMeta,
     ) -> Self {
         let mut buffer: Vec<u8> =
             Vec::with_capacity(JOURNAL_HEADER_SIZE + ((4 + p_size as usize) * JOURNAL_CAP));
