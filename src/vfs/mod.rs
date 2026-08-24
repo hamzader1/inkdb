@@ -58,6 +58,12 @@ impl SqliteOptions {
     pub fn is_create(&self) -> bool {
         self.options & CREATE != 0
     }
+
+    pub fn all() -> Self {
+        Self {
+            options: READ | WRITE | CREATE,
+        }
+    }
 }
 
 impl Default for SqliteOptions {
