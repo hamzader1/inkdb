@@ -1,13 +1,17 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use super::file::SqliteFile;
+use super::temp::create_temp_dir;
 use crate::DbError;
 use crate::errors::SqliteError;
 use crate::vfs::Vfs;
 
-use super::file::SqliteFile;
+const MEM_B: &str = "__INK_MEMORY_BUFFER";
+const MEM_D: &str = "__INK_MEMORY_DIR";
 
 #[derive(Debug, Default)]
 pub struct MemVfs {
@@ -49,15 +53,27 @@ impl Vfs for MemVfs {
 #[derive(Debug)]
 pub struct MemFile {
     bytes: Rc<RefCell<Vec<u8>>>,
+    temp_dir: PathBuf,
 }
 
 impl MemFile {
     pub fn new(bytes: Rc<RefCell<Vec<u8>>>) -> Self {
-        Self { bytes }
+        let path =
+            create_temp_dir(MEM_D).expect("Error while trying to create a temporary memory dir");
+        Self {
+            bytes,
+            temp_dir: path,
+        }
     }
 }
 
 impl SqliteFile for MemFile {
+    fn name(&self) -> &str {
+        MEM_B
+    }
+    fn path(&self) -> PathBuf {
+        self.temp_dir.clone()
+    }
     fn len(&self) -> Result<u64, DbError> {
         Ok(self.bytes.borrow().len() as u64)
     }

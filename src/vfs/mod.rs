@@ -7,6 +7,7 @@ pub mod cursor;
 pub mod disk;
 pub mod file;
 pub mod mem;
+mod temp;
 
 const READ: u8 = 1 << 0;
 const WRITE: u8 = 1 << 1;
