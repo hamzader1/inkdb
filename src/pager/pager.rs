@@ -350,6 +350,30 @@ impl<F: SqliteFile> Pager<F> {
     pub fn cached_page_count(&self) -> usize {
         self.buffer_pool.frame_buffer.len() - self.buffer_pool.free_frames.len()
     }
+
+    pub fn commit(&mut self) -> Result<(), SqliteError> {
+        self.journal.commit()?;
+        self.flush_all()?;
+        self.source.sync()?;
+        self.journal.destroy();
+        self.in_transaction = false;
+        Ok(())
+    }
+
+    pub fn rollback(&mut self) -> Result<(), SqliteError> {
+        let mut iterator = self.journal.make_iterator()?;
+        while let Some(page) = iterator.iter()? {
+            if self.journal_pages.contains(&page.page_no) {
+                let mut page_guard = self.get_mut(page.page_no)?;
+                page_guard
+                    .bytes_as_mut()
+                    .unwrap()
+                    .copy_from_slice(page.data);
+            }
+        }
+        self.journal.rollback();
+        Ok(())
+    }
 }
 
 impl<F: SqliteFile> Drop for Pager<F> {
