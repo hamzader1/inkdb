@@ -40,6 +40,8 @@ pub enum ResolvedQuery {
     SelectQuery(ResolvedSelectQuery),
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
+    BeginTransactionQuery,
+    CommitTransactionQuery,
 }
 
 impl Analyze {
@@ -54,6 +56,8 @@ impl Analyze {
             Ast::CreateTableAst(create_stmt) => {
                 Self::analyze_create_table_stmt(create_stmt, sqlite_master)
             }
+            Ast::BeginTransaction => Ok(ResolvedQuery::BeginTransactionQuery),
+            Ast::CommitTransaction => Ok(ResolvedQuery::CommitTransactionQuery),
             _ => todo!(),
         }
     }
