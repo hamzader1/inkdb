@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use super::raw_journal::{JournalMeta, RawJournal};
 
+#[derive(Debug)]
 pub struct Journal {
     inner: Option<RawJournal>,
 }
