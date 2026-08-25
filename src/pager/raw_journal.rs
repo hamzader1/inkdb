@@ -11,7 +11,7 @@ use super::pager::PageNo;
 
 const JOURNAL_CAP: usize = 8;
 // 1: 0..8
-const JOURNAL_MAGIC: u64 = 0x4655434B494E474A; // DO NOT (HEX -> TEXT) IT
+const JOURNAL_MAGIC: u64 = 0x4A4F55524E414C31; // DO NOT (HEX -> TEXT) IT
 const JOURNAL_MAGIC_OFFSET: usize = 0;
 // 2: 8..12
 const PAGE_COUNT_OFFSET: usize = 8;
@@ -117,13 +117,16 @@ impl RawJournal {
         if !file_path.exists() {
             return Ok(None);
         }
+
         let mut file = Vfs::open(&mut DiskVfs, &file_path, SqliteOptions::default())?;
         let len = file.len()?;
         let mut bytes = vec![0u8; len as _];
         file.read_exact_at(0, &mut bytes)?;
-        let mut cursor = SqliteCursor::with_offset(&bytes, size_of::<u64>() as _)?;
+        let mut cursor = SqliteCursor::new(&bytes);
+        let magic = cursor.read_to(size_of!(u64) as _)?;
+        dbg!(magic);
         let page_count = cursor.read_next_u32()?;
-        if page_count == 0 {
+        if page_count == 0 || magic != u64::to_be_bytes(JOURNAL_MAGIC) {
             return Ok(None);
         }
         let db_size = cursor.read_next_u32()?;
