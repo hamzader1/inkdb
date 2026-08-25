@@ -59,8 +59,7 @@ impl Journal {
     }
 
     pub fn init(&mut self) -> Result<(), SqliteError> {
-        let file_path = self.path.join(format!("{}-journal", self.db_name));
-        std::fs::File::create(&file_path)?;
+        let file_path = self.path.join("simple2.db-journal");
         let mut file = Vfs::open(&mut DiskVfs, file_path, SqliteOptions::all())?;
         file.set_len(self.buffer.len())?;
         file.write_all_at(0, &self.buffer[0..JOURNAL_HEADER_SIZE])?;
@@ -111,6 +110,7 @@ impl Journal {
     pub fn destroy(&mut self) {
         let file_path = self.path.join(format!("{}-journal", self.db_name));
         std::fs::remove_file(file_path);
+        self.jfile.take();
     }
 }
 
