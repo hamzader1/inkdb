@@ -6,3 +6,12 @@ edition = "2024"
 [dependencies]
 rustyline = "18.0.1"
 thiserror = "2.0"
+ink-debug = { path = "ink-debug", optional = true }
+chrono = { version = "0.4", features = ["serde"], optional = true }
+
+[features]
+default = []
+debug = ["ink-debug", "chrono"]
+
+[workspace]
+members = ["ink-debug"]
