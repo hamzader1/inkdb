@@ -1,4 +1,5 @@
 use super::super::executor::{project::Project, scan::TableScan};
+use super::arena::Arena;
 use crate::backend::analyze::{ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery};
 use crate::backend::executor::Row;
 use crate::backend::executor::create::CreateTable;
@@ -23,52 +24,39 @@ pub enum Plan<F: SqliteFile> {
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
 }
-
-#[derive(Debug)]
-pub struct Arena<F: SqliteFile> {
-    parent: Plan<F>,
-    arena: Option<ExprArena>,
+pub enum PlanContext<F: SqliteFile> {
+    Logical(Plan<F>),
+    Resolved(Arena<F>),
 }
-impl<F: SqliteFile> Arena<F> {
-    pub fn new(parent: Plan<F>, arena: Option<ExprArena>) -> Self {
-        Self { parent, arena }
-    }
+impl<F: SqliteFile> PlanContext<F> {
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
-        let mut transaction_just_started = false;
-        if !pager.in_transaction() {
-            transaction_just_started = true;
-            pager.start_transaction();
+        match self {
+            Self::Logical(p) => p.next(pager, None),
+            Self::Resolved(a) => a.next(pager),
         }
-        let parent_res = self.parent.next(pager, self.arena.as_ref());
-        match parent_res {
-            Ok(_) => {
-                if transaction_just_started {
-                    pager.commit()?;
-                }
-            }
-            Err(_) => pager.rollback()?,
-        }
-        parent_res
     }
 }
-
 impl<F: SqliteFile> Plan<F> {
     pub fn create_plan(
         resolved_query: ResolvedQuery,
         pager: &mut Pager<F>,
-    ) -> Result<Arena<F>, SqliteError> {
+    ) -> Result<PlanContext<F>, SqliteError> {
         match resolved_query {
-            ResolvedQuery::SelectQuery(stmt) => Self::initialize_select_plan(stmt, pager),
-            ResolvedQuery::InsertQuery(stmt) => Self::initialize_insert_plan(stmt),
-            ResolvedQuery::CreateTableQuery(stmt) => {
-                Ok(Arena::new(Plan::CreateTable(CreateTable::new(stmt)), None))
+            ResolvedQuery::SelectQuery(stmt) => Ok(PlanContext::Resolved(
+                Self::initialize_select_plan(stmt, pager)?,
+            )),
+            ResolvedQuery::InsertQuery(stmt) => {
+                Ok(PlanContext::Resolved(Self::initialize_insert_plan(stmt)?))
             }
-            ResolvedQuery::BeginTransactionQuery => {
-                Ok(Arena::new(Plan::BeginTransaction(BeginTransaction), None))
-            }
-            ResolvedQuery::CommitTransactionQuery => {
-                Ok(Arena::new(Plan::CommitTransaction(CommitTransaction), None))
-            }
+            ResolvedQuery::CreateTableQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateTable(
+                CreateTable::new(stmt),
+            ))),
+            ResolvedQuery::BeginTransactionQuery => Ok(PlanContext::Logical(
+                Plan::BeginTransaction(BeginTransaction),
+            )),
+            ResolvedQuery::CommitTransactionQuery => Ok(PlanContext::Logical(
+                Plan::CommitTransaction(CommitTransaction),
+            )),
             _ => todo!(),
         }
     }
