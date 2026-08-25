@@ -374,19 +374,9 @@ impl<F: SqliteFile> Pager<F> {
             self.flush_all()?;
             self.source.sync()?;
             self.journal.destroy();
-<<<<<<< HEAD
         }
         self.in_transaction = false;
-||||||| 3119540
-        self.journal.commit()?;
-        self.flush_all()?;
-        self.source.sync()?;
-        self.journal.destroy();
-        self.in_transaction = false;
-=======
-            self.in_transaction = false;
-        }
->>>>>>> main
+
         Ok(())
     }
 

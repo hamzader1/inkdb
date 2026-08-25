@@ -30,30 +30,10 @@ pub enum PlanContext<F: SqliteFile> {
 }
 impl<F: SqliteFile> PlanContext<F> {
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
-<<<<<<< HEAD
         match self {
             Self::Logical(p) => p.next(pager, None),
             Self::Resolved(a) => a.next(pager),
         }
-||||||| 3119540
-        self.parent.next(pager, self.arena.as_ref())
-=======
-        let mut transaction_just_started = false;
-        if !pager.in_transaction() {
-            transaction_just_started = true;
-            pager.start_transaction();
-        }
-        let parent_res = self.parent.next(pager, self.arena.as_ref());
-        match parent_res {
-            Ok(_) => {
-                if transaction_just_started {
-                    pager.commit()?;
-                }
-            }
-            Err(_) => pager.rollback()?,
-        }
-        parent_res
->>>>>>> main
     }
 }
 impl<F: SqliteFile> Plan<F> {
