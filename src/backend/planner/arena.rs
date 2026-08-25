@@ -16,9 +16,16 @@ impl<F: SqliteFile> Arena<F> {
         Self { parent, arena }
     }
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
-        let parent_res = self.parent.next(pager, self.arena.as_ref());
-        if parent_res.is_ok() {
-            pager.commit()?;
+        match pager.in_transaction() {
+            false => {
+                pager.start_transaction();
+                let parent_res = self.parent.next(pager, self.arena.as_ref());
+                if parent_res.is_ok() {
+                    pager.commit()?;
+                }
+                parent_res
+            }
+            true => self.parent.next(pager, self.arena.as_ref()),
         }
         parent_res
     }
