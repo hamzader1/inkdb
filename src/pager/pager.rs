@@ -369,11 +369,13 @@ impl<F: SqliteFile> Pager<F> {
     }
 
     pub fn commit(&mut self) -> Result<(), SqliteError> {
-        self.journal.commit()?;
-        self.flush_all()?;
-        self.source.sync()?;
-        self.journal.destroy();
-        self.in_transaction = false;
+        if self.journal.is_init() {
+            self.journal.commit()?;
+            self.flush_all()?;
+            self.source.sync()?;
+            self.journal.destroy();
+            self.in_transaction = false;
+        }
         Ok(())
     }
 
@@ -390,11 +392,5 @@ impl<F: SqliteFile> Pager<F> {
         }
         self.journal.rollback();
         Ok(())
-    }
-}
-
-impl<F: SqliteFile> Drop for Pager<F> {
-    fn drop(&mut self) {
-        self.flush_all();
     }
 }
