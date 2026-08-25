@@ -374,14 +374,15 @@ impl<F: SqliteFile> Pager<F> {
             self.flush_all()?;
             self.source.sync()?;
             self.journal.destroy();
-            self.in_transaction = false;
         }
+        self.in_transaction = false;
         Ok(())
     }
 
     pub fn rollback(&mut self) -> Result<(), SqliteError> {
         let mut iterator = self.journal.make_iterator()?;
         while let Some(page) = iterator.iter()? {
+            dbg!(page.page_no);
             if self.journal_pages.contains(&page.page_no) {
                 let mut page_guard = self.get_mut(page.page_no)?;
                 page_guard
@@ -391,6 +392,7 @@ impl<F: SqliteFile> Pager<F> {
             }
         }
         self.journal.rollback();
+        self.in_transaction = false;
         Ok(())
     }
 }
