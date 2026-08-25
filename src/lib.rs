@@ -1,5 +1,6 @@
 #![allow(unused, dead_code)] // temp for now
 // #![warn(unused_results)]
+pub mod debug;
 pub mod backend;
 use backend::planner::plan::*;
 mod bytes;
