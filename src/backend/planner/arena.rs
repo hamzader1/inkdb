@@ -27,6 +27,5 @@ impl<F: SqliteFile> Arena<F> {
             }
             true => self.parent.next(pager, self.arena.as_ref()),
         }
-        parent_res
     }
 }
