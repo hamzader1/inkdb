@@ -3,13 +3,15 @@ use std::ops::Rem;
 use std::ptr::NonNull;
 
 use crate::errors::SqliteError;
+use crate::record::RecordMetadata;
 
 use super::buffer_pool::{self, BufferPool};
 use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::guard::{BorrowState, PageGuard};
-use super::journal::{Journal, JournalMeta};
+use super::journal::Journal;
 use super::metadata::SqliteMetadata;
+use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::SqliteStatistics;
 use crate::DbError;
 use crate::pager::frame::Frame;
@@ -17,7 +19,6 @@ use crate::vfs::file::SqliteFile;
 
 pub type PageNo = u32;
 
-// #[derive(Debug)]
 pub struct Pager<F: SqliteFile> {
     pub source: F,
     pub buffer_pool: BufferPool,
@@ -36,23 +37,27 @@ impl<F: SqliteFile> Pager<F> {
         page_size: usize,
         usable_size: usize,
         max_allocated_pages: usize,
-    ) -> Self {
+    ) -> Result<Self, SqliteError> {
         let journal_meta = JournalMeta {
             db_name: source.name().to_string(),
             path: source.path(),
             p_size: page_size as _,
             db_size: source.len().expect("Error while trying to get the db len") as _,
         };
-        Self {
+        let mut pager = Pager {
             source,
             buffer_pool: BufferPool::new(page_size),
             dp_ll: None,
-            journal: Journal::new(journal_meta),
+            journal: Journal::uninit(),
             journal_pages: HashSet::new(),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
             statistics: SqliteStatistics::default(),
             in_transaction: false,
-        }
+        };
+
+        pager.recover_from_crash()?;
+        pager.journal = Journal::new(journal_meta);
+        Ok(pager)
     }
 
     pub fn with_cache(
@@ -61,23 +66,27 @@ impl<F: SqliteFile> Pager<F> {
         usable_size: usize,
         max_allocated_pages: usize,
         cache_size: usize,
-    ) -> Self {
+    ) -> Result<Self, SqliteError> {
         let journal_meta = JournalMeta {
             db_name: source.name().to_string(),
             path: source.path(),
             p_size: page_size as _,
             db_size: source.len().expect("Error while trying to get the db len") as _,
         };
-        Self {
+        let mut pager = Pager {
             source,
             buffer_pool: BufferPool::with_cache(cache_size, page_size),
             dp_ll: None,
-            journal: Journal::new(journal_meta),
+            journal: Journal::uninit(),
             journal_pages: HashSet::new(),
             metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
             statistics: SqliteStatistics::default(),
             in_transaction: false,
-        }
+        };
+
+        pager.recover_from_crash()?;
+        pager.journal = Journal::new(journal_meta);
+        Ok(pager)
     }
 
     pub fn in_transaction(&self) -> bool {
@@ -108,7 +117,7 @@ impl<F: SqliteFile> Pager<F> {
             None::<fn(_) -> bool>,
         )?;
         let was_dirty = self.ensure_page_loaded(page_no)?;
-        if !self.journal.is_init() {
+        if self.journal.is_active() {
             self.journal.init()?;
         }
         Ok(self
@@ -154,7 +163,7 @@ impl<F: SqliteFile> Pager<F> {
                 self.dp_ll_insert(frame_id);
             }
             let mut page_guard = self.page_guard_mut(frame_id);
-            if !self.journal_pages.contains(&page_no) {
+            if self.journal.is_active() && !self.journal_pages.contains(&page_no) {
                 self.journal_pages.insert(page_no);
                 self.journal
                     .add_page(page_no, page_guard.bytes_as_mut().unwrap());
@@ -373,7 +382,7 @@ impl<F: SqliteFile> Pager<F> {
             self.journal.commit()?;
             self.flush_all()?;
             self.source.sync()?;
-            self.journal.destroy();
+            self.journal.destroy_internal()?;
         }
         self.in_transaction = false;
 
@@ -381,9 +390,8 @@ impl<F: SqliteFile> Pager<F> {
     }
 
     pub fn rollback(&mut self) -> Result<(), SqliteError> {
-        let mut iterator = self.journal.make_iterator()?;
+        let mut iterator = self.journal.make_iterator();
         while let Some(page) = iterator.iter()? {
-            dbg!(page.page_no);
             if self.journal_pages.contains(&page.page_no) {
                 let mut page_guard = self.get_mut(page.page_no)?;
                 page_guard
@@ -394,6 +402,31 @@ impl<F: SqliteFile> Pager<F> {
         }
         self.journal.rollback();
         self.in_transaction = false;
+        Ok(())
+    }
+
+    pub fn recover_from_crash(&mut self) -> Result<(), SqliteError> {
+        let recover_meta = RawJournal::recover(self.source.name(), self.source.path())?;
+        if let Some(meta) = recover_meta {
+            let RecoverMetadata {
+                mut iterator,
+                db_size,
+                file_path,
+            } = meta;
+            while let Some(page) = iterator.iter()? {
+                if self.get_page_offset(page.page_no) < db_size {
+                    let mut page_guard = self.get_mut(page.page_no)?;
+                    page_guard
+                        .bytes_as_mut()
+                        .unwrap()
+                        .copy_from_slice(page.data);
+                }
+            }
+            self.flush_all()?;
+            self.source.set_len(db_size)?;
+            self.source.sync()?;
+            RawJournal::destroy_external(file_path)?;
+        }
         Ok(())
     }
 }
