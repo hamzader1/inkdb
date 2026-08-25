@@ -20,7 +20,9 @@ pub struct CommitTransaction;
 
 impl CommitTransaction {
     pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
-        pager.commit()?;
+        if pager.in_transaction() {
+            pager.commit()?;
+        }
         Ok(None)
     }
 }

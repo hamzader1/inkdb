@@ -63,7 +63,7 @@ impl<F: SqliteFile> SqliteDatabase<F> {
             header.database_page_size as _,
             (header.database_page_size - header.reserved_space as u32) as _,
             header.database_size_in_pages as _,
-        );
+        )?;
         Ok(Self { pager, header })
     }
     pub fn with_source_cache<P: AsRef<Path>, V>(
@@ -82,7 +82,7 @@ impl<F: SqliteFile> SqliteDatabase<F> {
             (header.database_page_size - header.reserved_space as u32) as _,
             header.database_size_in_pages as _,
             cache_size,
-        );
+        )?;
         Ok(Self { pager, header })
     }
     fn source(&self) -> &F {
