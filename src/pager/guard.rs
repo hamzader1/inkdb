@@ -42,6 +42,10 @@ impl PageGuard {
         }
         None
     }
+
+    pub fn bytes_as_mut_unchecked(&mut self) -> &mut [u8] {
+        self.bytes_as_mut().unwrap()
+    }
     pub fn frame_id(&self) -> FrameId {
         self.frame_id
     }

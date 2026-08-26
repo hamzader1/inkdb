@@ -22,11 +22,10 @@ impl CreateTable {
 
     pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         let name = &self.meta.meta.name;
-        // Allocating the new pager
-        let mut temp_btree = BTree::new(1, pager);
-        let new_page = temp_btree.allocate_page()?;
+        // Allocating a new page
+        let mut new_page = BTree::new(1, pager).allocate_page()?;
         let mut guard = pager.get_mut(new_page)?;
-        let bytes = guard.bytes_as_mut().unwrap();
+        let bytes = guard.bytes_as_mut_unchecked();
         let page = BTreePageMut::new_from_scratch(
             new_page,
             BTreePageType::LeafTable,
@@ -42,8 +41,6 @@ impl CreateTable {
             Value::text(self.meta.meta.query.as_ref()),
         ];
 
-        // TODO: OPTIMAZE THIS BY ABSTRACTING INSERT FUNCTION
-        // let insert = Insert::new(1, row.into_iter().map(|a| a.into_owned()).collect(), None);
         let insert = Insert::new(1, row.to_vec(), None);
         insert.next(pager)?;
         Ok(None)
