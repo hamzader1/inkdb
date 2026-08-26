@@ -67,7 +67,7 @@ impl RawJournal {
     }
 
     pub fn init(&mut self) -> Result<(), SqliteError> {
-        let file_path = self.path.join("simple2.db-journal");
+        let file_path = self.path.join(format!("{}-journal", self.db_name));
         let mut file = Vfs::open(&mut DiskVfs, file_path, SqliteOptions::all())?;
         file.set_len(self.buffer.len())?;
         file.write_all_at(0, &self.buffer[0..JOURNAL_HEADER_SIZE])?;
