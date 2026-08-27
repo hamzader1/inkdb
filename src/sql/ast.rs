@@ -98,7 +98,7 @@ pub struct SelectStmt {
 pub struct InsertStmt {
     pub table_name: String,
     pub columns: Vec<String>,
-    pub values: Vec<Value<'static>>,
+    pub values: Vec<Vec<Value<'static>>>,
 }
 
 // pub enum QueryStmt {

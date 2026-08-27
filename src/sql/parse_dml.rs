@@ -49,39 +49,46 @@ impl Parser {
         self.expect(Into)?;
         let table_name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(Values)?;
-        self.expect(LeftParen)?;
         let mut columns: Vec<std::string::String> = Vec::new();
-        let mut values: Vec<crate::record::Value<'static>> = Vec::new();
-        while !self.at(RightParen) {
-            match self.peek() {
-                Some(String(s)) => {
-                    let cow: Cow<'_, str> = Cow::Owned(s.to_owned());
-                    values.push(Value::Text(cow));
-                    self.next_token();
+        let mut values: Vec<_> = Vec::new();
+        loop {
+            let mut current_values = Vec::new();
+            self.expect(LeftParen)?;
+            while !self.at(RightParen) {
+                match self.peek() {
+                    Some(String(s)) => {
+                        let cow: Cow<'_, str> = Cow::Owned(s.to_owned());
+                        current_values.push(Value::Text(cow));
+                        self.next_token();
+                    }
+                    Some(NumberVar(n)) => {
+                        current_values.push(Value::Integer(*n));
+                        self.next_token();
+                    }
+                    Some(FloatVar(f)) => {
+                        current_values.push(Value::Float(*f));
+                        self.next_token();
+                    }
+                    Some(BoolVar(b)) => {
+                        current_values.push(Value::Integer(*b as u8 as _));
+                        self.next_token();
+                    }
+                    Some(Null) => {
+                        current_values.push(Value::Null);
+                        self.next_token();
+                    }
+                    _ => panic!("This value is not allowed in insertions values"),
                 }
-                Some(NumberVar(n)) => {
-                    values.push(Value::Integer(*n));
-                    self.next_token();
+                if !self.eat(Comma) {
+                    break;
                 }
-                Some(FloatVar(f)) => {
-                    values.push(Value::Float(*f));
-                    self.next_token();
-                }
-                Some(BoolVar(b)) => {
-                    values.push(Value::Integer(*b as u8 as _));
-                    self.next_token();
-                }
-                Some(Null) => {
-                    values.push(Value::Null);
-                    self.next_token();
-                }
-                _ => panic!("This value is not allowed in insertions values"),
             }
+            values.push(current_values);
+            self.eat(RightParen);
             if !self.eat(Comma) {
                 break;
             }
         }
-        self.eat(RightParen);
 
         Ok(Ast::InsertStmtAst(InsertStmt {
             table_name,
