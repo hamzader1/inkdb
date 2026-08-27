@@ -41,7 +41,7 @@ impl CreateTable {
             Value::text(self.meta.meta.query.as_ref()),
         ];
 
-        let insert = Insert::new(1, row.to_vec(), None);
+        let insert = Insert::new(1, vec![row.to_vec()], None);
         insert.next(pager)?;
         Ok(None)
     }

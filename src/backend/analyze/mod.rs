@@ -27,7 +27,7 @@ pub struct ResolvedSelectQuery {
 #[derive(Debug)]
 pub struct ResolvedInsertQuery {
     pub root: PageNo,
-    pub values: Vec<Value<'static>>,
+    pub values: Vec<Vec<Value<'static>>>,
     pub entry_hint: Option<u64>, // row id hint
 }
 #[derive(Debug)]
