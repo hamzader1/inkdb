@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use super::btree::CellIdx;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
+use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
@@ -211,6 +212,40 @@ impl<'p> BTreePageRef<'p> {
             }
         }
     }
+
+    pub fn freespace(&self) -> SqliteResult<usize> {
+        let freeblocks_size = self.freeblocks_size()?;
+        let total_free_bytes = freeblocks_size
+            + self.header.frag_cnt as usize
+            + (self.header.cell_content_area as usize
+                - (self.header_size() as u16 + self.header.no_of_cells * 2) as usize);
+        Ok(total_free_bytes)
+    }
+    fn freeblocks_size(&self) -> SqliteResult<usize> {
+        if self.header.first_freeblock == 0 {
+            return Ok(0);
+        }
+        let mut cursor = SqliteCursor::with_offset(self.bytes, self.header.first_freeblock as u64)?;
+        let mut total_size = 0;
+        let mut next_freeblock_offset = cursor.read_next_u16()?;
+        let mut freeblock_size = cursor.read_next_u16()?;
+        total_size += freeblock_size;
+        while next_freeblock_offset != 0 {
+            cursor.set_offset(next_freeblock_offset as _);
+            next_freeblock_offset = cursor.read_next_u16()?;
+            freeblock_size = cursor.read_next_u16()?;
+            total_size += freeblock_size;
+        }
+
+        Ok(total_size as _)
+    }
+    pub fn is_underflow(&self) -> SqliteResult<bool> {
+        Ok(self.freespace()? > self.usable_size * 2 / 3)
+    }
+
+    // pub fn insert_freeblock(offset: u16, size: u16) -> SqliteResult<()> {
+    //     todo!()
+    // }
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
         cell_idx: CellIdx,
