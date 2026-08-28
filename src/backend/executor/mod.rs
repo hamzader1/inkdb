@@ -8,7 +8,7 @@ pub mod filter;
 pub mod insert;
 pub mod limit;
 pub mod project;
-pub mod scan;
+pub mod tablescan;
 pub mod transaction;
 pub type Row = Vec<Value<'static>>;
 

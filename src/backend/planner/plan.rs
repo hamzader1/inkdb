@@ -1,4 +1,4 @@
-use super::super::executor::{project::Project, scan::TableScan};
+use super::super::executor::{project::Project, tablescan::TableScan};
 use super::arena::Arena;
 use crate::backend::analyze::{ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery};
 use crate::backend::executor::Row;
