@@ -142,7 +142,7 @@ impl Parser {
             Some(Insert) => self.parse_insert(),
             Some(Begin) => Ok(Ast::BeginTransaction),
             Some(Commit) => Ok(Ast::CommitTransaction),
-            _ => todo!(),
+            _ => Err(SqliteError::Corrupt("Query is not supported yet".into())),
         }
     }
 }
