@@ -243,9 +243,6 @@ impl<'p> BTreePageRef<'p> {
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
 
-    // pub fn insert_freeblock(offset: u16, size: u16) -> SqliteResult<()> {
-    //     todo!()
-    // }
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
         cell_idx: CellIdx,
@@ -931,6 +928,27 @@ impl<'a> OverflowPageRef<'a> {
         })
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+struct FreeCell {
+    starting_offset: u16,
+    next: u16,
+    size: u16,
+}
+
+impl FreeCell {
+    pub fn parse(ptr: u16, bytes: &[u8]) -> SqliteResult<Self> {
+        let mut cursor = SqliteCursor::with_offset(bytes, ptr as _)?;
+        let next = cursor.read_next_u16()?;
+        let size = cursor.read_next_u16()?;
+        Ok(Self {
+            starting_offset: ptr,
+            next,
+            size,
+        })
+    }
+}
+
 impl<'a> OverflowPageRef<'a> {
     pub fn get_total_payload<F: crate::vfs::file::SqliteFile>(
         pager: &mut Pager<F>,
@@ -1100,6 +1118,8 @@ pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
     fn header_size(&self) -> u8;
     fn page_type(&self) -> BTreePageType;
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
+    fn freespace(&self) -> SqliteResult<usize>;
+    fn is_underflow(&self) -> SqliteResult<bool>;
 }
 
 impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'a> {
@@ -1165,8 +1185,13 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
         self.get_page_as_ref().unwrap().right_most_ptr()
     }
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
-        let page = self.get_page_as_ref()?;
-        page.cell_by_ptr(cell_offset)
+        self.get_page_as_ref()?.cell_by_ptr(cell_offset)
+    }
+    fn freespace(&self) -> SqliteResult<usize> {
+        self.get_page_as_ref()?.freespace()
+    }
+    fn is_underflow(&self) -> SqliteResult<bool> {
+        self.get_page_as_ref()?.is_underflow()
     }
 }
 
@@ -1225,5 +1250,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'
     }
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
         self.cell_by_ptr(cell_offset)
+    }
+
+    fn freespace(&self) -> SqliteResult<usize> {
+        self.freespace()
+    }
+    fn is_underflow(&self) -> SqliteResult<bool> {
+        self.is_underflow()
     }
 }

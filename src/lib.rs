@@ -1,7 +1,7 @@
 #![allow(unused, dead_code)] // temp for now
 // #![warn(unused_results)]
-pub mod debug;
 pub mod backend;
+pub mod debug;
 use backend::planner::plan::*;
 mod bytes;
 pub mod db;
@@ -33,6 +33,7 @@ use self::vfs::Vfs;
 use self::vfs::cursor::FileCursor;
 use self::vfs::disk::{DiskFile, DiskVfs};
 use self::vfs::file::SqliteFile;
+pub type SqliteResult<T> = Result<T, SqliteError>;
 use crate::pager::pager::Pager;
 
 pub struct SqliteDatabase<F: SqliteFile> {
