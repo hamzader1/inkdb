@@ -715,6 +715,184 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
+    pub fn insert_freeblock(&mut self, offset: usize, size: usize) -> SqliteResult<()> {
+        debug_assert!(size >= 4, "Freeblock size cannot be less than 4 bytes");
+
+        // CASE [A]: There are no freeblocks yet.
+        if self.header.first_freeblock == 0 {
+            self.bytes[offset..offset + 2].copy_from_slice(&[0, 0]);
+            self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+
+            let start = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
+            let end = start + FIRST_FREEBLOCK_SIZE;
+
+            self.bytes[start..end].copy_from_slice(&(offset as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        let first_cell = FreeCell::parse(self.header.first_freeblock, self.bytes)?;
+
+        // NEW CASE: offset comes before the current first freeblock.
+        // This must be checked BEFORE anything else, since every later
+        // branch assumes [`offset`] only ever increases relative to the
+        // node it's being compared against.
+        if offset + size <= first_cell.starting_offset as usize {
+            let new_end = offset + size;
+
+            // [NEW][FIRST]  (adjacent -> merge)
+            if new_end == first_cell.starting_offset as usize {
+                self.bytes[offset..offset + 2].copy_from_slice(&first_cell.next.to_be_bytes());
+
+                let new_size = size + first_cell.size as usize;
+                self.bytes[offset + 2..offset + 4]
+                    .copy_from_slice(&(new_size as u16).to_be_bytes());
+            } else {
+                // [NEW] ... [FIRST]  (gap -> just link, no merge)
+                self.bytes[offset..offset + 2]
+                    .copy_from_slice(&(first_cell.starting_offset).to_be_bytes());
+
+                self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+            }
+
+            // Either way NEW becomes the new head of the freelist.
+            let start = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
+            let end = start + FIRST_FREEBLOCK_SIZE;
+            self.bytes[start..end].copy_from_slice(&(offset as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        // CASE [B]: There is only one freeblock.
+        if first_cell.next == 0 {
+            // [A][NEW]
+            if first_cell.starting_offset as usize + first_cell.size as usize == offset {
+                let first_cell_offset = first_cell.starting_offset as usize;
+
+                self.bytes[first_cell_offset + 2..first_cell_offset + 4]
+                    .copy_from_slice(&((first_cell.size as usize + size) as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [A] ... [NEW]
+            // (We already handled offset <= first_cell above, so here
+            // offset is guaranteed to be strictly after A and non-adjacent.)
+            self.bytes[offset..offset + 2].copy_from_slice(&[0, 0]);
+            self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+            let first_cell_offset = first_cell.starting_offset as usize;
+            self.bytes[first_cell_offset..first_cell_offset + 2]
+                .copy_from_slice(&(offset as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        // Multiple freeblocks.
+        let mut prev_cell = first_cell;
+
+        while prev_cell.next != 0 {
+            let current_cell = FreeCell::parse(prev_cell.next, self.bytes)?;
+
+            let current_cell_offset = current_cell.starting_offset as usize;
+            let current_cell_size = current_cell.size as usize;
+
+            let prev_cell_offset = prev_cell.starting_offset as usize;
+            let prev_cell_end = prev_cell_offset + prev_cell.size as usize;
+
+            let new_end = offset + size;
+
+            // [PREV][NEW][CURRENT]
+            if prev_cell_end == offset && new_end == current_cell_offset {
+                let new_size = prev_cell.size as usize + size + current_cell_size;
+
+                // PREV.size = PREV + NEW + CURRENT
+                self.bytes[prev_cell_offset + 2..prev_cell_offset + 4]
+                    .copy_from_slice(&(new_size as u16).to_be_bytes());
+
+                // PREV.next = CURRENT.next
+                self.bytes[prev_cell_offset..prev_cell_offset + 2]
+                    .copy_from_slice(&current_cell.next.to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [PREV][NEW] ... [CURRENT]
+            if prev_cell_end == offset {
+                let new_size = prev_cell.size as usize + size;
+
+                self.bytes[prev_cell_offset + 2..prev_cell_offset + 4]
+                    .copy_from_slice(&(new_size as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [PREV] ... [NEW][CURRENT]
+            if new_end == current_cell_offset {
+                // NEW.next = CURRENT.next
+                self.bytes[offset..offset + 2].copy_from_slice(&current_cell.next.to_be_bytes());
+
+                // NEW.size = NEW + CURRENT
+                self.bytes[offset + 2..offset + 4]
+                    .copy_from_slice(&((size + current_cell_size) as u16).to_be_bytes());
+
+                // PREV.next = NEW
+                self.bytes[prev_cell_offset..prev_cell_offset + 2]
+                    .copy_from_slice(&(offset as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [PREV] ... [NEW] ... [CURRENT]
+            // Safe now: we've already ruled out offset <= first_cell up
+            // front, and by loop/list invariant offset > prev_cell_end
+            // whenever we reach this point (nothing between PREV and
+            // CURRENT was a match above). We keep the check explicit
+            // rather than relying purely on that invariant.
+            if offset > prev_cell_end && offset < current_cell_offset {
+                // NEW.next = CURRENT
+                self.bytes[offset..offset + 2]
+                    .copy_from_slice(&(current_cell_offset as u16).to_be_bytes());
+
+                // NEW.size = size
+                self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+
+                // PREV.next = NEW
+                self.bytes[prev_cell_offset..prev_cell_offset + 2]
+                    .copy_from_slice(&(offset as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            prev_cell = current_cell;
+        }
+
+        // We reached the last freeblock.
+        //
+        // [PREV][NEW]
+        if prev_cell.starting_offset as usize + prev_cell.size as usize == offset {
+            let prev_cell_offset = prev_cell.starting_offset as usize;
+
+            let new_size = prev_cell.size as usize + size;
+
+            self.bytes[prev_cell_offset + 2..prev_cell_offset + 4]
+                .copy_from_slice(&(new_size as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        // [PREV] ... [NEW]
+        self.bytes[offset..offset + 2].copy_from_slice(&[0, 0]);
+
+        self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+
+        let prev_cell_offset = prev_cell.starting_offset as usize;
+
+        self.bytes[prev_cell_offset..prev_cell_offset + 2]
+            .copy_from_slice(&(offset as u16).to_be_bytes());
+
+        Ok(())
+    }
+
     pub fn get_page_as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
         BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
     }
