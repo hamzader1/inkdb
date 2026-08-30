@@ -94,8 +94,13 @@ impl<F: SqliteFile> Pager<F> {
     }
     /// We do not start transaction immediately until
     /// we get a second sign by calling [`Pager::get_mut(..)`]
-    pub fn start_transaction(&mut self) {
-        self.in_transaction = true;
+    pub fn start_transaction(&mut self) -> bool {
+        if self.in_transaction {
+            false
+        } else {
+            self.in_transaction = true;
+            true
+        }
     }
     // PageGuard holds lifetime of self
     pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {

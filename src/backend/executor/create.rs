@@ -21,6 +21,7 @@ impl CreateTable {
     }
 
     pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+        let is_new_txn = pager.start_transaction();
         let name = &self.meta.meta.name;
         // Allocating a new page
         let mut new_page = BTree::new(1, pager).allocate_page()?;
@@ -43,6 +44,9 @@ impl CreateTable {
 
         let insert = Insert::new(1, vec![row.to_vec()], None);
         insert.next(pager)?;
+        if is_new_txn {
+            pager.commit()?;
+        }
         Ok(None)
     }
 }
