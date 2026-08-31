@@ -11,7 +11,7 @@ use super::pager::PageNo;
 
 const JOURNAL_CAP: usize = 8;
 // 1: 0..8
-const JOURNAL_MAGIC: u64 = 0x4A4F55524E414C31; // DO NOT (HEX -> TEXT) IT
+const JOURNAL_MAGIC: u64 = 0x4A4F55524E414C31;
 const JOURNAL_MAGIC_OFFSET: usize = 0;
 // 2: 8..12
 const PAGE_COUNT_OFFSET: usize = 8;
@@ -236,21 +236,5 @@ impl fmt::Debug for RawJournal {
             .field("page_count", &self.page_count)
             .field("jfile", &self.jfile)
             .finish()
-    }
-}
-
-struct J {
-    inner: Option<RawJournal>,
-}
-
-impl Deref for J {
-    type Target = RawJournal;
-    fn deref(&self) -> &Self::Target {
-        self.inner.as_ref().unwrap()
-    }
-}
-impl DerefMut for J {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.as_mut().unwrap()
     }
 }

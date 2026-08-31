@@ -100,6 +100,7 @@ impl TableLeafCell {
 
 impl IndexInteriorCell {
     pub fn parse(bytes: &[u8], cell_ptr: CellIdx, usable_size: usize) -> Result<Self, SqliteError> {
+        let mut cursor = SqliteCursor::new(bytes);
         // Page number of left child
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let left_child = cursor.read_next_u32()?;

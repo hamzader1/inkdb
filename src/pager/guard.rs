@@ -1,3 +1,5 @@
+#![feature(unboxed_closures)]
+#![feature(fn_traits)]
 use crate::pager::{buffer_pool, frame::FrameId};
 
 use super::buffer_pool::BufferPool;
