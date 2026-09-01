@@ -325,6 +325,7 @@ impl<'a> Lexer<'a> {
                         "FULL" => TokenKind::Full,
                         "CROSS" => TokenKind::Cross,
                         "AS" => TokenKind::As,
+                        "ROLLBACK" => TokenKind::RollBack,
 
                         // Expressions
                         "IN" => TokenKind::In,

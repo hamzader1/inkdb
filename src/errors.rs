@@ -125,6 +125,12 @@ pub enum SqliteError {
         tkind: TokenKind,
         span: Span,
     },
+
+    #[error("A transaction is already active")]
+    TransactionAlreadyStarted,
+
+    #[error("No active transaction found")]
+    NoActiveTransaction,
 }
 
 fn err_formatter(

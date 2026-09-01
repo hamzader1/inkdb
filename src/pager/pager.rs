@@ -13,9 +13,9 @@ use super::journal::Journal;
 use super::metadata::SqliteMetadata;
 use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::SqliteStatistics;
-use crate::DbError;
 use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
+use crate::{DbError, SqliteResult};
 
 pub type PageNo = u32;
 
@@ -405,7 +405,7 @@ impl<F: SqliteFile> Pager<F> {
                     .copy_from_slice(page.data);
             }
         }
-        self.journal.rollback();
+        self.journal.reset();
         self.in_transaction = false;
         Ok(())
     }

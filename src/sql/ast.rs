@@ -165,6 +165,7 @@ pub enum Ast {
     InsertStmtAst(InsertStmt),
     BeginTransaction,
     CommitTransaction,
+    RollbackTransaction,
 }
 
 impl From<TokenKind> for Affinity {

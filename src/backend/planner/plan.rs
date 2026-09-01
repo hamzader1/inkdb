@@ -7,7 +7,9 @@ use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
-use crate::backend::executor::transaction::{BeginTransaction, CommitTransaction};
+use crate::backend::executor::transaction::{
+    BeginTransaction, CommitTransaction, RollBackTransaction,
+};
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
@@ -23,6 +25,7 @@ pub enum Plan<F: SqliteFile> {
     CreateTable(CreateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
+    RollbackTransaction(RollBackTransaction),
 }
 pub enum PlanContext<F: SqliteFile> {
     Logical(Plan<F>),
@@ -56,6 +59,9 @@ impl<F: SqliteFile> Plan<F> {
             )),
             ResolvedQuery::CommitTransactionQuery => Ok(PlanContext::Logical(
                 Plan::CommitTransaction(CommitTransaction),
+            )),
+            ResolvedQuery::RollbackTransactionQuery => Ok(PlanContext::Logical(
+                Plan::RollbackTransaction(RollBackTransaction),
             )),
             _ => todo!(),
         }
@@ -111,6 +117,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::CreateTable(c) => c.next(pager),
             Self::BeginTransaction(bt) => bt.next(pager),
             Self::CommitTransaction(ct) => ct.next(pager),
+            Self::RollbackTransaction(rbt) => rbt.next(pager),
             _ => todo!(),
         }
     }

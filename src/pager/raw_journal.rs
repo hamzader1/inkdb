@@ -105,7 +105,7 @@ impl RawJournal {
         )
     }
 
-    pub fn rollback(&mut self) {
+    pub fn reset(&mut self) {
         unsafe {
             self.buffer.set_len(JOURNAL_HEADER_SIZE);
             self.buffer[8..12].copy_from_slice(&[0, 0, 0, 0]);
@@ -161,6 +161,7 @@ pub struct RecoverMetadata {
     pub file_path: PathBuf,
 }
 pub struct JournalIter {
+    // TODO: Replace the allocation with immutable borrow
     bytes: Vec<u8>,
     start: usize,
     end: usize,

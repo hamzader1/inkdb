@@ -39,6 +39,7 @@ pub const OVERFLOW_POINTER_SIZE: usize = 4;
 pub const SQLITE3_HEADER_SIZE: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum BTreePageType {
     InteriorIndex = 0x02,
     LeafIndex = 0x0a,

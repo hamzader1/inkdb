@@ -114,6 +114,7 @@ pub enum TokenKind {
     Bool,
 
     Begin,
+    RollBack,
     Commit,
 }
 use std::fmt;
@@ -124,6 +125,7 @@ impl fmt::Display for TokenKind {
             // DDL
             TokenKind::Create => write!(f, "CREATE"),
             TokenKind::Table => write!(f, "TABLE"),
+            TokenKind::RollBack => write!(f, "ROLLBACK"),
             TokenKind::Index => write!(f, "INDEX"),
             TokenKind::Drop => write!(f, "DROP"),
             TokenKind::If => write!(f, "IF"),

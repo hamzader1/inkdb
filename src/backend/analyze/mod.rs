@@ -42,6 +42,7 @@ pub enum ResolvedQuery {
     CreateTableQuery(ResolvedCreateTableQuery),
     BeginTransactionQuery,
     CommitTransactionQuery,
+    RollbackTransactionQuery,
 }
 
 impl Analyze {
@@ -58,6 +59,7 @@ impl Analyze {
             }
             Ast::BeginTransaction => Ok(ResolvedQuery::BeginTransactionQuery),
             Ast::CommitTransaction => Ok(ResolvedQuery::CommitTransactionQuery),
+            Ast::RollbackTransaction => Ok(ResolvedQuery::RollbackTransactionQuery),
             _ => todo!(),
         }
     }
