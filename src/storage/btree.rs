@@ -357,8 +357,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         None
     }
     pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
-        let p = self.stack.last().unwrap();
-        (p.page_no, p.cell_idx)
+        self.last_visited_entry().unwrap()
     }
 
     fn choose_target<'a, P>(
