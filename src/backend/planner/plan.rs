@@ -118,7 +118,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::BeginTransaction(bt) => bt.next(pager),
             Self::CommitTransaction(ct) => ct.next(pager),
             Self::RollbackTransaction(rbt) => rbt.next(pager),
-            _ => todo!(),
+            _ => todo!("Plan missing impl"),
         }
     }
 }
