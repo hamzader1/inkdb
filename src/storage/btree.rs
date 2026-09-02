@@ -8,6 +8,7 @@ use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
 
+use crate::SqliteResult;
 use crate::pager::pager::PageNo;
 
 use crate::SqliteCursor;
@@ -289,7 +290,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         target: &Value,
     ) -> Result<SearchResult, SqliteError>
     where
-        P: BTreePageOps<'g, F>,
+        P: BTreePageOps<'g>,
     {
         sqlite_assert_with_corrupt_err(
             page.is_interior(),
@@ -367,7 +368,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         target: &Value<'_>,
     ) -> Result<(bool, CellIndex), SqliteError>
     where
-        P: BTreePageOps<'a, F> + Debug,
+        P: BTreePageOps<'a> + Debug,
     {
         sqlite_assert_with_corrupt_err(
             page.is_leaf(),
@@ -1011,6 +1012,27 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             .with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(Some(page.header())))?
             .expect("Error while trying to get the page header");
         Ok(header)
+    }
+
+    // delete
+    //
+    pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
+        let res = self.cursor.seek(self.pager, key.clone())?;
+        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        let found_key = self
+            .with_page_ref(page_no, |page| {
+                let key = page.cell_key(cell_idx)?;
+                Ok(Some(key))
+            })?
+            .unwrap();
+        if !(found_key.into_sqlite_value() == key) {
+            // key not found
+            return Ok(());
+        }
+
+        // key not found
+
+        todo!()
     }
 }
 

@@ -5,6 +5,7 @@ use crate::pager::pager::Pager;
 use crate::record::Value;
 
 pub mod create;
+pub mod delete;
 pub mod eval;
 pub mod filter;
 pub mod insert;
@@ -12,7 +13,6 @@ pub mod limit;
 pub mod project;
 pub mod tablescan;
 pub mod transaction;
-// pub type Row = Vec<Value<'static>>;
 
 #[derive(Debug)]
 pub struct Row {

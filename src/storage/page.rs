@@ -896,6 +896,10 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
+    pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
+        let cell: BTreeCell = self.cell(cell_idx)?;
+        Ok(())
+    }
     pub fn get_page_as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
         BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
     }
@@ -1092,25 +1096,25 @@ impl<'p> std::fmt::Debug for BTreePageRef<'p> {
     }
 }
 
-pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
+pub trait BTreePageOps<'g> {
     fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError>;
-    fn record_of_cell(
+    fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &'g self,
         cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'g>>, SqliteError>;
-    fn record_of(
+    fn record_of< F: crate::vfs::file::SqliteFile>(
         &'g self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'g>>, SqliteError>;
-    fn record_of_cell_into(
+    fn record_of_cell_into< F: crate::vfs::file::SqliteFile>(
         &'g self,
         cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'g>>,
     ) -> Result<(), SqliteError>;
-    fn record_of_into(
+    fn record_of_into< F: crate::vfs::file::SqliteFile>(
         &'g self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
@@ -1129,13 +1133,13 @@ pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
     fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64>;
 }
 
-impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'a> {
+impl<'a, > BTreePageOps<'a> for BTreePageMut<'a> {
     fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
         let page = self.get_page_as_ref()?;
         page.cell(cell_idx)
     }
 
-    fn record_of_cell(
+    fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell_idx: CellIndex,
         pager: &mut Pager<F>,
@@ -1143,7 +1147,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
         let page = self.get_page_as_ref()?;
         page.record_of_cell(cell_idx, pager)
     }
-    fn record_of(
+    fn record_of<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
@@ -1151,7 +1155,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
         let page = self.get_page_as_ref()?;
         page.record_of(cell, pager)
     }
-    fn record_of_cell_into<'b>(
+    fn record_of_cell_into<'b,F: crate::vfs::file::SqliteFile>(
         &'b self,
         cell_idx: CellIndex,
         pager: &mut Pager<F>,
@@ -1164,7 +1168,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
         page.get_cell_record(pager, &cell, records)
     }
 
-    fn record_of_into(
+    fn record_of_into<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
@@ -1205,26 +1209,26 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
     }
 }
 
-impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'a> {
+impl<'a,> BTreePageOps<'a> for BTreePageRef<'a> {
     fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
         self.cell(cell_idx)
     }
 
-    fn record_of(
+    fn record_of< F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
         self.record_of(cell, pager)
     }
-    fn record_of_cell(
+    fn record_of_cell< F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
         self.record_of_cell(cell_idx, pager)
     }
-    fn record_of_cell_into(
+    fn record_of_cell_into< F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell_idx: CellIndex,
         pager: &mut Pager<F>,
@@ -1232,7 +1236,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'
     ) -> Result<(), SqliteError> {
         self.record_of_cell_into(cell_idx, pager, records)
     }
-    fn record_of_into(
+    fn record_of_into< F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
