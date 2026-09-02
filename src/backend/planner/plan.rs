@@ -1,5 +1,6 @@
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::arena::Arena;
+use crate::SqliteResult;
 use crate::backend::analyze::{ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery};
 use crate::backend::executor::Row;
 use crate::backend::executor::create::CreateTable;
@@ -45,11 +46,11 @@ impl<F: SqliteFile> Plan<F> {
         pager: &mut Pager<F>,
     ) -> Result<PlanContext<F>, SqliteError> {
         match resolved_query {
-            ResolvedQuery::SelectQuery(stmt) => Ok(PlanContext::Resolved(
-                Self::initialize_select_plan(stmt, pager)?,
-            )),
+            ResolvedQuery::SelectQuery(stmt) => {
+                Ok(PlanContext::Resolved(Self::init_select_plan(stmt, pager)?))
+            }
             ResolvedQuery::InsertQuery(stmt) => {
-                Ok(PlanContext::Resolved(Self::initialize_insert_plan(stmt)?))
+                Ok(PlanContext::Resolved(Self::init_insert_plan(stmt)?))
             }
             ResolvedQuery::CreateTableQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateTable(
                 CreateTable::new(stmt),
@@ -67,7 +68,7 @@ impl<F: SqliteFile> Plan<F> {
         }
     }
 
-    pub fn initialize_select_plan(
+    pub fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
         pager: &mut Pager<F>,
     ) -> Result<Arena<F>, SqliteError> {
@@ -87,9 +88,7 @@ impl<F: SqliteFile> Plan<F> {
         Ok(Arena::new(parent, Some(resolved_query.arena)))
     }
 
-    pub fn initialize_insert_plan(
-        resolved_query: ResolvedInsertQuery,
-    ) -> Result<Arena<F>, SqliteError> {
+    pub fn init_insert_plan(resolved_query: ResolvedInsertQuery) -> Result<Arena<F>, SqliteError> {
         let plan = Plan::Insert(Insert::new(
             resolved_query.root,
             resolved_query.values,
@@ -100,6 +99,8 @@ impl<F: SqliteFile> Plan<F> {
             arena: None,
         })
     }
+
+    pub fn init_delete_plan(resolved_query: ResolvedInsertQuery) -> SqliteResult<Arena<F>> {}
 }
 
 impl<F: SqliteFile> Plan<F> {

@@ -101,6 +101,13 @@ pub struct InsertStmt {
     pub values: Vec<Vec<Value<'static>>>,
 }
 
+#[derive(Debug)]
+pub struct DeleteStmt {
+    pub(crate) table_name: String,
+    pub(crate) arena: Option<ExprArena>,
+    pub(crate) where_clause: Option<usize>,
+}
+
 // pub enum QueryStmt {
 //     Select(SelectStmt),
 //     Insert(InsertStmt),
@@ -163,6 +170,7 @@ pub enum Ast {
     CreateIndexAst(CreateIndex),
     SelectStmtAst(SelectStmt),
     InsertStmtAst(InsertStmt),
+    DeleteStmtAst(DeleteStmt),
     BeginTransaction,
     CommitTransaction,
     RollbackTransaction,
@@ -177,5 +185,56 @@ impl From<TokenKind> for Affinity {
             TokenKind::Blob => Self::Blob,
             _ => unreachable!(),
         }
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Number(n) => write!(f, "{n}"),
+            Expr::Float(n) => write!(f, "{n}"),
+            Expr::StringLitteral(s) => write!(f, "'{s}'"),
+            Expr::Bool(b) => write!(f, "{b}"),
+            Expr::ColumnRef(idx) => write!(f, "column[{idx}]"),
+            Expr::Identifier(s) => write!(f, "{s}"),
+
+            Expr::Add(left, right) => write!(f, "({left} + {right})"),
+            Expr::Substract(left, right) => write!(f, "({left} - {right})"),
+            Expr::Devide(left, right) => write!(f, "({left} / {right})"),
+            Expr::Multiply(left, right) => write!(f, "({left} * {right})"),
+
+            Expr::Neg(expr) => write!(f, "-{expr}"),
+            Expr::Not(expr) => write!(f, "NOT {expr}"),
+            Expr::Star => write!(f, "*"),
+
+            Expr::BinaryOp { left, op, right } => {
+                write!(f, "({left} {op} {right})")
+            }
+
+            Expr::And { left, right } => {
+                write!(f, "({left} AND {right})")
+            }
+
+            Expr::Or { left, right } => {
+                write!(f, "({left} OR {right})")
+            }
+        }
+    }
+}
+
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = match self {
+            BinaryOperator::Eq => "=",
+            BinaryOperator::NotEq => "!=",
+            BinaryOperator::Ge => ">=",
+            BinaryOperator::Le => "<=",
+            BinaryOperator::Gt => ">",
+            BinaryOperator::Lt => "<",
+        };
+
+        write!(f, "{op}")
     }
 }
