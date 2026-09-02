@@ -1,5 +1,5 @@
 use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
-use super::{btree::CellIdx, sqlite_cursor::SqliteCursor};
+use super::{btree::CellIndex, sqlite_cursor::SqliteCursor};
 use crate::errors::SqliteError;
 
 use crate::pager::pager::PageNo;
@@ -50,7 +50,7 @@ pub struct IndexLeafCell {
     first_overflow_page: Option<PageNo>,
 }
 impl TableInteriorCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIdx, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
@@ -66,7 +66,7 @@ impl TableInteriorCell {
     }
 }
 impl TableLeafCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIdx, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let (row_id, _) = cursor.read_next_varint(usable_size)?;
@@ -99,7 +99,7 @@ impl TableLeafCell {
 }
 
 impl IndexInteriorCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIdx, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::new(bytes);
         // Page number of left child
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
@@ -139,7 +139,7 @@ impl IndexInteriorCell {
 }
 
 impl IndexLeafCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIdx, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;

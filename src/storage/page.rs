@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use super::btree::CellIdx;
+use super::btree::CellIndex;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::SqliteResult;
@@ -141,7 +141,7 @@ impl BTreePageHeader {
 
 #[derive(Debug, PartialEq)]
 pub enum InsertionState {
-    Inserted, // we could use Option instead of this enum but just to improve readability
+    Inserted,
     None,
 }
 
@@ -177,7 +177,7 @@ impl<'p> BTreePageRef<'p> {
     pub fn header(&self) -> BTreePageHeader {
         self.header.to_owned()
     }
-    pub fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+    pub fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
         let start = self.header_size() as u16;
         let end = start + self.no_of_cells() * 2;
 
@@ -246,7 +246,7 @@ impl<'p> BTreePageRef<'p> {
 
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'p>>, SqliteError> {
         let mut records = Vec::new();
@@ -266,7 +266,7 @@ impl<'p> BTreePageRef<'p> {
 
     pub fn record_of_cell_into<F: crate::vfs::file::SqliteFile>(
         &self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'p>>,
     ) -> Result<(), SqliteError> {
@@ -376,6 +376,11 @@ impl<'p> BTreePageRef<'p> {
             all.push(self.record_of_cell(cell_idx, pager)?);
         }
         Ok(all)
+    }
+
+    pub fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
+        let cell = self.cell(cell_idx)?;
+        Ok(cell.row_id())
     }
 }
 
@@ -552,7 +557,7 @@ impl<'p> BTreePageMut<'p> {
     pub fn insert_cell<B: AsRef<[u8]>>(
         &mut self,
         content: &B,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
     ) -> Result<InsertionState, SqliteError> {
         let content = content.as_ref();
         if self.calculate_free_space() < content.len() + 2 {
@@ -574,7 +579,7 @@ impl<'p> BTreePageMut<'p> {
         &mut self,
         content: *const u8,
         content_len: usize,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
     ) -> Result<InsertionState, SqliteError> {
         if self.calculate_free_space() < content_len + 2 {
             return Ok(InsertionState::None);
@@ -605,7 +610,7 @@ impl<'p> BTreePageMut<'p> {
 
     pub fn replace_cell(
         &mut self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         content: impl AsRef<[u8]>,
     ) -> Result<(), SqliteError> {
         let content = content.as_ref();
@@ -1003,7 +1008,7 @@ impl<'a> OverflowPageRef<'a> {
 pub struct PageIterator<'r, 'p, F: crate::vfs::file::SqliteFile> {
     page: &'r BTreePageRef<'p>,
     pager: &'r mut Pager<F>,
-    index: CellIdx,
+    index: CellIndex,
 }
 
 impl<'r, 'p, F: crate::vfs::file::SqliteFile> Iterator for PageIterator<'r, 'p, F> {
@@ -1088,10 +1093,10 @@ impl<'p> std::fmt::Debug for BTreePageRef<'p> {
 }
 
 pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError>;
+    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError>;
     fn record_of_cell(
         &'g self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'g>>, SqliteError>;
     fn record_of(
@@ -1101,7 +1106,7 @@ pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
     ) -> Result<Vec<Value<'g>>, SqliteError>;
     fn record_of_cell_into(
         &'g self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'g>>,
     ) -> Result<(), SqliteError>;
@@ -1121,17 +1126,18 @@ pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
     fn freespace(&self) -> SqliteResult<usize>;
     fn is_underflow(&self) -> SqliteResult<bool>;
+    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64>;
 }
 
 impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'a> {
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
         let page = self.get_page_as_ref()?;
         page.cell(cell_idx)
     }
 
     fn record_of_cell(
         &'a self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
         let page = self.get_page_as_ref()?;
@@ -1147,7 +1153,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
     }
     fn record_of_cell_into<'b>(
         &'b self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'b>>,
     ) -> Result<(), SqliteError> {
@@ -1194,10 +1200,13 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'
     fn is_underflow(&self) -> SqliteResult<bool> {
         self.get_page_as_ref()?.is_underflow()
     }
+    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
+        self.get_page_as_ref()?.cell_key(cell_idx)
+    }
 }
 
 impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'a> {
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
         self.cell(cell_idx)
     }
 
@@ -1210,14 +1219,14 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'
     }
     fn record_of_cell(
         &'a self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
         self.record_of_cell(cell_idx, pager)
     }
     fn record_of_cell_into(
         &'a self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
@@ -1258,5 +1267,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'
     }
     fn is_underflow(&self) -> SqliteResult<bool> {
         self.is_underflow()
+    }
+    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
+        self.cell_key(cell_idx)
     }
 }
