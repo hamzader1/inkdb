@@ -100,10 +100,11 @@ impl Analyze {
                 new.push(Expr::remap_l_r(&node, map[left], map[right]));
                 map[idx] = new.len() - 1;
             }
-            _ => {
-                return Err(SqliteError::RuntimeError(
-                    "Expression is not allowed in select statement list".into(),
-                ));
+            other => {
+                return Err(SqliteError::RuntimeError(format!(
+                    "Expression '{}' is not supported in this context",
+                    other
+                )));
             }
         }
         Ok(())
@@ -183,10 +184,11 @@ impl Analyze {
                 Self::fast_bind(table, left, arena)?;
                 Self::fast_bind(table, right, arena)?;
             }
-            _ => {
-                return Err(SqliteError::RuntimeError(
-                    "Expression is not allowed in select statement list".into(),
-                ));
+            other => {
+                return Err(SqliteError::RuntimeError(format!(
+                    "Expression '{}' is not supported in this context",
+                    other
+                )));
             }
         }
         Ok(())

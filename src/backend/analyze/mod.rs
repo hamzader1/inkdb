@@ -8,6 +8,7 @@ use crate::sql::parser::ExprArena;
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 pub mod bind;
 pub mod create;
+pub(crate) mod delete;
 pub mod insert;
 pub mod select;
 
@@ -36,10 +37,18 @@ pub struct ResolvedCreateTableQuery {
 }
 
 #[derive(Debug)]
+pub struct ResolvedDeleteQuery {
+    pub root_page: PageNo,
+    pub arena: Option<ExprArena>,
+    pub where_clause: Option<usize>,
+}
+
+#[derive(Debug)]
 pub enum ResolvedQuery {
     SelectQuery(ResolvedSelectQuery),
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
+    DeleteQuery(ResolvedDeleteQuery),
     BeginTransactionQuery,
     CommitTransactionQuery,
     RollbackTransactionQuery,

@@ -223,7 +223,7 @@ impl<'a> Div for Value<'a> {
         match (self, rhs) {
             (Self::Integer(a), Self::Integer(b)) => {
                 if b == 0 {
-                    panic!("division by zero");
+                    return Self::Integer(0);
                 }
 
                 Self::Integer(a / b)

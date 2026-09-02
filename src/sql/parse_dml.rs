@@ -3,9 +3,10 @@ use std::borrow::Cow;
 use super::ast::{Ast, Column, SelectStmt};
 use super::parser::Parser;
 use super::tokens::TokenKind::{self, *};
+use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::record::Value;
-use crate::sql::ast::{Expr, InsertStmt};
+use crate::sql::ast::{DeleteStmt, Expr, InsertStmt};
 
 impl Parser {
     pub fn parse_select(&mut self) -> Result<Ast, SqliteError> {
@@ -94,6 +95,22 @@ impl Parser {
             table_name,
             columns,
             values,
+        }))
+    }
+    pub fn parse_delete(&mut self) -> SqliteResult<Ast> {
+        self.expect(Delete)?;
+        self.expect(From);
+        let table_name = self.expect_ident()?;
+        let mut where_clause = None;
+        let mut arena = None;
+        if self.eat(Where) {
+            where_clause = Some(self.parse_expression()?);
+            arena = Some(self.arena.clone());
+        }
+        Ok(Ast::DeleteStmtAst(DeleteStmt {
+            table_name,
+            arena,
+            where_clause,
         }))
     }
 }
