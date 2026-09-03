@@ -937,26 +937,18 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         )
     }
 
-    pub fn with_page_ref<Func, R>(
-        &mut self,
-        page_no: PageNo,
-        f: Func,
-    ) -> Result<Option<R>, SqliteError>
+    pub fn with_page_ref<Func, R>(&mut self, page_no: PageNo, f: Func) -> Result<R, SqliteError>
     where
-        Func: FnOnce(&BTreePageRef) -> Result<Option<R>, SqliteError>,
+        Func: FnOnce(&BTreePageRef) -> Result<R, SqliteError>,
     {
         let guard = self.pager.get(page_no)?;
         let p = self.page_as_ref(page_no, &guard)?;
         f(&p)
     }
 
-    pub fn with_page_mut<Func, R>(
-        &mut self,
-        page_no: PageNo,
-        f: Func,
-    ) -> Result<Option<R>, SqliteError>
+    pub fn with_page_mut<Func, R>(&mut self, page_no: PageNo, f: Func) -> Result<R, SqliteError>
     where
-        Func: for<'b> FnOnce(&'b mut BTreePageMut) -> Result<Option<R>, SqliteError>,
+        Func: for<'b> FnOnce(&'b mut BTreePageMut) -> Result<R, SqliteError>,
     {
         let mut guard = self.pager.get_mut(page_no)?;
         let mut p = self.page_as_mut(page_no, &mut guard)?;
@@ -997,9 +989,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     ) -> Result<super::page::BTreePageHeader, SqliteError> {
         let (pn, _) = self.cursor.last_visited_entry_unchecked();
 
-        let header = self
-            .with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(Some(page.header())))?
-            .expect("Error while trying to get the page header");
+        let header =
+            self.with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(page.header()))?;
         Ok(header)
     }
 
@@ -1019,10 +1010,16 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        self.with_page_mut::<_, ()>(page_no, |page| {
-            page.remove_cell(cell_idx)?;
-            Ok(None)
-        })?;
+        if page_no != self.root_page {
+            let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
+                page.remove_cell(cell_idx)?;
+                let is_undeflow = page.is_underflow()?;
+                Ok(is_undeflow)
+            })?;
+            if is_underflow {
+                todo!()
+            }
+        }
 
         Ok(())
     }

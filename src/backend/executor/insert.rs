@@ -39,10 +39,7 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
         let next_row_id = if is_empty {
             1
         } else {
-            btree
-                .with_page_ref::<_, u64>(page_no, |page| Ok(Some(page.cell(cell_idx)?.row_id())))?
-                .unwrap()
-                + 1
+            btree.with_page_ref::<_, u64>(page_no, |page| Ok(page.cell(cell_idx)?.row_id()))? + 1
         };
         self.insert_batch(&mut btree, next_row_id)?;
         Ok(None)

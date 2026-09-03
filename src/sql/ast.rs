@@ -120,6 +120,7 @@ pub enum Affinity {
     Int,
     Blob,
 }
+// TODO: Handle NULL
 impl<'a> From<&Value<'a>> for Affinity {
     fn from(value: &Value) -> Self {
         match value {

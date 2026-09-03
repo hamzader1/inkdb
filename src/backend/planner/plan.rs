@@ -1,5 +1,5 @@
 use super::super::executor::{project::Project, tablescan::TableScan};
-use super::arena::Arena;
+use super::root_plan::RootPlan;
 use crate::SqliteResult;
 use crate::backend::analyze::{
     ResolvedDeleteQuery, ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery,
@@ -34,7 +34,7 @@ pub enum Plan<F: SqliteFile> {
 }
 pub enum PlanContext<F: SqliteFile> {
     Logical(Plan<F>),
-    Resolved(Arena<F>),
+    Resolved(RootPlan<F>),
 }
 impl<F: SqliteFile> PlanContext<F> {
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
@@ -78,7 +78,7 @@ impl<F: SqliteFile> Plan<F> {
     pub fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
         pager: &mut Pager<F>,
-    ) -> Result<Arena<F>, SqliteError> {
+    ) -> Result<RootPlan<F>, SqliteError> {
         let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
@@ -92,16 +92,16 @@ impl<F: SqliteFile> Plan<F> {
             resolved_query.columns.clone(),
         ));
 
-        Ok(Arena::new(parent, Some(resolved_query.arena)))
+        Ok(RootPlan::new(parent, Some(resolved_query.arena)))
     }
 
-    pub fn init_insert_plan(resolved_query: ResolvedInsertQuery) -> Result<Arena<F>, SqliteError> {
+    pub fn init_insert_plan(resolved_query: ResolvedInsertQuery) -> Result<RootPlan<F>, SqliteError> {
         let plan = Plan::Insert(Insert::new(
             resolved_query.root_page,
             resolved_query.values,
             resolved_query.entry_hint,
         ));
-        Ok(Arena {
+        Ok(RootPlan {
             parent: plan,
             arena: None,
         })
@@ -110,13 +110,13 @@ impl<F: SqliteFile> Plan<F> {
     pub fn init_delete_plan(
         resolved_query: ResolvedDeleteQuery,
         pager: &mut Pager<F>,
-    ) -> SqliteResult<Arena<F>> {
+    ) -> SqliteResult<RootPlan<F>> {
         let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
         let parent = Self::Delete(Delete::new(Box::new(child), resolved_query.root_page));
-        Ok(Arena::new(parent, resolved_query.arena))
+        Ok(RootPlan::new(parent, resolved_query.arena))
     }
 }
 

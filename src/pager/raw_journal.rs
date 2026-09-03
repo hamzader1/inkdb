@@ -91,7 +91,7 @@ impl RawJournal {
         file.write_all_at(0 as _, &self.buffer)?;
         file.sync()?;
         let page_count_slice = &mut self.buffer[8..12];
-        page_count_slice.copy_from_slice(&u32::to_ne_bytes(self.page_count));
+        page_count_slice.copy_from_slice(&u32::to_be_bytes(self.page_count));
         file.write_all_at(8, page_count_slice)?;
         file.sync()?;
         Ok(())

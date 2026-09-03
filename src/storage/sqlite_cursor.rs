@@ -46,14 +46,14 @@ impl<'a> SqliteCursor<'a> {
     }
 
     pub fn move_forward_by(&mut self, steps: u64) -> Result<(), SqliteError> {
-        self.offset = self.offset.checked_add(steps).ok_or(SqliteError::OverFlow(
+        self.offset = self.offset.checked_add(steps).ok_or(SqliteError::Overflow(
             "Overflow while trying to move the cursor forward".into(),
         ))?;
         Ok(())
     }
 
     pub fn move_backward_by(&mut self, steps: u64) -> Result<(), SqliteError> {
-        self.offset = self.offset.checked_sub(steps).ok_or(SqliteError::OverFlow(
+        self.offset = self.offset.checked_sub(steps).ok_or(SqliteError::Overflow(
             "Overflow while trying to move the cursor backward".into(),
         ))?;
         Ok(())

@@ -66,7 +66,7 @@ pub enum SqliteError {
     BufferPoolExhausted,
 
     #[error("{0}")]
-    OverFlow(String),
+    Overflow(String),
 
     #[error("Invalid number from position {start} to {end}: Number too large or malformed")]
     InvalidNumber {
