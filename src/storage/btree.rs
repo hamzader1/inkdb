@@ -822,7 +822,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let mut parent_guard = self.pager.get_mut(path.page_no)?;
             let mut parent_page = self.page_as_mut(path.page_no, &mut parent_guard)?;
 
-            let page_as_ref = parent_page.get_page_as_ref()?;
+            let page_as_ref = parent_page.as_ref()?;
             let cell_idx = self
                 .cursor
                 .choose_child(&page_as_ref, self.pager, &promoted_key)?
@@ -967,11 +967,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         f: Func,
     ) -> Result<Option<R>, SqliteError>
     where
-        Func: for<'b> FnOnce(&'b BTreePageMut) -> Result<Option<R>, SqliteError>,
+        Func: for<'b> FnOnce(&'b mut BTreePageMut) -> Result<Option<R>, SqliteError>,
     {
-        let mut guard = self.pager.get(page_no)?;
-        let p = self.page_as_mut(page_no, &mut guard)?;
-        f(&p)
+        let mut guard = self.pager.get_mut(page_no)?;
+        let mut p = self.page_as_mut(page_no, &mut guard)?;
+        f(&mut p)
     }
 
     // TODO:
@@ -1030,9 +1030,14 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
 
-        // key not found
+        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        self.with_page_mut::<_, ()>(page_no, |page| {
+            page.remove_cell(cell_idx)?;
+            Ok(None)
+        })?;
 
-        todo!()
+        println!("DONE");
+        Ok(())
     }
 }
 
