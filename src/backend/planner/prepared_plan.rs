@@ -7,11 +7,11 @@ use crate::vfs::file::SqliteFile;
 use super::plan::Plan;
 
 #[derive(Debug)]
-pub struct RootPlan<F: SqliteFile> {
+pub struct PreparedPlan<F: SqliteFile> {
     pub parent: Plan<F>,
     pub arena: Option<ExprArena>,
 }
-impl<F: SqliteFile> RootPlan<F> {
+impl<F: SqliteFile> PreparedPlan<F> {
     pub fn new(parent: Plan<F>, arena: Option<ExprArena>) -> Self {
         Self { parent, arena }
     }
