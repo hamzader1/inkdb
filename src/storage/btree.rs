@@ -8,6 +8,7 @@ use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
 
+use crate::SqliteResult;
 use crate::pager::pager::PageNo;
 
 use crate::SqliteCursor;
@@ -24,7 +25,7 @@ use crate::vfs::file::SqliteFile;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
-pub type CellIdx = u16;
+pub type CellIndex = u16;
 
 #[derive(Debug, PartialEq)]
 pub enum CursorState {
@@ -47,7 +48,7 @@ pub struct Path {
     guard: PageGuard,
 }
 impl Path {
-    fn new(page_no: PageNo, cell_idx: CellIdx, guard: PageGuard) -> Self {
+    fn new(page_no: PageNo, cell_idx: CellIndex, guard: PageGuard) -> Self {
         Self {
             page_no,
             cell_idx,
@@ -56,11 +57,11 @@ impl Path {
     }
 }
 pub enum SearchResult {
-    Found { row_id: i64, cell_index: CellIdx },
-    Descend { child: u32, cell_index: CellIdx },
+    Found { row_id: i64, cell_index: CellIndex },
+    Descend { child: u32, cell_index: CellIndex },
 }
 impl SearchResult {
-    pub fn cell_index(&self) -> CellIdx {
+    pub fn cell_index(&self) -> CellIndex {
         match self {
             Self::Found { cell_index, .. } => *cell_index,
             Self::Descend { cell_index, .. } => *cell_index,
@@ -289,7 +290,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         target: &Value,
     ) -> Result<SearchResult, SqliteError>
     where
-        P: BTreePageOps<'g, F>,
+        P: BTreePageOps<'g>,
     {
         sqlite_assert_with_corrupt_err(
             page.is_interior(),
@@ -357,8 +358,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         None
     }
     pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
-        let p = self.stack.last().unwrap();
-        (p.page_no, p.cell_idx)
+        self.last_visited_entry().unwrap()
     }
 
     fn choose_target<'a, P>(
@@ -366,9 +366,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         page: &'a P,
         pager: &mut Pager<F>,
         target: &Value<'_>,
-    ) -> Result<(bool, CellIdx), SqliteError>
+    ) -> Result<(bool, CellIndex), SqliteError>
     where
-        P: BTreePageOps<'a, F> + Debug,
+        P: BTreePageOps<'a> + Debug,
     {
         sqlite_assert_with_corrupt_err(
             page.is_leaf(),
@@ -448,7 +448,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     }
     pub fn with_current<FN, R>(&mut self, pager: &mut Pager<F>, f: FN) -> Result<R, SqliteError>
     where
-        FN: for<'a> FnOnce(&'a BTreePageRef<'a>, &BTreeCell) -> Result<R, SqliteError>,
+        FN: for<'a> FnOnce(&'a BTreePageRef<'a>, &'a BTreeCell) -> Result<R, SqliteError>,
     {
         let path = self.stack.last().unwrap();
         let Path {
@@ -460,7 +460,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         })
     }
 
-    fn add_path(&mut self, page_no: PageNo, cell_idx: CellIdx, guard: PageGuard) {
+    fn add_path(&mut self, page_no: PageNo, cell_idx: CellIndex, guard: PageGuard) {
         self.stack.push(Path::new(page_no, cell_idx, guard));
     }
 }
@@ -822,7 +822,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let mut parent_guard = self.pager.get_mut(path.page_no)?;
             let mut parent_page = self.page_as_mut(path.page_no, &mut parent_guard)?;
 
-            let page_as_ref = parent_page.get_page_as_ref()?;
+            let page_as_ref = parent_page.as_ref()?;
             let cell_idx = self
                 .cursor
                 .choose_child(&page_as_ref, self.pager, &promoted_key)?
@@ -940,7 +940,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         page_no: PageNo,
         guard: &'a mut PageGuard,
     ) -> Result<BTreePageMut<'a>, SqliteError> {
-        // dbg!(&guard, page_no);
         BTreePageMut::new(
             page_no,
             guard.bytes_as_mut().unwrap(),
@@ -968,16 +967,15 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         f: Func,
     ) -> Result<Option<R>, SqliteError>
     where
-        Func: FnOnce(&BTreePageMut) -> Result<Option<R>, SqliteError>,
+        Func: for<'b> FnOnce(&'b mut BTreePageMut) -> Result<Option<R>, SqliteError>,
     {
-        let mut guard = self.pager.get(page_no)?;
-        let p = self.page_as_mut(page_no, &mut guard)?;
-        f(&p)
+        let mut guard = self.pager.get_mut(page_no)?;
+        let mut p = self.page_as_mut(page_no, &mut guard)?;
+        f(&mut p)
     }
 
     // TODO:
-    //     USE FREE LIST AS FIRST THING TO CHECK BEFORE RUSHING
-    //     INTO THE DISK
+    //     USE FREE LIST AS PRIMARY SOURCE, THEN ALLOCATE IF NONE
     //
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
         let max_allocated_pages = self.pager.metadata.max_allocated_pages;
@@ -1015,9 +1013,36 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             .expect("Error while trying to get the page header");
         Ok(header)
     }
+
+    // delete
+    //
+    pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
+        let res = self.cursor.seek(self.pager, key.clone())?;
+        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        let found_key = self
+            .with_page_ref(page_no, |page| {
+                let key = page.cell_key(cell_idx)?;
+                Ok(Some(key))
+            })?
+            .unwrap();
+        if !(found_key.into_sqlite_value() == key) {
+            // key not found
+            return Ok(());
+        }
+        dbg!(page_no, cell_idx);
+        // return Ok(());
+        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        self.with_page_mut::<_, ()>(page_no, |page| {
+            page.remove_cell(cell_idx)?;
+            Ok(None)
+        })?;
+
+        println!("DONE");
+        Ok(())
+    }
 }
 
-fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
+pub fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
     page_no: PageNo,
     guard: &'b PageGuard,
     pager: &Pager<P>,
@@ -1030,7 +1055,7 @@ fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
     )
 }
 
-fn page_as_mut_with_pager<'b, P: crate::vfs::file::SqliteFile>(
+pub fn page_as_mut_with_pager<'b, P: crate::vfs::file::SqliteFile>(
     page_no: PageNo,
     guard: &'b mut PageGuard,
     pager: &Pager<P>,

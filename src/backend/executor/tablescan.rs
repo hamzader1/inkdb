@@ -2,7 +2,8 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::parser::ExprArena;
-use crate::storage::btree::BTreeCursor;
+use crate::storage::btree::{BTree, BTreeCursor, page_as_ref_with_pager};
+use crate::storage::cell::BTreeCell;
 use crate::storage::page::BTreePageRef;
 use crate::vfs::file::SqliteFile;
 
@@ -44,10 +45,13 @@ impl<F: SqliteFile> TableScan<F> {
         if self.is_done {
             return Ok(None);
         }
-        if let Some(row) = self.cursor.current_record(pager)? {
-            let v: Row = row.iter().map(|v| v.into_owned()).collect();
+        if let Some((page_no, cell_idx)) = self.cursor.last_visited_entry() {
+            let row_id = self.cursor.with_current(pager, |_, c| Ok(c.row_id()))?;
+            let record = self.cursor.current_record(pager)?.unwrap();
+            let v = record.iter().map(|v| v.into_owned()).collect();
+            let row = Row::new(row_id, v);
             self.cursor.next(pager)?;
-            return Ok(Some(v));
+            return Ok(Some(row));
         }
         self.is_done = true;
         Ok(None)

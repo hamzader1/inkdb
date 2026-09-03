@@ -4,6 +4,7 @@ use crate::record::Value;
 use crate::sql::parser::ExprArena;
 use crate::vfs::file::SqliteFile;
 
+use super::Row;
 use super::eval::Eval;
 
 #[derive(Debug)]
@@ -22,14 +23,15 @@ impl<F: SqliteFile> Project<F> {
         &mut self,
         pager: &mut Pager<F>,
         arena: &ExprArena,
-    ) -> Result<Option<super::Row>, crate::errors::SqliteError> {
-        if let Some(row) = self.child.next(pager, Some(arena))? {
+    ) -> Result<Option<Row>, crate::errors::SqliteError> {
+        if let Some(mut row) = self.child.next(pager, Some(arena))? {
             let output_row: Vec<Value<'static>> = self
                 .columns
                 .iter()
                 .map(|i| Eval::eval_row(arena, *i, &row))
                 .collect();
-            return Ok(Some(output_row));
+            row.data = output_row;
+            return Ok(Some(row));
         }
 
         Ok(None)

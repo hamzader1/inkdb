@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
+use std::ops::Deref;
+use std::sync::WaitTimeoutResult;
 
-use super::btree::CellIdx;
+use super::btree::CellIndex;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::SqliteResult;
@@ -131,7 +133,7 @@ impl BTreePageHeader {
     pub fn right_most_ptr(&self) -> Option<PageNo> {
         self.right_most_ptr
     }
-    pub fn header_size(&self) -> u8 {
+    pub fn local_header_size(&self) -> u8 {
         if self.page_kind.is_interior() {
             return INTERIOR_BTREE_PAGE_HEADER_SIZE;
         }
@@ -141,7 +143,7 @@ impl BTreePageHeader {
 
 #[derive(Debug, PartialEq)]
 pub enum InsertionState {
-    Inserted, // we could use Option instead of this enum but just to improve readability
+    Inserted,
     None,
 }
 
@@ -177,17 +179,26 @@ impl<'p> BTreePageRef<'p> {
     pub fn header(&self) -> BTreePageHeader {
         self.header.to_owned()
     }
-    pub fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+
+    pub fn get_cell_offset(&self, cell_idx: CellIndex) -> Result<u16, SqliteError> {
         let start = self.header_size() as u16;
         let end = start + self.no_of_cells() * 2;
 
         let cell_offset = (cell_idx * 2) + self.header_size() as u16;
         sqlite_assert_with_corrupt_err(
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
-            "Cell Index Out of Bounds",
+            &format!(
+                "Cell Index Out of Bounds: Start: {}, End: {}, CellOffset: {}",
+                start, end, cell_offset
+            ),
         )?;
         let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
         let cell_ptr = cursor.read_next_u16()?;
+        Ok(cell_ptr)
+    }
+
+    pub fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
+        let cell_ptr = self.get_cell_offset(cell_idx)?;
         self.cell_by_ptr(cell_ptr)
     }
 
@@ -246,7 +257,7 @@ impl<'p> BTreePageRef<'p> {
 
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'p>>, SqliteError> {
         let mut records = Vec::new();
@@ -266,7 +277,7 @@ impl<'p> BTreePageRef<'p> {
 
     pub fn record_of_cell_into<F: crate::vfs::file::SqliteFile>(
         &self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'p>>,
     ) -> Result<(), SqliteError> {
@@ -341,7 +352,7 @@ impl<'p> BTreePageRef<'p> {
         self.header.page_kind
     }
     pub fn header_size(&self) -> u8 {
-        self.header.header_size() + self.header_offset
+        self.header.local_header_size() + self.header_offset
     }
     pub fn is_leaf(&self) -> bool {
         self.header.page_kind.is_leaf()
@@ -376,6 +387,11 @@ impl<'p> BTreePageRef<'p> {
             all.push(self.record_of_cell(cell_idx, pager)?);
         }
         Ok(all)
+    }
+
+    pub fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
+        let cell = self.cell(cell_idx)?;
+        Ok(cell.row_id())
     }
 }
 
@@ -445,14 +461,14 @@ impl<'p> BTreePageMut<'p> {
         let offset = self.header_offset as usize;
         self.bytes[offset..offset + 1].copy_from_slice(&byte.to_be_bytes());
     }
-    fn get_header_size(&self) -> u8 {
-        if self.header.page_kind.is_interior() {
-            return INTERIOR_BTREE_PAGE_HEADER_SIZE;
-        }
-        LEAF_BTREE_PAGE_HEADER_SIZE
-    }
+    // fn get_header_size(&self) -> u8 {
+    //     if self.header.page_kind.is_interior() {
+    //         return INTERIOR_BTREE_PAGE_HEADER_SIZE;
+    //     }
+    //     LEAF_BTREE_PAGE_HEADER_SIZE
+    // }
     fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteError> {
-        let header_size = self.get_header_size();
+        let header_size = self.header_size();
         let Self {
             header_offset,
             header,
@@ -552,10 +568,10 @@ impl<'p> BTreePageMut<'p> {
     pub fn insert_cell<B: AsRef<[u8]>>(
         &mut self,
         content: &B,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
     ) -> Result<InsertionState, SqliteError> {
         let content = content.as_ref();
-        if self.calculate_free_space() < content.len() + 2 {
+        if self.remaining_space() < content.len() + 2 {
             return Ok(InsertionState::None); // overflow
         }
         let entry_offset = self.header.cell_content_area as usize - content.len();
@@ -574,9 +590,9 @@ impl<'p> BTreePageMut<'p> {
         &mut self,
         content: *const u8,
         content_len: usize,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
     ) -> Result<InsertionState, SqliteError> {
-        if self.calculate_free_space() < content_len + 2 {
+        if self.remaining_space() < content_len + 2 {
             return Ok(InsertionState::None);
         }
         let entry_offset = self.header.cell_content_area as usize - content_len;
@@ -605,7 +621,7 @@ impl<'p> BTreePageMut<'p> {
 
     pub fn replace_cell(
         &mut self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         content: impl AsRef<[u8]>,
     ) -> Result<(), SqliteError> {
         let content = content.as_ref();
@@ -642,7 +658,7 @@ impl<'p> BTreePageMut<'p> {
     }
 
     pub fn update_cell_pointers(&mut self) {
-        let mut offset = (self.get_header_size() + self.header_offset) as usize;
+        let mut offset = self.header_size() as usize;
         for ptr in &self.cell_pointers {
             self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
             offset += 2;
@@ -650,16 +666,16 @@ impl<'p> BTreePageMut<'p> {
     }
 
     pub fn update_cell_pointers_with(&mut self, cell_pointers: &[u16]) {
-        let mut offset = (self.get_header_size() + self.header_offset) as usize;
+        let mut offset = self.header_size() as usize;
         for ptr in cell_pointers {
             self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
             offset += 2;
         }
     }
-    pub fn calculate_free_space(&self) -> usize {
+    pub fn remaining_space(&self) -> usize {
         self.header.cell_content_area as usize
             - (self.cell_pointers.len() * 2)
-            - (self.header_offset + self.get_header_size()) as usize
+            - (self.header_size()) as usize
     }
 
     pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
@@ -891,7 +907,39 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
-    pub fn get_page_as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
+    pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
+        let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
+        dbg!(cell_ptr);
+        let cell_span = self.cell_span(cell_ptr)?;
+        dbg!(&cell_span);
+        let bytes_len: usize = cell_span.end - cell_span.start;
+        dbg!(bytes_len);
+        self.insert_freeblock(cell_ptr as _, bytes_len)?;
+        self.remove_cell_pointer_entry(cell_idx)?;
+        self.update_freelist_block_cache()?;
+        Ok(())
+    }
+    fn remove_cell_pointer_entry(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
+        debug_assert!(
+            self.cell_pointers.len() > cell_idx as _,
+            "Cell index out of the cell pointer array"
+        );
+        self.cell_pointers.remove(cell_idx as _);
+        self.update_cell_pointers();
+        self.header.no_of_cells -= 1;
+        self.update_no_of_cells();
+        Ok(())
+    }
+
+    // Temporary until we create a macro update
+    fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
+        let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
+        let mut cursor = SqliteCursor::with_offset(&self.bytes, offset as _)?;
+        self.header.first_freeblock = cursor.read_next_u16()?;
+        dbg!(self.header.first_freeblock);
+        Ok(())
+    }
+    pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
         BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
     }
 }
@@ -1003,7 +1051,7 @@ impl<'a> OverflowPageRef<'a> {
 pub struct PageIterator<'r, 'p, F: crate::vfs::file::SqliteFile> {
     page: &'r BTreePageRef<'p>,
     pager: &'r mut Pager<F>,
-    index: CellIdx,
+    index: CellIndex,
 }
 
 impl<'r, 'p, F: crate::vfs::file::SqliteFile> Iterator for PageIterator<'r, 'p, F> {
@@ -1087,31 +1135,30 @@ impl<'p> std::fmt::Debug for BTreePageRef<'p> {
     }
 }
 
-pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError>;
-    fn record_of_cell(
+pub trait BTreePageOps<'g> {
+    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError>;
+    fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &'g self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'g>>, SqliteError>;
-    fn record_of(
+    fn record_of<F: crate::vfs::file::SqliteFile>(
         &'g self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'g>>, SqliteError>;
-    fn record_of_cell_into(
+    fn record_of_cell_into<F: crate::vfs::file::SqliteFile>(
         &'g self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'g>>,
     ) -> Result<(), SqliteError>;
-    fn record_of_into(
+    fn record_of_into<F: crate::vfs::file::SqliteFile>(
         &'g self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'g>>,
     ) -> Result<(), SqliteError>;
-
     fn no_of_cells(&self) -> u16;
     fn right_most_ptr(&self) -> Option<PageNo>;
     fn is_interior(&self) -> bool;
@@ -1121,109 +1168,115 @@ pub trait BTreePageOps<'g, F: crate::vfs::file::SqliteFile> {
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
     fn freespace(&self) -> SqliteResult<usize>;
     fn is_underflow(&self) -> SqliteResult<bool>;
+    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64>;
 }
 
-impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageMut<'a> {
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
-        let page = self.get_page_as_ref()?;
+impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
+    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
+        let page = self.as_ref()?;
         page.cell(cell_idx)
     }
 
-    fn record_of_cell(
+    fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &'a self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
-        let page = self.get_page_as_ref()?;
+        let page = self.as_ref()?;
         page.record_of_cell(cell_idx, pager)
     }
-    fn record_of(
+    fn record_of<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
-        let page = self.get_page_as_ref()?;
+        let page = self.as_ref()?;
         page.record_of(cell, pager)
     }
-    fn record_of_cell_into<'b>(
+    fn record_of_cell_into<'b, F: crate::vfs::file::SqliteFile>(
         &'b self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'b>>,
     ) -> Result<(), SqliteError> {
-        let page = self.get_page_as_ref()?;
+        let page = self.as_ref()?;
         // `page.cell` is BTreePageRef's inherent method (unambiguous); `self.cell`
         // is the trait method, which has no `pager` argument to pin down `F`.
         let cell = page.cell(cell_idx)?;
         page.get_cell_record(pager, &cell, records)
     }
 
-    fn record_of_into(
+    fn record_of_into<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        let page = self.get_page_as_ref()?;
+        let page = self.as_ref()?;
         page.get_cell_record(pager, cell, records)
     }
     fn header_size(&self) -> u8 {
-        self.get_page_as_ref().unwrap().header_size()
+        self.as_ref()
+            .expect("Fails to create Ref page from Mut page")
+            .header_size()
     }
     fn is_interior(&self) -> bool {
-        self.get_page_as_ref().unwrap().is_interior()
+        self.as_ref().unwrap().is_interior()
     }
     fn is_leaf(&self) -> bool {
-        self.get_page_as_ref().unwrap().is_leaf()
+        self.as_ref().unwrap().is_leaf()
     }
     fn no_of_cells(&self) -> u16 {
-        self.get_page_as_ref().unwrap().no_of_cells()
+        self.as_ref().unwrap().no_of_cells()
     }
     fn page_type(&self) -> BTreePageType {
-        self.get_page_as_ref().unwrap().page_type()
+        self.as_ref().unwrap().page_type()
     }
     fn right_most_ptr(&self) -> Option<PageNo> {
-        self.get_page_as_ref().unwrap().right_most_ptr()
+        self.as_ref().unwrap().right_most_ptr()
     }
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
-        self.get_page_as_ref()?.cell_by_ptr(cell_offset)
+        self.as_ref()?.cell_by_ptr(cell_offset)
     }
     fn freespace(&self) -> SqliteResult<usize> {
-        self.get_page_as_ref()?.freespace()
+        self.as_ref()?.freespace()
     }
     fn is_underflow(&self) -> SqliteResult<bool> {
-        self.get_page_as_ref()?.is_underflow()
+        self.as_ref()?.is_underflow()
+    }
+    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
+        self.as_ref()?.cell_key(cell_idx)
     }
 }
 
-impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'a> {
-    fn cell(&self, cell_idx: CellIdx) -> Result<BTreeCell, SqliteError> {
+impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
+    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
         self.cell(cell_idx)
     }
 
-    fn record_of(
+    fn record_of<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
         self.record_of(cell, pager)
     }
-    fn record_of_cell(
+    fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &'a self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
     ) -> Result<Vec<Value<'a>>, SqliteError> {
         self.record_of_cell(cell_idx, pager)
     }
-    fn record_of_cell_into(
+    fn record_of_cell_into<F: crate::vfs::file::SqliteFile>(
         &'a self,
-        cell_idx: CellIdx,
+        cell_idx: CellIndex,
         pager: &mut Pager<F>,
         records: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
         self.record_of_cell_into(cell_idx, pager, records)
     }
-    fn record_of_into(
+    fn record_of_into<F: crate::vfs::file::SqliteFile>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<F>,
@@ -1258,5 +1311,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTreePageOps<'a, F> for BTreePageRef<'
     }
     fn is_underflow(&self) -> SqliteResult<bool> {
         self.is_underflow()
+    }
+    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
+        self.cell_key(cell_idx)
     }
 }

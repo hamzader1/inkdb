@@ -100,7 +100,9 @@ impl<F: SqliteFile> Plan<F> {
         })
     }
 
-    pub fn init_delete_plan(resolved_query: ResolvedInsertQuery) -> SqliteResult<Arena<F>> {}
+    pub fn init_delete_plan(resolved_query: ResolvedInsertQuery) -> SqliteResult<Arena<F>> {
+        todo!()
+    }
 }
 
 impl<F: SqliteFile> Plan<F> {

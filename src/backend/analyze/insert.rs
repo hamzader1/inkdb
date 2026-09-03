@@ -1,7 +1,7 @@
 use crate::SqliteMaster;
 use crate::errors::SqliteError;
 use crate::sql::ast::{Affinity, InsertStmt};
-use crate::util::sqlite_assert_with_corrupt_err;
+use crate::util::{sqlite_assert_with_corrupt_err, sqlite_assert_with_runtime_err};
 
 use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 
@@ -21,7 +21,14 @@ impl Analyze {
 
         if columns.is_empty() {
             for inner_values in values.iter() {
-                assert!(inner_values.len() == table.columns.len());
+                sqlite_assert_with_runtime_err(
+                    inner_values.len() == table.columns.len(),
+                    &format!(
+                        "Column count mismatch: table has {} columns, but {} columns were provided",
+                        table.columns.len(),
+                        inner_values.len(),
+                    ),
+                )?;
                 for (i, value) in inner_values.iter().enumerate() {
                     let sqlite_value_type = Affinity::from(value);
                     sqlite_assert_with_corrupt_err(
