@@ -192,13 +192,13 @@ impl<'p> BTreePageRef<'p> {
                 start, end, cell_offset
             ),
         )?;
-        Ok(cell_offset)
+        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
+        let cell_ptr = cursor.read_next_u16()?;
+        Ok(cell_ptr)
     }
 
     pub fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
-        let cell_offset = self.get_cell_offset(cell_idx)?;
-        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
-        let cell_ptr = cursor.read_next_u16()?;
+        let cell_ptr = self.get_cell_offset(cell_idx)?;
         self.cell_by_ptr(cell_ptr)
     }
 
@@ -926,16 +926,17 @@ impl<'p> BTreePageMut<'p> {
         );
         self.cell_pointers.remove(cell_idx as _);
         self.update_cell_pointers();
-        self.header.no_of_cells = self.cell_pointers.len() as _;
+        self.header.no_of_cells -= 1;
         self.update_no_of_cells();
         Ok(())
     }
 
     // Temporary until we create a macro update
     fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
-        let offset = self.header_size() as usize + FIRST_FREEBLOCK_OFFSET;
+        let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
         let mut cursor = SqliteCursor::with_offset(&self.bytes, offset as _)?;
         self.header.first_freeblock = cursor.read_next_u16()?;
+        dbg!(self.header.first_freeblock);
         Ok(())
     }
     pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
