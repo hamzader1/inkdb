@@ -44,7 +44,7 @@ impl Analyze {
         }
 
         Ok(ResolvedQuery::InsertQuery(ResolvedInsertQuery {
-            root: table.root_page,
+            root_page: table.root_page,
             values,
             entry_hint: None,
         }))

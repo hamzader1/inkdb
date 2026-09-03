@@ -5,7 +5,7 @@ use crate::{SqliteMaster, SqliteResult};
 use super::{Analyze, ResolvedQuery};
 
 impl Analyze {
-    fn analyze_delete_stmt(
+    pub fn analyze_delete_stmt(
         mut stmt: DeleteStmt,
         sqlite_master: &SqliteMaster,
     ) -> SqliteResult<ResolvedQuery> {
