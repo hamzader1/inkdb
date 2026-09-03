@@ -23,9 +23,12 @@ impl<F: SqliteFile> Delete<F> {
         pager: &mut Pager<F>,
         arena: Option<&ExprArena>,
     ) -> SqliteResult<Option<Row>> {
-        if let Some(row) = self.child.next(pager, arena)? {
-            let key = row.key;
-            let mut btree = BTree::new(self.root_page, pager);
+        let mut ids = Vec::new();
+        while let Some(row) = self.child.next(pager, arena)? {
+            ids.push(row.key);
+        }
+        let mut btree = BTree::new(self.root_page, pager);
+        for key in ids {
             btree.delete(key.into_sqlite_value())?;
         }
         Ok(None)
