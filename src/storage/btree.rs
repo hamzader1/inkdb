@@ -1,12 +1,13 @@
-use std::cell::Cell;
-use std::fmt::Debug;
-
 use super::cell::BTreeCell;
 use super::cell::Encode;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
+use super::page::PageField::*;
+use super::page::RIGHT_MOST_POINTER_SIZE;
+use std::cell::Cell;
+use std::fmt::Debug;
 
 use crate::SqliteResult;
 use crate::pager::pager::PageNo;
@@ -95,7 +96,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
             if page.is_leaf() {
-                let (found, cell_idx) = self.choose_target(&page, pager, &target)?;
+                let (found, cell_idx) = self.binary_search_leaf(&page, pager, &target)?;
                 self.stack.push(Path::new(page_no, cell_idx, guard));
                 if found {
                     return Ok(SeekResult::Exact);
@@ -103,7 +104,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 return Ok(SeekResult::NotFound);
             }
             self.state = CursorState::At;
-            let search_result = self.choose_child(&page, pager, &target)?;
+            let search_result = self.binary_search_interior(&page, pager, &target)?;
             match search_result {
                 SearchResult::Found { cell_index, .. } => {
                     self.stack.push(Path::new(page_no, cell_index, guard));
@@ -283,7 +284,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     fn clear_path(&mut self) {
         self.stack.clear();
     }
-    fn choose_child<'g, P>(
+    fn binary_search_interior<'g, P>(
         &self,
         page: &'g P,
         pager: &mut Pager<F>,
@@ -296,61 +297,57 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             page.is_interior(),
             "Navigation path of this works only with interior pages",
         )?;
+
         let cell_count = page.no_of_cells();
-        if page.page_type() == BTreePageType::InteriorTable {
-            let mut l = 0;
-            let mut r = cell_count;
-            while l < r {
-                let m = l + (r - l) / 2;
-                let cell = page.cell(m)?;
-                let row_id = &cell.row_id().into_sqlite_value();
-                if row_id >= target {
+        let is_table = page.page_type() == BTreePageType::InteriorTable;
+
+        let mut l = 0;
+        let mut r = cell_count;
+
+        while l < r {
+            let m = l + (r - l) / 2;
+            let cell = page.cell(m)?;
+
+            if is_table {
+                let row_id = cell.row_id().into_sqlite_value();
+
+                if &row_id >= target {
                     r = m;
                 } else {
-                    l = m + 1
+                    l = m + 1;
                 }
-            }
-            if l < cell_count {
-                let res = SearchResult::Descend {
-                    child: page.cell(l)?.left_child(),
-                    cell_index: l,
-                };
-                return Ok(res);
-            }
-        } else {
-            let mut l = 0;
-            let mut r = cell_count;
-            while l < r {
-                let m = l + (r - l) / 2;
-                let cell = page.cell(m)?;
+            } else {
                 let mut payload = page.record_of(&cell, pager)?;
                 let row_id = payload.pop().unwrap().get_int()?;
                 let tuple = Value::Tuple(payload);
+
                 if &tuple == target {
                     return Ok(SearchResult::Found {
                         row_id,
                         cell_index: m,
                     });
                 }
+
                 if &tuple > target {
                     r = m;
                 } else {
                     l = m + 1;
                 }
             }
-            if l < cell_count {
-                return Ok(SearchResult::Descend {
-                    child: page.cell(l)?.left_child(),
-                    cell_index: l,
-                });
-            }
         }
+
+        if l < cell_count {
+            return Ok(SearchResult::Descend {
+                child: page.cell(l)?.left_child(),
+                cell_index: l,
+            });
+        }
+
         Ok(SearchResult::Descend {
             child: page.right_most_ptr().unwrap(),
             cell_index: cell_count,
         })
     }
-
     pub fn last_visited_entry(&self) -> Option<(u32, u16)> {
         if let Some(path) = self.stack.last() {
             return Some((path.page_no, path.cell_idx));
@@ -361,7 +358,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         self.last_visited_entry().unwrap()
     }
 
-    fn choose_target<'a, P>(
+    fn binary_search_leaf<'a, P>(
         &self,
         page: &'a P,
         pager: &mut Pager<F>,
@@ -374,40 +371,30 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             page.is_leaf(),
             "This navigation path works only for leaves",
         )?;
+
         let cell_cnt = page.no_of_cells();
-        if page.page_type() == BTreePageType::LeafTable {
-            let mut l = 0;
-            let mut r = cell_cnt;
-            while l < r {
-                let m: u16 = l + ((r - l) / 2);
-                let cell = page.cell(m)?;
-                let row_id = &cell.row_id().into_sqlite_value();
-                if row_id == target {
-                    return Ok((true, m));
-                } else if row_id > target {
-                    r = m;
-                } else {
-                    l = m + 1;
-                }
+        let mut l = 0;
+        let mut r = cell_cnt;
+
+        while l < r {
+            let m: u16 = l + ((r - l) / 2);
+
+            let value = if page.page_type() == BTreePageType::LeafTable {
+                page.cell(m)?.row_id().into_sqlite_value()
+            } else {
+                Value::Tuple(page.record_of_cell(m, pager)?)
+            };
+
+            if &value == target {
+                return Ok((true, m));
+            } else if &value > target {
+                r = m;
+            } else {
+                l = m + 1;
             }
-            Ok((false, l))
-        } else {
-            let mut l = 0;
-            let mut r = cell_cnt;
-            while l < r {
-                let m: u16 = l + ((r - l) / 2);
-                let payload = page.record_of_cell(m, pager)?;
-                let tuple = Value::Tuple(payload);
-                if &tuple == target {
-                    return Ok((true, m));
-                } else if &tuple > target {
-                    r = m;
-                } else {
-                    l = m + 1;
-                }
-            }
-            Ok((false, l))
         }
+
+        Ok((false, l))
     }
 
     pub fn current_page_as_ref<'a>(
@@ -570,7 +557,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let parent_page_as_ref = self.page_as_ref(path.page_no, &path.guard)?;
             let index = self
                 .cursor
-                .choose_child(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
+                .binary_search_interior(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
                 .cell_index();
             let left_page_payload = Encode::encode_table_interior_cell(
                 left_page.page_no,
@@ -593,7 +580,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
                     InsertionState::Inserted => {
                         parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
-                        parent_page_as_mut.update_rmp();
+
+                        parent_page_as_mut.update_bytes([RightMostPointer]);
                         Ok(split_metadata)
                     }
                     InsertionState::None => {
@@ -603,7 +591,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                         let mut guard = self.pager.get_mut(meta.right_page)?;
                         let mut page = self.page_as_mut(meta.right_page, &mut guard)?;
                         page.header.right_most_ptr = Some(split_metadata.right_page);
-                        page.update_rmp();
+                        page.update_bytes([RightMostPointer]);
                         Ok(split_metadata)
                     }
                 }
@@ -626,7 +614,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         } else {
             let new_left_page_no = self.allocate_page()?;
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
-            let mut new_left_page = BTreePageMut::new_from_scratch(
+            let mut new_left_page = BTreePageMut::new_from_raw_bytes(
                 new_left_page_no,
                 BTreePageType::LeafTable,
                 new_left_page_guard.bytes_as_mut().unwrap(),
@@ -648,7 +636,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             })?;
             let right_max = right_page.parse_cell_at(right_last_ptr)?.row_id();
 
-            let mut root = BTreePageMut::new_from_scratch(
+            let mut root = BTreePageMut::new_from_raw_bytes(
                 left_page.page_no,
                 BTreePageType::InteriorTable,
                 left_page_guard.bytes_as_mut().unwrap(),
@@ -657,7 +645,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             );
 
             root.header.right_most_ptr = Some(right_page.page_no);
-            root.update_rmp();
+            root.update_bytes([RightMostPointer]);
 
             let left_child_payload =
                 Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
@@ -682,7 +670,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // TODO add freelist check
         let right_page_no = self.allocate_page()?;
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
-        let mut right_page = BTreePageMut::new_from_scratch(
+        let mut right_page = BTreePageMut::new_from_raw_bytes(
             right_page_no,
             BTreePageType::LeafTable,
             right_page_guard.bytes_as_mut().unwrap(),
@@ -766,7 +754,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let new_page_no = self.allocate_page()?;
         let mut new_page_guard = self.pager.get_mut(new_page_no)?;
         // let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
-        let mut new_page = BTreePageMut::new_from_scratch(
+        let mut new_page = BTreePageMut::new_from_raw_bytes(
             new_page_no,
             BTreePageType::InteriorTable,
             new_page_guard.bytes_as_mut().unwrap(),
@@ -802,7 +790,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             }
         }
         new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
-        new_page.update_rmp();
+
+        new_page.update_bytes([RightMostPointer]);
 
         interior_page.reset_for_rebuild();
         for (i, cell) in right_cells.iter().enumerate() {
@@ -825,7 +814,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let page_as_ref = parent_page.as_ref()?;
             let cell_idx = self
                 .cursor
-                .choose_child(&page_as_ref, self.pager, &promoted_key)?
+                .binary_search_interior(&page_as_ref, self.pager, &promoted_key)?
                 .cell_index();
             match parent_page.insert_cell(&promoted_cell_payload, cell_idx)? {
                 InsertionState::Inserted => Ok(SplitMetadata::new(
@@ -851,7 +840,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             //
             let new_right_page_no = self.allocate_page()?;
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
-            let mut new_right_page = BTreePageMut::new_from_scratch(
+            let mut new_right_page = BTreePageMut::new_from_raw_bytes(
                 new_right_page_no,
                 BTreePageType::InteriorTable,
                 new_right_page_guard.bytes_as_mut().unwrap(),
@@ -863,7 +852,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             interior_page.clear();
 
             // SAFE TO USE THE METADATA SINCE ITS CACHED
-            let mut root = BTreePageMut::new_from_scratch(
+            let mut root = BTreePageMut::new_from_raw_bytes(
                 interior_page.page_no,
                 BTreePageType::InteriorTable,
                 interior_page_guard.bytes_as_mut().unwrap(),
@@ -872,7 +861,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             );
 
             root.header.right_most_ptr = Some(new_right_page_no);
-            root.update_rmp();
+            root.update_bytes([RightMostPointer]);
 
             root.insert_cell(&promoted_cell_payload, 0)?;
 
@@ -900,7 +889,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
         let cell_idx = self
             .cursor
-            .choose_child(&page_mut, self.pager, key)?
+            .binary_search_interior(&page_mut, self.pager, key)?
             .cell_index();
         page_mut.insert_cell(&payload, cell_idx)?;
         Ok(())
@@ -918,7 +907,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         };
         let mut page_guard = self.pager.get_mut(target_page)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
-        let (_, cell_idx) = self.cursor.choose_target(&page_mut, self.pager, key)?;
+        let (_, cell_idx) = self.cursor.binary_search_leaf(&page_mut, self.pager, key)?;
         page_mut.insert_cell(&payload, cell_idx)?;
         Ok(())
     }
@@ -1029,15 +1018,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // key not found
             return Ok(());
         }
-        dbg!(page_no, cell_idx);
-        // return Ok(());
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         self.with_page_mut::<_, ()>(page_no, |page| {
             page.remove_cell(cell_idx)?;
             Ok(None)
         })?;
 
-        println!("DONE");
         Ok(())
     }
 }

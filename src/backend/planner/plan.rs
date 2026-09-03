@@ -1,9 +1,12 @@
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::arena::Arena;
 use crate::SqliteResult;
-use crate::backend::analyze::{ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery};
+use crate::backend::analyze::{
+    ResolvedDeleteQuery, ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery,
+};
 use crate::backend::executor::Row;
 use crate::backend::executor::create::CreateTable;
+use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
 use crate::backend::executor::insert::Insert;
@@ -23,6 +26,7 @@ pub enum Plan<F: SqliteFile> {
     Limit(Limit<F>),
     Project(Project<F>),
     Insert(Insert<'static, F>),
+    Delete(Delete<F>),
     CreateTable(CreateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
@@ -51,6 +55,9 @@ impl<F: SqliteFile> Plan<F> {
             }
             ResolvedQuery::InsertQuery(stmt) => {
                 Ok(PlanContext::Resolved(Self::init_insert_plan(stmt)?))
+            }
+            ResolvedQuery::DeleteQuery(stmt) => {
+                Ok(PlanContext::Resolved(Self::init_delete_plan(stmt, pager)?))
             }
             ResolvedQuery::CreateTableQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateTable(
                 CreateTable::new(stmt),
@@ -90,7 +97,7 @@ impl<F: SqliteFile> Plan<F> {
 
     pub fn init_insert_plan(resolved_query: ResolvedInsertQuery) -> Result<Arena<F>, SqliteError> {
         let plan = Plan::Insert(Insert::new(
-            resolved_query.root,
+            resolved_query.root_page,
             resolved_query.values,
             resolved_query.entry_hint,
         ));
@@ -100,8 +107,16 @@ impl<F: SqliteFile> Plan<F> {
         })
     }
 
-    pub fn init_delete_plan(resolved_query: ResolvedInsertQuery) -> SqliteResult<Arena<F>> {
-        todo!()
+    pub fn init_delete_plan(
+        resolved_query: ResolvedDeleteQuery,
+        pager: &mut Pager<F>,
+    ) -> SqliteResult<Arena<F>> {
+        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        if let Some(predict) = resolved_query.where_clause {
+            child = Self::Filter(Filter::new(Box::new(child), predict));
+        }
+        let parent = Self::Delete(Delete::new(Box::new(child), resolved_query.root_page));
+        Ok(Arena::new(parent, resolved_query.arena))
     }
 }
 
@@ -117,6 +132,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::Limit(l) => l.next(pager, arena.unwrap()),
             Self::Project(p) => p.next(pager, arena.unwrap()),
             Self::Insert(i) => i.next(pager),
+            Self::Delete(d) => d.next(pager, arena),
             Self::CreateTable(c) => c.next(pager),
             Self::BeginTransaction(bt) => bt.next(pager),
             Self::CommitTransaction(ct) => ct.next(pager),

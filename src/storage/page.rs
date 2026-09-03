@@ -13,6 +13,7 @@ use crate::pager::pager::Pager;
 use crate::record::tuple::Tuple;
 use crate::record::{RecordMetadata, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
+use PageField::*;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
@@ -429,7 +430,7 @@ impl<'p> BTreePageMut<'p> {
         Ok(page)
     }
 
-    pub fn new_from_scratch(
+    pub fn new_from_raw_bytes(
         page_no: PageNo,
         page_kind: BTreePageType,
         bytes: &'p mut [u8],
@@ -448,25 +449,12 @@ impl<'p> BTreePageMut<'p> {
             header_offset,
             _marker: PhantomData,
         };
-        page.update_page_kind();
-        page.update_cell_content_area();
         // a recycled frame is not guaranteed to be zeroed, so the cell count
         // has to be written out too instead of relying on the old bytes
-        page.update_no_of_cells();
+        page.update_bytes([NoOfCells, CellContentArea, PageKind]);
         page
     }
 
-    pub fn update_page_kind(&mut self) {
-        let byte = self.header.page_kind.as_byte();
-        let offset = self.header_offset as usize;
-        self.bytes[offset..offset + 1].copy_from_slice(&byte.to_be_bytes());
-    }
-    // fn get_header_size(&self) -> u8 {
-    //     if self.header.page_kind.is_interior() {
-    //         return INTERIOR_BTREE_PAGE_HEADER_SIZE;
-    //     }
-    //     LEAF_BTREE_PAGE_HEADER_SIZE
-    // }
     fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteError> {
         let header_size = self.header_size();
         let Self {
@@ -482,17 +470,6 @@ impl<'p> BTreePageMut<'p> {
             cell_pointers.push(cell_pointer);
         }
         Ok(())
-    }
-
-    pub fn update_no_of_cells(&mut self) {
-        let cell_cnt = self.header.no_of_cells;
-        let offset = CELL_COUNT_OFFSET + self.header_offset as usize;
-        self.bytes[offset..offset + CELL_COUNT_SIZE].copy_from_slice(&cell_cnt.to_be_bytes());
-    }
-    pub fn update_cell_content_area(&mut self) {
-        let cca = self.header.cell_content_area;
-        let offset = CELL_CONTENT_AREA_OFFSET + self.header_offset as usize;
-        self.bytes[offset..offset + CELL_CONTENT_AREA_SIZE].copy_from_slice(&cca.to_be_bytes());
     }
 
     /// Parses the cell at `cell_ptr` directly from the page bytes.
@@ -561,8 +538,7 @@ impl<'p> BTreePageMut<'p> {
         self.header.no_of_cells = 0;
         self.header.cell_content_area = self.usable_size as u16;
         self.cell_pointers.clear();
-        self.update_no_of_cells();
-        self.update_cell_content_area();
+        self.update_bytes([NoOfCells, CellContentArea]);
     }
 
     pub fn insert_cell<B: AsRef<[u8]>>(
@@ -579,9 +555,7 @@ impl<'p> BTreePageMut<'p> {
         self.cell_pointers.insert(cell_idx as _, entry_offset as _);
         self.header.cell_content_area -= content.len() as u16;
         self.header.no_of_cells += 1;
-        self.update_cell_pointers();
-        self.update_cell_content_area();
-        self.update_no_of_cells();
+        self.update_bytes([CellPointers, CellContentArea, NoOfCells]);
         Ok(InsertionState::Inserted)
     }
 
@@ -657,52 +631,10 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
-    pub fn update_cell_pointers(&mut self) {
-        let mut offset = self.header_size() as usize;
-        for ptr in &self.cell_pointers {
-            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
-            offset += 2;
-        }
-    }
-
-    pub fn update_cell_pointers_with(&mut self, cell_pointers: &[u16]) {
-        let mut offset = self.header_size() as usize;
-        for ptr in cell_pointers {
-            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
-            offset += 2;
-        }
-    }
     pub fn remaining_space(&self) -> usize {
         self.header.cell_content_area as usize
             - (self.cell_pointers.len() * 2)
             - (self.header_size()) as usize
-    }
-
-    pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
-    where
-        F: FnOnce(),
-    {
-        // EXPERIMENTAL SINCE WE MAY NEED TO
-        // UPDATE SOMETHING INCLUDING THE THREE BELOW
-        if let Some(f) = additional_metadata {
-            f()
-        }
-        self.update_cell_content_area();
-        self.update_cell_pointers();
-        self.update_no_of_cells();
-    }
-    pub fn update_rmp(&mut self) {
-        debug_assert!(
-            self.header.page_kind.is_interior(),
-            "Leaf pages has no right most pointer"
-        );
-        debug_assert!(
-            self.header.right_most_ptr.is_some(),
-            "Right most pointer is not initialiazed yet"
-        );
-        let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
-        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE]
-            .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
     }
 
     // UNSAFE TO USE THE HEADER
@@ -909,11 +841,8 @@ impl<'p> BTreePageMut<'p> {
 
     pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
-        dbg!(cell_ptr);
         let cell_span = self.cell_span(cell_ptr)?;
-        dbg!(&cell_span);
         let bytes_len: usize = cell_span.end - cell_span.start;
-        dbg!(bytes_len);
         self.insert_freeblock(cell_ptr as _, bytes_len)?;
         self.remove_cell_pointer_entry(cell_idx)?;
         self.update_freelist_block_cache()?;
@@ -925,20 +854,12 @@ impl<'p> BTreePageMut<'p> {
             "Cell index out of the cell pointer array"
         );
         self.cell_pointers.remove(cell_idx as _);
-        self.update_cell_pointers();
         self.header.no_of_cells -= 1;
-        self.update_no_of_cells();
+        self.update_bytes([PageField::CellPointers, PageField::NoOfCells]);
         Ok(())
     }
 
     // Temporary until we create a macro update
-    fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
-        let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
-        let mut cursor = SqliteCursor::with_offset(&self.bytes, offset as _)?;
-        self.header.first_freeblock = cursor.read_next_u16()?;
-        dbg!(self.header.first_freeblock);
-        Ok(())
-    }
     pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
         BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
     }
@@ -1314,5 +1235,106 @@ impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
     }
     fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
         self.cell_key(cell_idx)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PageField {
+    PageKind,
+    NoOfCells,
+    CellContentArea,
+    CellPointers,
+    RightMostPointer,
+}
+
+impl<'a> BTreePageMut<'a> {
+    fn update_page_kind(&mut self) {
+        let byte = self.header.page_kind.as_byte();
+        let offset = self.header_offset as usize;
+        self.bytes[offset..offset + 1].copy_from_slice(&byte.to_be_bytes());
+    }
+
+    fn update_no_of_cells(&mut self) {
+        let cell_cnt = self.header.no_of_cells;
+        let offset = CELL_COUNT_OFFSET + self.header_offset as usize;
+
+        self.bytes[offset..offset + CELL_COUNT_SIZE].copy_from_slice(&cell_cnt.to_be_bytes());
+    }
+
+    fn update_cell_content_area(&mut self) {
+        let cca = self.header.cell_content_area;
+        let offset = CELL_CONTENT_AREA_OFFSET + self.header_offset as usize;
+
+        self.bytes[offset..offset + CELL_CONTENT_AREA_SIZE].copy_from_slice(&cca.to_be_bytes());
+    }
+
+    fn update_cell_pointers(&mut self) {
+        let mut offset = self.header_size() as usize;
+
+        for ptr in &self.cell_pointers {
+            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
+            offset += 2;
+        }
+    }
+
+    pub fn update_cell_pointers_with(&mut self, cell_pointers: &[u16]) {
+        let mut offset = self.header_size() as usize;
+
+        for ptr in cell_pointers {
+            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
+            offset += 2;
+        }
+    }
+
+    fn update_rmp(&mut self) {
+        debug_assert!(
+            self.header.page_kind.is_interior(),
+            "Leaf pages has no right most pointer"
+        );
+        debug_assert!(
+            self.header.right_most_ptr.is_some(),
+            "Right most pointer is not initialiazed yet"
+        );
+
+        let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
+
+        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE]
+            .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
+    }
+
+    pub fn update_bytes<const N: usize>(&mut self, fields: [PageField; N]) {
+        for field in fields {
+            match field {
+                PageField::PageKind => self.update_page_kind(),
+                PageField::NoOfCells => self.update_no_of_cells(),
+                PageField::CellContentArea => self.update_cell_content_area(),
+                PageField::CellPointers => self.update_cell_pointers(),
+                PageField::RightMostPointer => self.update_rmp(),
+            }
+        }
+    }
+
+    pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
+    where
+        F: FnOnce(),
+    {
+        if let Some(f) = additional_metadata {
+            f();
+        }
+
+        self.update_bytes([
+            PageField::CellContentArea,
+            PageField::CellPointers,
+            PageField::NoOfCells,
+        ]);
+    }
+
+    fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
+        let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
+        let mut cursor = SqliteCursor::with_offset(&self.bytes, offset as _)?;
+
+        self.header.first_freeblock = cursor.read_next_u16()?;
+
+        Ok(())
     }
 }

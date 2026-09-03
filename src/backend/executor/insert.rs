@@ -32,23 +32,6 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
     }
 
     pub fn next(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
-        // let mut payload = Vec::<u8>::new();
-        // let mut header = Vec::<u8>::new();
-        // let mut buffer = [0u8; 9];
-        // for inner_values in self.values.iter() {
-        //     for value in inner_values.iter() {
-        //         let data_type = Tuple::encode_sqltype(value, &mut payload);
-        //         let vint = encode_varint(&mut buffer, data_type as _);
-        //         header.extend_from_slice(&buffer[..vint]);
-        //     }
-        // }
-        // let len = encode_varint(&mut buffer, header.len() as _); // 1byte
-        // let with_len = encode_varint(&mut buffer, len as u64 + header.len() as u64);
-        // let v_b = &buffer[..with_len];
-        // for byte in v_b.iter().rev() {
-        //     header.insert(0, *byte);
-        // }
-        // header.extend_from_slice(&payload);
         let mut btree = BTree::new(self.root_page, pager);
         btree.seek_into_last()?;
         let is_empty = btree.current_page_header_unchecked()?.no_of_cells == 0;
@@ -62,9 +45,6 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
                 + 1
         };
         self.insert_batch(&mut btree, next_row_id)?;
-        // let cell_payload = Encode::encode_table_leaf_cell(header, next_row_id as _);
-
-        // btree.insert(next_row_id.into_sqlite_value(), cell_payload)?;
         Ok(None)
     }
     fn insert_batch(&self, btree: &mut BTree<F>, mut row_id: u64) -> Result<(), SqliteError> {

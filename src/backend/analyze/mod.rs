@@ -27,7 +27,7 @@ pub struct ResolvedSelectQuery {
 
 #[derive(Debug)]
 pub struct ResolvedInsertQuery {
-    pub root: PageNo,
+    pub root_page: PageNo,
     pub values: Vec<Vec<Value<'static>>>,
     pub entry_hint: Option<u64>, // row id hint
 }
@@ -65,6 +65,9 @@ impl Analyze {
             }
             Ast::CreateTableAst(create_stmt) => {
                 Self::analyze_create_table_stmt(create_stmt, sqlite_master)
+            }
+            Ast::DeleteStmtAst(delete_stmt) => {
+                Self::analyze_delete_stmt(delete_stmt, sqlite_master)
             }
             Ast::BeginTransaction => Ok(ResolvedQuery::BeginTransactionQuery),
             Ast::CommitTransaction => Ok(ResolvedQuery::CommitTransactionQuery),
