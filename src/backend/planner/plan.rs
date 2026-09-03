@@ -116,7 +116,7 @@ impl<F: SqliteFile> Plan<F> {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
         let parent = Self::Delete(Delete::new(Box::new(child), resolved_query.root_page));
-        Ok(Arena::new(parent, Some(resolved_query.arena.unwrap())))
+        Ok(Arena::new(parent, resolved_query.arena))
     }
 }
 

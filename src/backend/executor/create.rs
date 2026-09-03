@@ -27,7 +27,7 @@ impl CreateTable {
         let mut new_page = BTree::new(1, pager).allocate_page()?;
         let mut guard = pager.get_mut(new_page)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        let page = BTreePageMut::new_from_scratch(
+        let page = BTreePageMut::new_from_raw_bytes(
             new_page,
             BTreePageType::LeafTable,
             bytes,

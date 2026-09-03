@@ -11,7 +11,6 @@ use super::Row;
 
 #[derive(Debug)]
 pub struct TableScan<F: SqliteFile> {
-    root_page: u32,
     cursor: BTreeCursor<F>,
     is_done: bool,
 }
@@ -30,7 +29,6 @@ impl<F: SqliteFile> TableScan<F> {
         let empty = page.no_of_cells() == 0;
 
         Ok(Self {
-            root_page,
             cursor,
             is_done: empty,
         })

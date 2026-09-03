@@ -1,12 +1,13 @@
-use std::cell::Cell;
-use std::fmt::Debug;
-
 use super::cell::BTreeCell;
 use super::cell::Encode;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
+use super::page::PageField::*;
+use super::page::RIGHT_MOST_POINTER_SIZE;
+use std::cell::Cell;
+use std::fmt::Debug;
 
 use crate::SqliteResult;
 use crate::pager::pager::PageNo;
@@ -579,7 +580,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
                     InsertionState::Inserted => {
                         parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
-                        parent_page_as_mut.update_rmp();
+
+                        parent_page_as_mut.update_bytes([RightMostPointer]);
                         Ok(split_metadata)
                     }
                     InsertionState::None => {
@@ -589,7 +591,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                         let mut guard = self.pager.get_mut(meta.right_page)?;
                         let mut page = self.page_as_mut(meta.right_page, &mut guard)?;
                         page.header.right_most_ptr = Some(split_metadata.right_page);
-                        page.update_rmp();
+                        page.update_bytes([RightMostPointer]);
                         Ok(split_metadata)
                     }
                 }
@@ -612,7 +614,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         } else {
             let new_left_page_no = self.allocate_page()?;
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
-            let mut new_left_page = BTreePageMut::new_from_scratch(
+            let mut new_left_page = BTreePageMut::new_from_raw_bytes(
                 new_left_page_no,
                 BTreePageType::LeafTable,
                 new_left_page_guard.bytes_as_mut().unwrap(),
@@ -634,7 +636,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             })?;
             let right_max = right_page.parse_cell_at(right_last_ptr)?.row_id();
 
-            let mut root = BTreePageMut::new_from_scratch(
+            let mut root = BTreePageMut::new_from_raw_bytes(
                 left_page.page_no,
                 BTreePageType::InteriorTable,
                 left_page_guard.bytes_as_mut().unwrap(),
@@ -643,7 +645,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             );
 
             root.header.right_most_ptr = Some(right_page.page_no);
-            root.update_rmp();
+            root.update_bytes([RightMostPointer]);
 
             let left_child_payload =
                 Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
@@ -668,7 +670,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // TODO add freelist check
         let right_page_no = self.allocate_page()?;
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
-        let mut right_page = BTreePageMut::new_from_scratch(
+        let mut right_page = BTreePageMut::new_from_raw_bytes(
             right_page_no,
             BTreePageType::LeafTable,
             right_page_guard.bytes_as_mut().unwrap(),
@@ -752,7 +754,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let new_page_no = self.allocate_page()?;
         let mut new_page_guard = self.pager.get_mut(new_page_no)?;
         // let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
-        let mut new_page = BTreePageMut::new_from_scratch(
+        let mut new_page = BTreePageMut::new_from_raw_bytes(
             new_page_no,
             BTreePageType::InteriorTable,
             new_page_guard.bytes_as_mut().unwrap(),
@@ -788,7 +790,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             }
         }
         new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
-        new_page.update_rmp();
+
+        new_page.update_bytes([RightMostPointer]);
 
         interior_page.reset_for_rebuild();
         for (i, cell) in right_cells.iter().enumerate() {
@@ -837,7 +840,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             //
             let new_right_page_no = self.allocate_page()?;
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
-            let mut new_right_page = BTreePageMut::new_from_scratch(
+            let mut new_right_page = BTreePageMut::new_from_raw_bytes(
                 new_right_page_no,
                 BTreePageType::InteriorTable,
                 new_right_page_guard.bytes_as_mut().unwrap(),
@@ -849,7 +852,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             interior_page.clear();
 
             // SAFE TO USE THE METADATA SINCE ITS CACHED
-            let mut root = BTreePageMut::new_from_scratch(
+            let mut root = BTreePageMut::new_from_raw_bytes(
                 interior_page.page_no,
                 BTreePageType::InteriorTable,
                 interior_page_guard.bytes_as_mut().unwrap(),
@@ -858,7 +861,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             );
 
             root.header.right_most_ptr = Some(new_right_page_no);
-            root.update_rmp();
+            root.update_bytes([RightMostPointer]);
 
             root.insert_cell(&promoted_cell_payload, 0)?;
 
