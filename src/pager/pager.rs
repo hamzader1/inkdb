@@ -405,7 +405,7 @@ impl<F: SqliteFile> Pager<F> {
                     .copy_from_slice(page.data);
             }
         }
-        self.journal.reset();
+        self.journal.destroy_internal()?;
         self.in_transaction = false;
         Ok(())
     }
