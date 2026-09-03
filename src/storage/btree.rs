@@ -1029,7 +1029,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // key not found
             return Ok(());
         }
-
+        dbg!(page_no, cell_idx);
+        // return Ok(());
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         self.with_page_mut::<_, ()>(page_no, |page| {
             page.remove_cell(cell_idx)?;

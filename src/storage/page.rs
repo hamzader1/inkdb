@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::sync::WaitTimeoutResult;
 
 use super::btree::CellIndex;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
@@ -908,9 +909,14 @@ impl<'p> BTreePageMut<'p> {
 
     pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
+        dbg!(cell_ptr);
         let cell_span = self.cell_span(cell_ptr)?;
+        dbg!(&cell_span);
         let bytes_len: usize = cell_span.end - cell_span.start;
+        dbg!(bytes_len);
         self.insert_freeblock(cell_ptr as _, bytes_len)?;
+        self.remove_cell_pointer_entry(cell_idx)?;
+        self.update_freelist_block_cache()?;
         Ok(())
     }
     fn remove_cell_pointer_entry(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
@@ -920,6 +926,7 @@ impl<'p> BTreePageMut<'p> {
         );
         self.cell_pointers.remove(cell_idx as _);
         self.update_cell_pointers();
+        self.header.no_of_cells = self.cell_pointers.len() as _;
         self.update_no_of_cells();
         Ok(())
     }
