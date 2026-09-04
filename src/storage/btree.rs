@@ -1025,6 +1025,69 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         Ok(())
     }
+    /*
+     * THIS FUNCTION RELIES ON THE UNDERFLOW PAGE BEING THE LAST ENTRY
+     * IN THE PATH. WE MUST ENSURE THE PATH IS POSITIONED
+     * AT THE PAGE CURRENTLY BEING REPAIRED.
+     */
+    pub fn fix_page_underflow(&mut self, page_no: PageNo) -> SqliteResult<()> {
+        /*
+         * TO FIX UNDERFLOW ON A PAGE
+         * WE REQUIRE AT LEAST THE PAGE IT SELF AND ITS PARENT
+         */
+        debug_assert!(
+            self.cursor.stack.len() >= 2,
+            "Fix underflow function called on empty path stack"
+        );
+        self.cursor.stack.pop();
+        let (parent_page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        let max_cells = self.with_page_ref(page_no, |page| Ok(page.no_of_cells()))?;
+        let undeflow_action = self.underflow_planner(cell_idx, max_cells);
+        let path = ActivePath::from(self.cursor.stack.as_ref());
+        self.try_fix_underflow(undeflow_action)?;
+
+        Ok(())
+    }
+    fn underflow_planner(&self, cell_idx: CellIndex, max_cells: u16) -> UnderflowAction {
+        match cell_idx {
+            0 => UnderflowAction::BorrowRight,
+            max_cells => UnderflowAction::BorrowLeft,
+            _ => UnderflowAction::Both,
+        }
+    }
+    fn try_fix_underflow(&mut self, underflow_action: UnderflowAction) -> SqliteResult<()> {
+        Ok(())
+    }
+
+    fn try_borrow_right(
+        &mut self,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<Option<()>> {
+        let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
+        let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+
+        let sibling_idx = parent_path.cell_idx + 1;
+        let sibling_cell = parent_page.cell(sibling_idx)?;
+
+        let sib_page_no = sibling_cell.left_child();
+        let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
+        let sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Right sibling page (PageNumber: {}) is underflow before borrowing",
+            sib_page_no
+        );
+        let cell_span = sibling_page.cell_span(sibling_page.as_ref()?.get_cell_offset(0)?)?;
+        if sibling_page
+            .as_ref()?
+            .is_underflow_after_sub(cell_span.end - cell_span.start)?
+        {
+            return Ok(None);
+        }
+
+        Ok(Some(()))
+    }
 }
 
 pub fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
