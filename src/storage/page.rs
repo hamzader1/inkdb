@@ -257,7 +257,11 @@ impl<'p> BTreePageRef<'p> {
     }
 
     pub fn is_underflow_after_sub(&self, delta: usize) -> SqliteResult<bool> {
-        Ok((self.freespace()? - delta) > self.usable_size * 2 / 3)
+        let threshold = self.usable_size * 2 / 3;
+        Ok(match threshold.checked_add(delta) {
+            Some(required) => self.freespace()? > required,
+            None => false,
+        })
     }
 
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
