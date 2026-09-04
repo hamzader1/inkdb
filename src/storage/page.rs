@@ -589,7 +589,7 @@ impl<'p> BTreePageMut<'p> {
          * UPDATE CELL CONTENT ARE
          */
 
-        self.update_metadata(None::<fn()>);
+        self.update_bytes([CellPointers, NoOfCells, CellContentArea]);
         Ok(InsertionState::Inserted)
     }
 
@@ -843,6 +843,10 @@ impl<'p> BTreePageMut<'p> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
         let cell_span = self.cell_span(cell_ptr)?;
         let bytes_len: usize = cell_span.end - cell_span.start;
+        // println!(
+        //     "cell_idx: {}, cell_ptr: {} cellSpan: {:?} BytesLen: {}",
+        //     cell_idx, cell_ptr, cell_span, bytes_len
+        // );
         self.insert_freeblock(cell_ptr as _, bytes_len)?;
         self.remove_cell_pointer_entry(cell_idx)?;
         self.update_freelist_block_cache()?;
@@ -1314,20 +1318,20 @@ impl<'a> BTreePageMut<'a> {
         }
     }
 
-    pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
-    where
-        F: FnOnce(),
-    {
-        if let Some(f) = additional_metadata {
-            f();
-        }
+    // pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
+    // where
+    //     F: FnOnce(),
+    // {
+    //     if let Some(f) = additional_metadata {
+    //         f();
+    //     }
 
-        self.update_bytes([
-            PageField::CellContentArea,
-            PageField::CellPointers,
-            PageField::NoOfCells,
-        ]);
-    }
+    //     self.update_bytes([
+    //         PageField::CellContentArea,
+    //         PageField::CellPointers,
+    //         PageField::NoOfCells,
+    //     ]);
+    // }
 
     fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
         let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;

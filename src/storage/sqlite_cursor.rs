@@ -22,6 +22,7 @@ impl<'a> SqliteCursor<'a> {
         bytes: &'a S,
         offset: u64,
     ) -> Result<Self, SqliteError> {
+        // dbg!(offset, bytes.as_ref().len());
         // todo: i may remove this later
         sqlite_assert_with_corrupt_err(
             offset as usize <= bytes.as_ref().len(),

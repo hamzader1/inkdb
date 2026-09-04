@@ -19,8 +19,9 @@ impl<F: SqliteFile> PreparedPlan<F> {
         match pager.start_transaction() {
             true => {
                 let parent_res = self.parent.next(pager, self.arena.as_ref());
-                if parent_res.is_ok() {
-                    pager.commit()?;
+                match parent_res {
+                    Ok(_) => pager.commit()?,
+                    _ => pager.rollback()?,
                 }
                 parent_res
             }
