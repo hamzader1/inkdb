@@ -1018,6 +1018,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let is_undeflow = page.is_underflow()?;
             Ok(is_undeflow)
         })?;
+        if page_no == self.root_page {
+            return Ok(());
+        }
         if is_underflow {
             println!("PageNo: {} had an overflow", page_no);
             std::process::exit(1)
