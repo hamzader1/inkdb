@@ -19,7 +19,7 @@ impl SqliteShell {
                         }
                     }
                     let end = start.elapsed();
-                    println!("Time elapsed: {:.3} s", end.as_secs_f64());
+                    println!("Time elapsed: {:.2} s", end.as_secs_f64());
                     cmd
                 }
                 Err(ReadlineError::Interrupted) => {
