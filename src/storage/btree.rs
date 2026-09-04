@@ -1010,17 +1010,17 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        dbg!(page_no, cell_idx);
-        if page_no != self.root_page {
-            let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
-                page.remove_cell(cell_idx)?;
-                let is_undeflow = page.is_underflow()?;
-                Ok(is_undeflow)
-            })?;
-            if is_underflow {
-                println!("PageNo: {} had an overflow", page_no);
-                std::process::exit(1)
-            }
+        if page_no == self.root_page {
+            return Ok(());
+        }
+        let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
+            page.remove_cell(cell_idx)?;
+            let is_undeflow = page.is_underflow()?;
+            Ok(is_undeflow)
+        })?;
+        if is_underflow {
+            println!("PageNo: {} had an overflow", page_no);
+            std::process::exit(1)
         }
 
         Ok(())
