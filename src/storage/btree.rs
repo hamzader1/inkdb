@@ -1117,6 +1117,54 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         Ok(Some(()))
     }
+
+    fn try_borrow_left(
+        &mut self,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<Option<()>> {
+        let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
+        let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        debug_assert!(
+            parent_path.cell_idx > 0 && parent_path.cell_idx <= parent_page.no_of_cells(),
+            "Left most pointer has no left sibling"
+        );
+
+        let sibling_idx = parent_path.cell_idx - 1;
+        let sibling_cell = parent_page.cell(sibling_idx)?;
+
+        let sib_page_no = sibling_cell.left_child();
+        let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
+        let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Left sibling page (PageNumber: {}) is underflow before borrowing",
+            sib_page_no
+        );
+        let cell_to_borrow_index = sibling_page.no_of_cells() - 1;
+        let cell_size = sibling_page.cell_size(cell_to_borrow_index)?;
+        if sibling_page.as_ref()?.is_underflow_after_sub(cell_size)? {
+            return Ok(None);
+        }
+        let sibling_cell = sibling_page.cell(cell_to_borrow_index)?;
+        let sibling_cell_bytes = sibling_page
+            .cell_bytes_as_ref(cell_to_borrow_index)?
+            .to_owned();
+        sibling_page.remove_cell(cell_to_borrow_index);
+        // move to the current cell
+        self.with_page_mut(child_page_no, |page| {
+            page.insert_cell(&sibling_cell_bytes, 0)?;
+            Ok(())
+        })?;
+
+        // MOVE TO PARENT
+        // TODO: CHECK IF WE CAN REPLACE IN PLACE
+        let new_bytes = Encode::encode_table_interior_cell(child_page_no, sibling_cell.row_id());
+        parent_page.remove_cell(parent_path.cell_idx - 1)?;
+        parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?;
+
+        Ok(Some(()))
+    }
 }
 
 pub fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
