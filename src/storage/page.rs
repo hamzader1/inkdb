@@ -256,6 +256,10 @@ impl<'p> BTreePageRef<'p> {
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
 
+    pub fn is_underflow_after_sub(&self, delta: usize) -> SqliteResult<bool> {
+        Ok((self.freespace()? - delta) > self.usable_size * 2 / 3)
+    }
+
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
         cell_idx: CellIndex,

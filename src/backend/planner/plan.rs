@@ -95,7 +95,9 @@ impl<F: SqliteFile> Plan<F> {
         Ok(PreparedPlan::new(parent, Some(resolved_query.arena)))
     }
 
-    pub fn init_insert_plan(resolved_query: ResolvedInsertQuery) -> Result<PreparedPlan<F>, SqliteError> {
+    pub fn init_insert_plan(
+        resolved_query: ResolvedInsertQuery,
+    ) -> Result<PreparedPlan<F>, SqliteError> {
         let plan = Plan::Insert(Insert::new(
             resolved_query.root_page,
             resolved_query.values,

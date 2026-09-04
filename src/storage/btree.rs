@@ -41,6 +41,16 @@ pub enum SeekResult {
     Exact,
     NotFound,
 }
+enum CellPosition {
+    L,
+    R,
+    M,
+}
+enum UnderflowAction {
+    BorrowLeft,
+    BorrowRight,
+    Both,
+}
 
 #[derive(Debug)]
 pub struct Path {
@@ -69,6 +79,7 @@ impl SearchResult {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct BTreeCursor<F: crate::vfs::file::SqliteFile> {
     root: PageNo,
@@ -355,7 +366,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         None
     }
     pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
-        self.last_visited_entry().unwrap()
+        self.last_visited_entry().expect("Path stack is empty")
     }
 
     fn binary_search_leaf<'a, P>(
@@ -1010,11 +1021,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        if page_no == self.root_page {
-            return Ok(());
-        }
         let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
-            page.remove_cell(cell_idx)?;
             let is_undeflow = page.is_underflow()?;
             Ok(is_undeflow)
         })?;
