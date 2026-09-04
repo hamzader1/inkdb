@@ -1052,3 +1052,19 @@ pub fn page_as_mut_with_pager<'b, P: crate::vfs::file::SqliteFile>(
         pager.metadata.usable_size,
     )
 }
+
+struct ActivePath {
+    page_no: PageNo,
+    cell_idx: CellIndex,
+}
+impl From<&Vec<Path>> for ActivePath {
+    fn from(value: &Vec<Path>) -> Self {
+        let Path {
+            page_no, cell_idx, ..
+        } = value.last().unwrap();
+        Self {
+            page_no: *page_no,
+            cell_idx: *cell_idx,
+        }
+    }
+}
