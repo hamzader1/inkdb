@@ -7,11 +7,11 @@ use crate::vfs::file::SqliteFile;
 use super::plan::Plan;
 
 #[derive(Debug)]
-pub struct Arena<F: SqliteFile> {
+pub struct PreparedPlan<F: SqliteFile> {
     pub parent: Plan<F>,
     pub arena: Option<ExprArena>,
 }
-impl<F: SqliteFile> Arena<F> {
+impl<F: SqliteFile> PreparedPlan<F> {
     pub fn new(parent: Plan<F>, arena: Option<ExprArena>) -> Self {
         Self { parent, arena }
     }
@@ -19,8 +19,9 @@ impl<F: SqliteFile> Arena<F> {
         match pager.start_transaction() {
             true => {
                 let parent_res = self.parent.next(pager, self.arena.as_ref());
-                if parent_res.is_ok() {
-                    pager.commit()?;
+                match parent_res {
+                    Ok(_) => pager.commit()?,
+                    _ => pager.rollback()?,
                 }
                 parent_res
             }

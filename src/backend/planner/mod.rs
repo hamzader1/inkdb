@@ -1,2 +1,2 @@
-pub mod arena;
+pub mod prepared_plan;
 pub mod plan;

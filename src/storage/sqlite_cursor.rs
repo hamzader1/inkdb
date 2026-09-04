@@ -3,6 +3,7 @@ use crate::bytes;
 use crate::to_int;
 use crate::util::sqlite_assert_one;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::util::sqlite_assert_with_runtime_err;
 use crate::varint::decode_varint;
 
 #[derive(Debug)]
@@ -22,10 +23,13 @@ impl<'a> SqliteCursor<'a> {
         bytes: &'a S,
         offset: u64,
     ) -> Result<Self, SqliteError> {
-        // todo: i may remove this later
         sqlite_assert_with_corrupt_err(
             offset as usize <= bytes.as_ref().len(),
-            "offset is bigger than the bytes length",
+            &format!(
+                "The given offset ({}) is bigger than the bytes length ({})",
+                offset,
+                bytes.as_ref().len()
+            ),
         )?;
         Ok(Self {
             bytes: bytes.as_ref(),
@@ -46,14 +50,14 @@ impl<'a> SqliteCursor<'a> {
     }
 
     pub fn move_forward_by(&mut self, steps: u64) -> Result<(), SqliteError> {
-        self.offset = self.offset.checked_add(steps).ok_or(SqliteError::OverFlow(
+        self.offset = self.offset.checked_add(steps).ok_or(SqliteError::Overflow(
             "Overflow while trying to move the cursor forward".into(),
         ))?;
         Ok(())
     }
 
     pub fn move_backward_by(&mut self, steps: u64) -> Result<(), SqliteError> {
-        self.offset = self.offset.checked_sub(steps).ok_or(SqliteError::OverFlow(
+        self.offset = self.offset.checked_sub(steps).ok_or(SqliteError::Overflow(
             "Overflow while trying to move the cursor backward".into(),
         ))?;
         Ok(())
@@ -70,9 +74,14 @@ impl<'a> SqliteCursor<'a> {
         buf: &mut B,
     ) -> Result<(), SqliteError> {
         let buf = buf.as_mut();
-        sqlite_assert_with_corrupt_err(
+        sqlite_assert_with_runtime_err(
             self.offset as usize + buf.len() <= self.bytes.len(),
-            "reading this buffer will cause an overflow",
+            &format!(
+                "Reading this buffer will cause an overflow\noffset:{} buffer len: {}, bytes len: {}",
+                self.offset,
+                buf.len(),
+                self.bytes.len()
+            ),
         )?;
         let offset = self.offset as usize;
         let slice = &self.bytes[offset..offset + buf.len()];
@@ -142,9 +151,14 @@ impl<'a> SqliteCursor<'a> {
         offset: u64,
     ) -> Result<(), SqliteError> {
         let buf = buf.as_mut();
-        sqlite_assert_with_corrupt_err(
-            offset as usize + buf.len() <= self.bytes.len(),
-            "reading this buffer will cause an overflow",
+        sqlite_assert_with_runtime_err(
+            self.offset as usize + buf.len() <= self.bytes.len(),
+            &format!(
+                "Reading this buffer will cause an overflow\noffset:{} buffer len: {}, bytes len: {}",
+                self.offset,
+                buf.len(),
+                self.bytes.len()
+            ),
         )?;
         let offset = offset as usize;
         let slice = &self.bytes[offset..offset + buf.len()];

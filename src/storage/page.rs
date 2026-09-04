@@ -256,6 +256,10 @@ impl<'p> BTreePageRef<'p> {
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
 
+    pub fn is_underflow_after_sub(&self, delta: usize) -> SqliteResult<bool> {
+        Ok((self.freespace()? - delta) > self.usable_size * 2 / 3)
+    }
+
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
         cell_idx: CellIndex,
@@ -528,6 +532,33 @@ impl<'p> BTreePageMut<'p> {
         Ok(start..end)
     }
 
+    pub fn cell_bytes_as_ref(&self, cell_index: u16) -> SqliteResult<&[u8]> {
+        let cell_offset = self.as_ref()?.get_cell_offset(cell_index)?;
+        let cell_span = self.cell_span(cell_offset)?;
+        Ok(&self.bytes[cell_span])
+    }
+    pub fn cell_bytes_as_mut(&mut self, cell_index: u16) -> SqliteResult<&mut [u8]> {
+        let cell_offset = self.as_ref()?.get_cell_offset(cell_index)?;
+        let cell_span = self.cell_span(cell_offset)?;
+        Ok(&mut self.bytes[cell_span])
+    }
+
+    // pub fn replace_cell_inplace(
+    //     &mut self,
+    //     cell_offset: u16,
+    //     cell_bytes: &[u8],
+    // ) -> SqliteResult<()> {
+    //     let cell_span = self.cell_span(cell_offset)?;
+    //     debug_assert!(
+    //         (cell_span.end - cell_span.start) == cell_bytes.len(),
+    //         "
+    //         The given cell bytes length does not match the original cell
+    //         "
+    //     );
+    //     self.bytes[cell_span.start..cell_span.end].copy_from_slice(cell_bytes);
+    //     Ok(())
+    // }
+
     /// Drops all cell bookkeeping so the page can be rebuilt from staged cell
     /// bodies. Page kind and right most pointer are preserved.
     ///
@@ -589,7 +620,7 @@ impl<'p> BTreePageMut<'p> {
          * UPDATE CELL CONTENT ARE
          */
 
-        self.update_metadata(None::<fn()>);
+        self.update_bytes([CellPointers, NoOfCells, CellContentArea]);
         Ok(InsertionState::Inserted)
     }
 
@@ -843,6 +874,10 @@ impl<'p> BTreePageMut<'p> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
         let cell_span = self.cell_span(cell_ptr)?;
         let bytes_len: usize = cell_span.end - cell_span.start;
+        // println!(
+        //     "cell_idx: {}, cell_ptr: {} cellSpan: {:?} BytesLen: {}",
+        //     cell_idx, cell_ptr, cell_span, bytes_len
+        // );
         self.insert_freeblock(cell_ptr as _, bytes_len)?;
         self.remove_cell_pointer_entry(cell_idx)?;
         self.update_freelist_block_cache()?;
@@ -1314,20 +1349,20 @@ impl<'a> BTreePageMut<'a> {
         }
     }
 
-    pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
-    where
-        F: FnOnce(),
-    {
-        if let Some(f) = additional_metadata {
-            f();
-        }
+    // pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
+    // where
+    //     F: FnOnce(),
+    // {
+    //     if let Some(f) = additional_metadata {
+    //         f();
+    //     }
 
-        self.update_bytes([
-            PageField::CellContentArea,
-            PageField::CellPointers,
-            PageField::NoOfCells,
-        ]);
-    }
+    //     self.update_bytes([
+    //         PageField::CellContentArea,
+    //         PageField::CellPointers,
+    //         PageField::NoOfCells,
+    //     ]);
+    // }
 
     fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
         let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;

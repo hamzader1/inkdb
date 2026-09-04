@@ -22,6 +22,7 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::varint::encode_varint;
 use crate::vfs::file::SqliteFile;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
@@ -40,6 +41,16 @@ pub enum CursorState {
 pub enum SeekResult {
     Exact,
     NotFound,
+}
+enum CellPosition {
+    L,
+    R,
+    M,
+}
+enum UnderflowAction {
+    BorrowLeft,
+    BorrowRight,
+    Both,
 }
 
 #[derive(Debug)]
@@ -69,6 +80,7 @@ impl SearchResult {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct BTreeCursor<F: crate::vfs::file::SqliteFile> {
     root: PageNo,
@@ -355,7 +367,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         None
     }
     pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
-        self.last_visited_entry().unwrap()
+        self.last_visited_entry().expect("Path stack is empty")
     }
 
     fn binary_search_leaf<'a, P>(
@@ -937,26 +949,18 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         )
     }
 
-    pub fn with_page_ref<Func, R>(
-        &mut self,
-        page_no: PageNo,
-        f: Func,
-    ) -> Result<Option<R>, SqliteError>
+    pub fn with_page_ref<Func, R>(&mut self, page_no: PageNo, f: Func) -> Result<R, SqliteError>
     where
-        Func: FnOnce(&BTreePageRef) -> Result<Option<R>, SqliteError>,
+        Func: FnOnce(&BTreePageRef) -> Result<R, SqliteError>,
     {
         let guard = self.pager.get(page_no)?;
         let p = self.page_as_ref(page_no, &guard)?;
         f(&p)
     }
 
-    pub fn with_page_mut<Func, R>(
-        &mut self,
-        page_no: PageNo,
-        f: Func,
-    ) -> Result<Option<R>, SqliteError>
+    pub fn with_page_mut<Func, R>(&mut self, page_no: PageNo, f: Func) -> Result<R, SqliteError>
     where
-        Func: for<'b> FnOnce(&'b mut BTreePageMut) -> Result<Option<R>, SqliteError>,
+        Func: for<'b> FnOnce(&'b mut BTreePageMut) -> Result<R, SqliteError>,
     {
         let mut guard = self.pager.get_mut(page_no)?;
         let mut p = self.page_as_mut(page_no, &mut guard)?;
@@ -997,9 +1001,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     ) -> Result<super::page::BTreePageHeader, SqliteError> {
         let (pn, _) = self.cursor.last_visited_entry_unchecked();
 
-        let header = self
-            .with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(Some(page.header())))?
-            .expect("Error while trying to get the page header");
+        let header =
+            self.with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(page.header()))?;
         Ok(header)
     }
 
@@ -1019,12 +1022,100 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        self.with_page_mut::<_, ()>(page_no, |page| {
-            page.remove_cell(cell_idx)?;
-            Ok(None)
+        let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
+            let is_undeflow = page.is_underflow()?;
+            Ok(is_undeflow)
         })?;
+        if page_no == self.root_page {
+            return Ok(());
+        }
+        if is_underflow {
+            println!("PageNo: {} had an overflow", page_no);
+            std::process::exit(1)
+        }
 
         Ok(())
+    }
+    /*
+     * THIS FUNCTION RELIES ON THE UNDERFLOW PAGE BEING THE LAST ENTRY
+     * IN THE PATH. WE MUST ENSURE THE PATH IS POSITIONED
+     * AT THE PAGE CURRENTLY BEING REPAIRED.
+     */
+    pub fn fix_page_underflow(&mut self, page_no: PageNo) -> SqliteResult<()> {
+        /*
+         * TO FIX UNDERFLOW ON A PAGE
+         * WE REQUIRE AT LEAST THE PAGE IT SELF AND ITS PARENT
+         */
+        debug_assert!(
+            self.cursor.stack.len() >= 2,
+            "Fix underflow function called on empty path stack"
+        );
+        self.cursor.stack.pop();
+        let (parent_page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        let max_cells = self.with_page_ref(page_no, |page| Ok(page.no_of_cells()))?;
+        let undeflow_action = self.underflow_planner(cell_idx, max_cells);
+        let path = ActivePath::from(self.cursor.stack.as_ref());
+        self.try_fix_underflow(undeflow_action)?;
+
+        Ok(())
+    }
+    fn underflow_planner(&self, cell_idx: CellIndex, max_cells: u16) -> UnderflowAction {
+        match cell_idx {
+            0 => UnderflowAction::BorrowRight,
+            max_cells => UnderflowAction::BorrowLeft,
+            _ => UnderflowAction::Both,
+        }
+    }
+    fn try_fix_underflow(&mut self, underflow_action: UnderflowAction) -> SqliteResult<()> {
+        Ok(())
+    }
+
+    fn try_borrow_right(
+        &mut self,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<Option<()>> {
+        let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
+        let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        debug_assert!(
+            parent_path.cell_idx < parent_page.no_of_cells(),
+            "Right most pointer has no right sibling"
+        );
+
+        let sibling_idx = parent_path.cell_idx + 1;
+        let sibling_cell = parent_page.cell(sibling_idx)?;
+
+        let sib_page_no = sibling_cell.left_child();
+        let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
+        let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Right sibling page (PageNumber: {}) is underflow before borrowing",
+            sib_page_no
+        );
+        let cell_span = sibling_page.cell_span(sibling_page.as_ref()?.get_cell_offset(0)?)?;
+        if sibling_page
+            .as_ref()?
+            .is_underflow_after_sub(cell_span.end - cell_span.start)?
+        {
+            return Ok(None);
+        }
+        let sibling_cell = sibling_page.cell(0)?;
+        let sibling_cell_bytes = sibling_page.cell_bytes_as_ref(0)?.to_owned();
+        sibling_page.remove_cell(0);
+        // move to the current cell
+        self.with_page_mut(child_page_no, |page| {
+            page.insert_cell(&sibling_cell_bytes, page.no_of_cells())?;
+            Ok(())
+        });
+
+        // MOVE TO PARENT
+        // TODO: CHECK IF WE CAN REPLACE IN PLACE
+        let new_bytes = Encode::encode_table_interior_cell(child_page_no, sibling_cell.row_id());
+        parent_page.remove_cell(parent_path.cell_idx)?;
+        parent_page.insert_cell(&new_bytes, parent_path.cell_idx)?;
+
+        Ok(Some(()))
     }
 }
 
@@ -1052,4 +1143,20 @@ pub fn page_as_mut_with_pager<'b, P: crate::vfs::file::SqliteFile>(
         pager.metadata.page_size,
         pager.metadata.usable_size,
     )
+}
+
+struct ActivePath {
+    page_no: PageNo,
+    cell_idx: CellIndex,
+}
+impl From<&Vec<Path>> for ActivePath {
+    fn from(value: &Vec<Path>) -> Self {
+        let Path {
+            page_no, cell_idx, ..
+        } = value.last().unwrap();
+        Self {
+            page_no: *page_no,
+            cell_idx: *cell_idx,
+        }
+    }
 }

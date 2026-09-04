@@ -5,6 +5,7 @@ use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
 
 use crate::varint::encode_varint;
+use std::ops::{Deref, DerefMut};
 use std::range::Range;
 
 #[derive(Debug)]
@@ -50,7 +51,11 @@ pub struct IndexLeafCell {
     first_overflow_page: Option<PageNo>,
 }
 impl TableInteriorCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(
+        bytes: &[u8],
+        cell_ptr: CellIndex,
+        usable_size: usize,
+    ) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
@@ -66,7 +71,11 @@ impl TableInteriorCell {
     }
 }
 impl TableLeafCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(
+        bytes: &[u8],
+        cell_ptr: CellIndex,
+        usable_size: usize,
+    ) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let (row_id, _) = cursor.read_next_varint(usable_size)?;
@@ -99,7 +108,11 @@ impl TableLeafCell {
 }
 
 impl IndexInteriorCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(
+        bytes: &[u8],
+        cell_ptr: CellIndex,
+        usable_size: usize,
+    ) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::new(bytes);
         // Page number of left child
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
@@ -139,7 +152,11 @@ impl IndexInteriorCell {
 }
 
 impl IndexLeafCell {
-    pub fn parse(bytes: &[u8], cell_ptr: CellIndex, usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(
+        bytes: &[u8],
+        cell_ptr: CellIndex,
+        usable_size: usize,
+    ) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let (payload_len, _) = cursor.read_next_varint(usable_size)?;
         let current_pos = cursor.stream_pos() as usize;
@@ -218,16 +235,9 @@ impl BTreeCell {
     }
 }
 
+#[repr(transparent)]
 pub struct Encode;
 impl Encode {
-    // pub fn encode_cell(cell_type: BTreeCellType, payload: Vec<u8>, row_id: u32) -> Vec<u8> {
-    //     match cell_type {
-    //         BTreeCellType::TableLeaf => return Self::encode_table_leaf_cell(payload, row_id),
-    //         _ => todo!(),
-    //     }
-    //     todo!()
-    // }
-
     pub fn encode_table_leaf_cell(payload: Vec<u8>, row_id: u32) -> Vec<u8> {
         let mut v = Vec::new();
         let mut buff = [0u8; 9];
@@ -239,12 +249,23 @@ impl Encode {
         v
     }
 
-    pub fn encode_table_interior_cell(page_no: PageNo, row_id: u32) -> Vec<u8> {
+    pub fn encode_table_interior_cell(page_no: PageNo, row_id: u64) -> Vec<u8> {
         let mut v = Vec::new();
         v.extend_from_slice(&page_no.to_be_bytes());
         let mut buff = [0u8; 9];
         let byte_needed_for_row_id = encode_varint(&mut buff, row_id as _);
         v.extend_from_slice(&buff[..byte_needed_for_row_id]);
         v
+    }
+}
+
+impl From<&BTreeCell> for Vec<u8> {
+    fn from(value: &BTreeCell) -> Self {
+        match value {
+            BTreeCell::TableInterior(c) => {
+                Encode::encode_table_interior_cell(c.left_child, c.rowid_boundary)
+            }
+            _ => todo!("Auto encode is not implemented for other cells yet"),
+        }
     }
 }
