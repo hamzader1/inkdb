@@ -870,6 +870,11 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
+    pub fn cell_size(&self, cell_index: CellIndex) -> SqliteResult<usize> {
+        let cell_sp = self.cell_span(self.as_ref()?.get_cell_offset(cell_index)?)?;
+        Ok(cell_sp.end - cell_sp.start)
+    }
+
     pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
         let cell_span = self.cell_span(cell_ptr)?;
