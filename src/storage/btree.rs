@@ -1107,7 +1107,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         self.with_page_mut(child_page_no, |page| {
             page.insert_cell(&sibling_cell_bytes, page.no_of_cells())?;
             Ok(())
-        });
+        })?;
 
         // MOVE TO PARENT
         // TODO: CHECK IF WE CAN REPLACE IN PLACE
