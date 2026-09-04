@@ -22,6 +22,7 @@ use crate::record::Value;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
+use crate::varint::encode_varint;
 use crate::vfs::file::SqliteFile;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
@@ -1076,13 +1077,17 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     ) -> SqliteResult<Option<()>> {
         let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
         let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        debug_assert!(
+            parent_path.cell_idx < parent_page.no_of_cells(),
+            "Right most pointer has no right sibling"
+        );
 
         let sibling_idx = parent_path.cell_idx + 1;
         let sibling_cell = parent_page.cell(sibling_idx)?;
 
         let sib_page_no = sibling_cell.left_child();
         let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
-        let sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
         debug_assert!(
             !sibling_page.is_underflow()?,
             "Right sibling page (PageNumber: {}) is underflow before borrowing",
@@ -1095,6 +1100,20 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         {
             return Ok(None);
         }
+        let sibling_cell = sibling_page.cell(0)?;
+        let sibling_cell_bytes = sibling_page.cell_bytes_as_ref(0)?.to_owned();
+        sibling_page.remove_cell(0);
+        // move to the current cell
+        self.with_page_mut(child_page_no, |page| {
+            page.insert_cell(&sibling_cell_bytes, page.no_of_cells())?;
+            Ok(())
+        });
+
+        // MOVE TO PARENT
+        // TODO: CHECK IF WE CAN REPLACE IN PLACE
+        let new_bytes = Encode::encode_table_interior_cell(child_page_no, sibling_cell.row_id());
+        parent_page.remove_cell(parent_path.cell_idx)?;
+        parent_page.insert_cell(&new_bytes, parent_path.cell_idx)?;
 
         Ok(Some(()))
     }
