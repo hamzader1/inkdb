@@ -1373,9 +1373,23 @@ impl<'a> BTreePageMut<'a> {
                 PageField::NoOfCells => self.update_no_of_cells(),
                 PageField::CellContentArea => self.update_cell_content_area(),
                 PageField::CellPointers => self.update_cell_pointers(),
+                PageField::FragCnt => self.update_frag_cnt(),
+                PageField::FirstFreeBlock => self.update_frag_cnt(),
                 PageField::RightMostPointer => self.update_rmp(),
             }
         }
+    }
+    fn update_frag_cnt(&mut self) {
+        let frag_cnt = self.header.frag_cnt;
+        let offset = FRAGMENTED_FREE_BYTES_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + FRAGMENTED_FREE_BYTES_SIZE]
+            .copy_from_slice(&frag_cnt.to_be_bytes());
+    }
+    fn update_first_free_block(&mut self) {
+        let first_free_block = self.header.first_freeblock;
+        let offset = FIRST_FREEBLOCK_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + FIRST_FREEBLOCK_SIZE]
+            .copy_from_slice(&first_free_block.to_be_bytes());
     }
 
     // pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
