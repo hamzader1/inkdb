@@ -77,7 +77,7 @@ impl BTreePageType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct BTreePageHeader {
     pub page_kind: BTreePageType,
     pub first_freeblock: u16,
@@ -597,7 +597,15 @@ impl<'p> BTreePageMut<'p> {
         self.header.no_of_cells = 0;
         self.header.cell_content_area = self.usable_size as u16;
         self.cell_pointers.clear();
-        self.update_bytes([NoOfCells, CellContentArea]);
+        self.header.first_freeblock = 0;
+        self.header.frag_cnt = 0;
+        self.update_bytes([
+            NoOfCells,
+            CellContentArea,
+            CellPointers,
+            FragCnt,
+            FirstFreeBlock,
+        ]);
     }
 
     pub fn insert_cell<B: AsRef<[u8]>>(
@@ -715,7 +723,7 @@ impl<'p> BTreePageMut<'p> {
         );
         self.bytes[..other.usable_size].copy_from_slice(&other.bytes[..other.usable_size]);
         // the cached header/cell pointers described the page BEFORE the copy
-        self.header = other.header.clone();
+        self.header = other.header,
         self.cell_pointers = other.cell_pointers.clone();
         Ok(())
     }
@@ -923,9 +931,20 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
-    // Temporary until we create a macro update
+    // TODO: Temporary until we create a macro update
+    // TODO: Remove Result<T,E>
     pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
-        BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
+        // BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
+        //
+        Ok(BTreePageRef {
+            page_no: self.page_no,
+            header: self.header,
+            header_offset: self.header_offset,
+            bytes: self.bytes,
+            page_size: self.page_size,
+            usable_size: self.usable_size,
+            _marker: PhantomData,
+        })
     }
 }
 
@@ -1068,7 +1087,7 @@ impl<'r, 'p, F: crate::vfs::file::SqliteFile> Iterator for PageIterator<'r, 'p, 
        the btree page and the remaining P-M bytes are stored on
        overflow pages.
 */
-pub const fn compute_table_local_payload_size(usable_size: usize, payload_len: usize) -> usize {
+pub fn compute_table_local_payload_size(usable_size: usize, payload_len: usize) -> usize {
     let u = usable_size;
     let p = payload_len;
     let x = u - 35;
@@ -1308,6 +1327,8 @@ pub enum PageField {
     NoOfCells,
     CellContentArea,
     CellPointers,
+    FragCnt,
+    FirstFreeBlock,
     RightMostPointer,
 }
 
