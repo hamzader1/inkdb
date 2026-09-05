@@ -93,7 +93,7 @@ impl SqliteFile for DiskFile {
 #[cfg(windows)]
 impl SqliteFile for DiskFile {
     fn path(&self) -> PathBuf {
-        self.path.parent.clone()
+        self.path.parent().unwrap().to_path_buf()
     }
 
     fn name(&self) -> &str {
