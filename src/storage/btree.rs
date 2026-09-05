@@ -47,6 +47,7 @@ enum CellPosition {
     R,
     M,
 }
+#[derive(Debug)]
 enum UnderflowAction {
     BorrowLeft,
     BorrowRight,
@@ -1009,6 +1010,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     // delete
     //
     pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
+        println!("KET TO BE DELETED: {}", key);
         let res = self.cursor.seek(self.pager, key.clone())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let found_key = self
@@ -1022,7 +1024,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+        println!("PATH:");
+        println!("PageN: {}:", page_no);
+        println!("CellId: {}", cell_idx);
+
         let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
+            page.remove_cell(cell_idx)?;
             let is_undeflow = page.is_underflow()?;
             Ok(is_undeflow)
         })?;
@@ -1030,8 +1037,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         if is_underflow {
+            println!("OVERFLOW NEEDS TO BE FIXED");
             println!("PageNo: {} had an overflow", page_no);
-            std::process::exit(1)
+            self.fix_page_underflow(page_no)?;
+        } else {
+            println!("CELL IS REMOVED AND THE PAGE HAS NO UNDERFLOW. PASSED");
         }
 
         Ok(())
@@ -1041,7 +1051,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
      * IN THE PATH. WE MUST ENSURE THE PATH IS POSITIONED
      * AT THE PAGE CURRENTLY BEING REPAIRED.
      */
-    pub fn fix_page_underflow(&mut self, page_no: PageNo) -> SqliteResult<()> {
+    pub fn fix_page_underflow(&mut self, child_page_no: PageNo) -> SqliteResult<()> {
         /*
          * TO FIX UNDERFLOW ON A PAGE
          * WE REQUIRE AT LEAST THE PAGE IT SELF AND ITS PARENT
@@ -1052,21 +1062,53 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         );
         self.cursor.stack.pop();
         let (parent_page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        let max_cells = self.with_page_ref(page_no, |page| Ok(page.no_of_cells()))?;
+        let max_cells = self.with_page_ref(child_page_no, |page| Ok(page.no_of_cells()))?;
         let undeflow_action = self.underflow_planner(cell_idx, max_cells);
         let path = ActivePath::from(self.cursor.stack.as_ref());
-        self.try_fix_underflow(undeflow_action)?;
-
+        self.try_fix_underflow(undeflow_action, child_page_no, path)?;
+        println!("OVERLFOW FIXED");
         Ok(())
     }
     fn underflow_planner(&self, cell_idx: CellIndex, max_cells: u16) -> UnderflowAction {
-        match cell_idx {
-            0 => UnderflowAction::BorrowRight,
-            max_cells => UnderflowAction::BorrowLeft,
-            _ => UnderflowAction::Both,
+        if cell_idx == 0 {
+            UnderflowAction::BorrowRight
+        } else if cell_idx == max_cells {
+            UnderflowAction::BorrowLeft
+        } else {
+            UnderflowAction::Both
         }
     }
-    fn try_fix_underflow(&mut self, underflow_action: UnderflowAction) -> SqliteResult<()> {
+    fn try_fix_underflow(
+        &mut self,
+        underflow_action: UnderflowAction,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<()> {
+        dbg!(&parent_path, child_page_no, &underflow_action);
+        match underflow_action {
+            UnderflowAction::BorrowLeft => {
+                match self.try_borrow_left(child_page_no, parent_path)? {
+                    Some(_) => return Ok(()),
+                    None => todo!("THIS PAGE NEED TO BE MERGED"),
+                }
+            }
+            UnderflowAction::BorrowRight => {
+                match self.try_borrow_right(child_page_no, parent_path)? {
+                    Some(_) => return Ok(()),
+                    None => todo!("THIS PAGE NEED TO BE MERGED"),
+                }
+            }
+            UnderflowAction::Both => match self.try_borrow_left(child_page_no, parent_path)? {
+                Some(_) => return Ok(()),
+                None => {
+                    if self.try_borrow_right(child_page_no, parent_path)?.is_some() {
+                        return Ok(());
+                    } else {
+                        todo!("NEED TO BE MERGED");
+                    }
+                }
+            },
+        };
         Ok(())
     }
 
@@ -1081,13 +1123,18 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             parent_path.cell_idx < parent_page.no_of_cells(),
             "Right most pointer has no right sibling"
         );
-
         let sibling_idx = parent_path.cell_idx + 1;
-        let sibling_cell = parent_page.cell(sibling_idx)?;
-
-        let sib_page_no = sibling_cell.left_child();
+        let sib_page_no = {
+            if sibling_idx < parent_page.no_of_cells() {
+                parent_page.cell(sibling_idx)?.left_child()
+            } else {
+                parent_page.right_most_ptr().unwrap()
+            }
+        };
         let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
         let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        // dbg!(&sibling_page);
+        // dbg!(sibling_page.freespace());
         debug_assert!(
             !sibling_page.is_underflow()?,
             "Right sibling page (PageNumber: {}) is underflow before borrowing",
@@ -1096,7 +1143,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let cell_span = sibling_page.cell_span(sibling_page.as_ref()?.get_cell_offset(0)?)?;
         if sibling_page
             .as_ref()?
-            .is_underflow_after_sub(cell_span.end - cell_span.start)?
+            .would_underflow_after_remove(cell_span.end - cell_span.start)?
         {
             return Ok(None);
         }
@@ -1106,14 +1153,76 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // move to the current cell
         self.with_page_mut(child_page_no, |page| {
             page.insert_cell(&sibling_cell_bytes, page.no_of_cells())?;
+            if page.is_underflow()? {
+                panic!("WE HAVE OVERFLOW EVEN AFTER BORROW FROM RIGHT");
+            }
             Ok(())
-        });
+        })?;
 
         // MOVE TO PARENT
         // TODO: CHECK IF WE CAN REPLACE IN PLACE
         let new_bytes = Encode::encode_table_interior_cell(child_page_no, sibling_cell.row_id());
         parent_page.remove_cell(parent_path.cell_idx)?;
         parent_page.insert_cell(&new_bytes, parent_path.cell_idx)?;
+
+        Ok(Some(()))
+    }
+
+    fn try_borrow_left(
+        &mut self,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<Option<()>> {
+        let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
+        let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        debug_assert!(
+            parent_path.cell_idx > 0 && parent_path.cell_idx <= parent_page.no_of_cells(),
+            "Left most pointer has no left sibling"
+        );
+
+        let sibling_idx = parent_path.cell_idx - 1;
+        let sibling_cell = parent_page.cell(sibling_idx)?;
+
+        let sib_page_no = sibling_cell.left_child();
+        let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
+        let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        dbg!(&sibling_page);
+        dbg!(sibling_page.freespace());
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Left sibling page (PageNumber: {}) is underflow before borrowing",
+            sib_page_no
+        );
+        let cell_to_borrow_index = sibling_page.no_of_cells() - 1;
+        let cell_size = sibling_page.cell_size(cell_to_borrow_index)?;
+        if sibling_page
+            .as_ref()?
+            .would_underflow_after_remove(cell_size)?
+        {
+            return Ok(None);
+        }
+        let sibling_cell = sibling_page.cell(cell_to_borrow_index)?;
+        let sibling_cell_bytes = sibling_page
+            .cell_bytes_as_ref(cell_to_borrow_index)?
+            .to_owned();
+        sibling_page.remove_cell(cell_to_borrow_index);
+        // move to the current cell
+        self.with_page_mut(child_page_no, |page| {
+            page.insert_cell(&sibling_cell_bytes, 0)?;
+
+            if page.is_underflow()? {
+                todo!("WE HAVE OVERFLOW EVEN AFTER BORROW");
+            }
+
+            Ok(())
+        })?;
+
+        // MOVE TO PARENT
+        // TODO: CHECK IF WE CAN REPLACE IN PLACE
+        let new_bytes =
+            Encode::encode_table_interior_cell(sibling_page.page_no, sibling_cell.row_id());
+        parent_page.remove_cell(parent_path.cell_idx - 1)?;
+        parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?;
 
         Ok(Some(()))
     }
@@ -1144,7 +1253,7 @@ pub fn page_as_mut_with_pager<'b, P: crate::vfs::file::SqliteFile>(
         pager.metadata.usable_size,
     )
 }
-
+#[derive(Debug, Clone, Copy)]
 struct ActivePath {
     page_no: PageNo,
     cell_idx: CellIndex,
