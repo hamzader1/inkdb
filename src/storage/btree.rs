@@ -19,6 +19,7 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
+use crate::storage::cell::TableLeafCell;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
@@ -1010,7 +1011,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     // delete
     //
     pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
-        println!("KET TO BE DELETED: {}", key);
+        println!("Key to be deleted: {}", key);
         let res = self.cursor.seek(self.pager, key.clone())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let found_key = self
@@ -1024,9 +1025,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        println!("PATH:");
+        println!("###\nDelete initiale path:");
         println!("PageN: {}:", page_no);
-        println!("CellId: {}", cell_idx);
+        println!("CellId: {}\n###", cell_idx);
 
         let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
             page.remove_cell(cell_idx)?;
@@ -1037,7 +1038,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         if is_underflow {
-            println!("OVERFLOW NEEDS TO BE FIXED");
+            println!("Underflow Needs to be fixed");
             println!("PageNo: {} had an overflow", page_no);
             self.fix_page_underflow(page_no)?;
         } else {
@@ -1066,7 +1067,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let undeflow_action = self.underflow_planner(cell_idx, max_cells);
         let path = ActivePath::from(self.cursor.stack.as_ref());
         self.try_fix_underflow(undeflow_action, child_page_no, path)?;
-        println!("OVERLFOW FIXED");
+        println!("Underflow Fixed on pageno {}", child_page_no);
         Ok(())
     }
     fn underflow_planner(&self, cell_idx: CellIndex, max_cells: u16) -> UnderflowAction {
@@ -1087,27 +1088,34 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         dbg!(&parent_path, child_page_no, &underflow_action);
         match underflow_action {
             UnderflowAction::BorrowLeft => {
-                match self.try_borrow_left(child_page_no, parent_path)? {
-                    Some(_) => return Ok(()),
-                    None => todo!("THIS PAGE NEED TO BE MERGED"),
-                }
+                self.try_borrow_left_v2(child_page_no, parent_path)?
+                //     Some(_) => return Ok(()),
+                //     None => todo!("THIS PAGE NEED TO BE MERGED"),
+                // }
             }
             UnderflowAction::BorrowRight => {
-                match self.try_borrow_right(child_page_no, parent_path)? {
-                    Some(_) => return Ok(()),
-                    None => todo!("THIS PAGE NEED TO BE MERGED"),
-                }
+                self.try_borrow_right_v2(child_page_no, parent_path)?
+                // match self.try_borrow_right(child_page_no, parent_path)? {
+                //     Some(_) => return Ok(()),
+                //     None => todo!("THIS PAGE NEED TO BE MERGED"),
+                // }
             }
-            UnderflowAction::Both => match self.try_borrow_left(child_page_no, parent_path)? {
-                Some(_) => return Ok(()),
-                None => {
-                    if self.try_borrow_right(child_page_no, parent_path)?.is_some() {
-                        return Ok(());
-                    } else {
-                        todo!("NEED TO BE MERGED");
-                    }
+            UnderflowAction::Both => {
+                if self
+                    .try_borrow_right_v2(child_page_no, parent_path)
+                    .is_err()
+                {
+                    self.try_borrow_left_v2(child_page_no, parent_path)?;
                 }
-            },
+                // Some(_) => return Ok(()),
+                // None => {
+                //     if self.try_borrow_right(child_page_no, parent_path)?.is_some() {
+                //         return Ok(());
+                //     } else {
+                //         todo!("NEED TO BE MERGED");
+                //     }
+                // }
+            }
         };
         Ok(())
     }
@@ -1225,6 +1233,212 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?;
 
         Ok(Some(()))
+    }
+
+    fn try_borrow_right_v2(
+        &mut self,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<()> {
+        let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
+        let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        debug_assert!(
+            parent_path.cell_idx < parent_page.no_of_cells(),
+            "Right most pointer has no right sibling"
+        );
+        let sibling_idx = parent_path.cell_idx + 1;
+        let sib_page_no = {
+            if sibling_idx < parent_page.no_of_cells() {
+                parent_page.cell(sibling_idx)?.left_child()
+            } else {
+                parent_page.right_most_ptr().unwrap()
+            }
+        };
+        let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
+        let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Right sibling page (PageNumber: {}) is underflow before borrowing",
+            sib_page_no
+        );
+        let mut current_page_guard = self.pager.get_mut(child_page_no)?;
+        let mut current_page = self.page_as_mut(child_page_no, &mut current_page_guard)?;
+        let mut all_cells_bytes: Vec<Vec<u8>> = Vec::new();
+        let mut total_size_in_bytes = 0;
+        for i in 0..current_page.no_of_cells() {
+            let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();
+            total_size_in_bytes += bytes.len();
+            all_cells_bytes.push(bytes);
+        }
+        let k = current_page.no_of_cells() as usize;
+        for i in 0..sibling_page.no_of_cells() {
+            let bytes = sibling_page.cell_bytes_as_ref(i)?.to_vec();
+            total_size_in_bytes += bytes.len();
+            all_cells_bytes.push(bytes);
+        }
+
+        dbg!(total_size_in_bytes);
+        if total_size_in_bytes <= self.pager.metadata.usable_size {
+            todo!("THIS NEEDS MERGE ONLY")
+        }
+
+        let target = total_size_in_bytes / 2;
+        let mut split_at = 0;
+        let mut running_size = 0;
+        for (i, cell) in all_cells_bytes.iter().enumerate() {
+            running_size += cell.len();
+            if running_size >= target {
+                split_at = i + 1;
+                break;
+            }
+        }
+        let (new_left_page_cell, new_right_page_cells) = all_cells_bytes.split_at(split_at);
+        let separator_index = split_at - 1; // last cell of the left share — this is the one whose row_id becomes the separator
+
+        println!("Start fetching sep key");
+        let separator_key = if separator_index < k {
+            // it's still one of current_page's original cells
+            current_page.cell(separator_index as _)?.row_id()
+        } else {
+            // it's one of sibling_page's original cells
+            sibling_page.cell((separator_index - k) as _)?.row_id()
+        };
+        println!("End fetching sep key");
+
+        println!("RESET START");
+        current_page.reset_for_rebuild();
+        for (i, bytes) in new_left_page_cell.iter().enumerate() {
+            current_page.insert_cell(bytes, i as _)?;
+        }
+        sibling_page.reset_for_rebuild();
+        for (i, bytes) in new_right_page_cells.iter().enumerate() {
+            sibling_page.insert_cell(bytes, i as _)?;
+        }
+        println!("RESET IS DONE");
+        debug_assert!(
+            !current_page.is_underflow()?,
+            "Current page still underflows after redistribution \
+             (page_no: {}, free_space: {})",
+            current_page.page_no,
+            current_page.freespace()?
+        );
+
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Sibling page still underflows after redistribution \
+             (page_no: {}, free_space: {})",
+            sibling_page.page_no,
+            sibling_page.freespace()?
+        );
+        println!("RESET DONE");
+
+        let new_bytes = Encode::encode_table_interior_cell(child_page_no, separator_key);
+        parent_page.remove_cell(parent_path.cell_idx)?;
+        parent_page.insert_cell(&new_bytes, parent_path.cell_idx)?;
+        Ok(())
+    }
+
+    fn try_borrow_left_v2(
+        &mut self,
+        child_page_no: PageNo,
+        parent_path: ActivePath,
+    ) -> SqliteResult<()> {
+        let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
+        let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        debug_assert!(
+            parent_path.cell_idx > 0 && parent_path.cell_idx <= parent_page.no_of_cells(),
+            "Left most pointer has no left sibling"
+        );
+        let sibling_idx = parent_path.cell_idx - 1;
+        let sibling_cell = parent_page.cell(sibling_idx)?;
+        let sib_page_no = sibling_cell.left_child();
+
+        let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
+        let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Left sibling page (PageNumber: {}) is underflow before borrowing",
+            sib_page_no
+        );
+
+        let mut current_page_guard = self.pager.get_mut(child_page_no)?;
+        let mut current_page = self.page_as_mut(child_page_no, &mut current_page_guard)?;
+
+        let mut all_cells_bytes: Vec<Vec<u8>> = Vec::new();
+        let mut total_size_in_bytes = 0;
+        // sibling (left, smaller keys) goes FIRST
+        for i in 0..sibling_page.no_of_cells() {
+            let bytes = sibling_page.cell_bytes_as_ref(i)?.to_vec();
+            total_size_in_bytes += bytes.len();
+            all_cells_bytes.push(bytes);
+        }
+
+        let k = current_page.no_of_cells() as usize;
+        for i in 0..current_page.no_of_cells() {
+            let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();
+            total_size_in_bytes += bytes.len();
+            all_cells_bytes.push(bytes);
+        }
+
+        dbg!(total_size_in_bytes);
+        if total_size_in_bytes <= self.pager.metadata.usable_size {
+            todo!("THIS NEEDS MERGE ONLY")
+        }
+
+        let target = total_size_in_bytes / 2;
+        let mut split_at = 0;
+        let mut running_size = 0;
+        for (i, cell) in all_cells_bytes.iter().enumerate() {
+            running_size += cell.len();
+            if running_size >= target {
+                split_at = i + 1;
+                break;
+            }
+        }
+        // sibling gets the LEFT half, current_page gets the RIGHT half
+        let (new_sibling_cells, new_current_cells) = all_cells_bytes.split_at(split_at);
+
+        let (new_left_page_cell, new_right_page_cells) = all_cells_bytes.split_at(split_at);
+        // last cell of the left share
+        // this is the one whose row_id becomes the separator
+        let separator_index = split_at - 1;
+
+        let separator_key = if separator_index < k {
+            // it's still one of current_page's original cells
+            current_page.cell(separator_index as _)?.row_id()
+        } else {
+            // it's one of sibling_page's original cells
+            sibling_page.cell((separator_index - k) as _)?.row_id()
+        };
+
+        sibling_page.reset_for_rebuild();
+        for (i, bytes) in new_sibling_cells.iter().enumerate() {
+            sibling_page.insert_cell(bytes, i as _)?;
+        }
+        current_page.reset_for_rebuild();
+        for (i, bytes) in new_current_cells.iter().enumerate() {
+            current_page.insert_cell(bytes, i as _)?;
+        }
+
+        debug_assert!(
+            !sibling_page.is_underflow()?,
+            "Sibling page still underflows after redistribution (page_no: {}, free_space: {})",
+            sibling_page.page_no,
+            sibling_page.freespace()?
+        );
+        debug_assert!(
+            !current_page.is_underflow()?,
+            "Current page still underflows after redistribution (page_no: {}, free_space: {})",
+            current_page.page_no,
+            current_page.freespace()?
+        );
+
+        // separator key = last key of sibling's new share, points to sibling (left child)
+        let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
+        parent_page.remove_cell(parent_path.cell_idx - 1)?;
+        parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?;
+
+        Ok(())
     }
 }
 
