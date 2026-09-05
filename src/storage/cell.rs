@@ -50,6 +50,7 @@ pub struct IndexLeafCell {
     payload: Range<usize>,
     first_overflow_page: Option<PageNo>,
 }
+// TODO: REMOVE FUCKING OFFSET HANDLING BY THE FUCKING CELL
 impl TableInteriorCell {
     pub fn parse(
         bytes: &[u8],
@@ -77,8 +78,8 @@ impl TableLeafCell {
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
-        let (payload_len, _) = cursor.read_next_varint(usable_size)?;
-        let (row_id, _) = cursor.read_next_varint(usable_size)?;
+        let (payload_len, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
+        let (row_id, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
         let current_pos = cursor.stream_pos() as usize;
         let local_payload_size =
             compute_table_local_payload_size(usable_size, payload_len as usize);
