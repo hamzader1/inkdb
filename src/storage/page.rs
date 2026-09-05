@@ -253,17 +253,41 @@ impl<'p> BTreePageRef<'p> {
         Ok(total_size as _)
     }
     pub fn is_underflow(&self) -> SqliteResult<bool> {
+        let freespace = self.freespace()?;
+
+        let threshold = self.usable_size * 2 / 3;
+
+        let result = freespace > threshold;
+
+        println!("IS UNDERFLOE CHECK ALONG START");
+        println!(
+            "is_underflow: freespace={}, usable_size={}, threshold={}, result={}",
+            freespace, self.usable_size, threshold, result,
+        );
+        println!("IS UNDERFLOE CHECK ALONG END");
+
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
-
-    pub fn is_underflow_after_sub(&self, delta: usize) -> SqliteResult<bool> {
+    pub fn would_underflow_after_remove(&self, delta: usize) -> SqliteResult<bool> {
+        let freespace = self.freespace()?;
         let threshold = self.usable_size * 2 / 3;
-        Ok(match threshold.checked_add(delta) {
-            Some(required) => self.freespace()? > required,
-            None => false,
-        })
-    }
 
+        let result = match freespace.checked_add(delta) {
+            Some(new_freespace) => new_freespace > threshold,
+            None => true,
+        };
+        println!(
+            "###\nis_underflow_after_sub: freespace={}, delta={},\n usable_size={}, threshold={},\n new_freespace={:?}, result={}\n###",
+            freespace,
+            delta,
+            self.usable_size,
+            threshold,
+            freespace.checked_add(delta),
+            result,
+        );
+
+        Ok(result)
+    }
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &self,
         cell_idx: CellIndex,
@@ -883,10 +907,6 @@ impl<'p> BTreePageMut<'p> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
         let cell_span = self.cell_span(cell_ptr)?;
         let bytes_len: usize = cell_span.end - cell_span.start;
-        // println!(
-        //     "cell_idx: {}, cell_ptr: {} cellSpan: {:?} BytesLen: {}",
-        //     cell_idx, cell_ptr, cell_span, bytes_len
-        // );
         self.insert_freeblock(cell_ptr as _, bytes_len)?;
         self.remove_cell_pointer_entry(cell_idx)?;
         self.update_freelist_block_cache()?;
