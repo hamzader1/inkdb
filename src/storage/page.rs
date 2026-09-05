@@ -723,7 +723,7 @@ impl<'p> BTreePageMut<'p> {
         );
         self.bytes[..other.usable_size].copy_from_slice(&other.bytes[..other.usable_size]);
         // the cached header/cell pointers described the page BEFORE the copy
-        self.header = other.header,
+        self.header = other.header;
         self.cell_pointers = other.cell_pointers.clone();
         Ok(())
     }
