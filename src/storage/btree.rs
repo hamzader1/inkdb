@@ -1433,10 +1433,27 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             current_page.freespace()?
         );
 
-        // separator key = last key of sibling's new share, points to sibling (left child)
-        let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
-        parent_page.remove_cell(parent_path.cell_idx - 1)?;
-        parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?;
+    fn merge(
+        &mut self,
+        all_cells_as_bytes: Vec<Vec<u8>>,
+        right_page: &mut BTreePageMut,
+        separator_index: CellIndex,
+        parent_page: &mut BTreePageMut,
+    ) -> SqliteResult<()> {
+        right_page.reset_for_rebuild();
+        for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
+            if right_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                return Err(SqliteError::Corrupt(
+                    "merge: combined cells do not fit in one page".into(),
+                ));
+            }
+        }
+
+        parent_page.remove_cell(separator_index)?;
+        if parent_page.is_underflow()? {
+            let parent_no = parent_page.page_no;
+            self.fix_page_underflow(parent_no)?;
+        }
 
         Ok(())
     }
