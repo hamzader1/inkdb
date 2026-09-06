@@ -1038,11 +1038,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         if is_underflow {
-            println!("Underflow Needs to be fixed");
-            println!("PageNo: {} had an overflow", page_no);
             self.fix_page_underflow(page_no)?;
-        } else {
-            println!("CELL IS REMOVED AND THE PAGE HAS NO UNDERFLOW. PASSED");
         }
 
         Ok(())
@@ -1057,17 +1053,69 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
          * TO FIX UNDERFLOW ON A PAGE
          * WE REQUIRE AT LEAST THE PAGE IT SELF AND ITS PARENT
          */
-        debug_assert!(
-            self.cursor.stack.len() >= 2,
-            "Fix underflow function called on empty path stack"
+        if self.cursor.stack.is_empty() {
+            return Ok(());
+        }
+        let _page_no = self.cursor.stack.pop().unwrap().page_no;
+
+        debug_assert_eq!(
+            _page_no, child_page_no,
+            "The given page ({}) does not match the last page in the path ({})",
+            _page_no, child_page_no
         );
-        self.cursor.stack.pop();
+
+        if self.cursor.stack.is_empty() {
+            // the popped page was the root.
+            // Roots don't underflow: a leaf root with 0 cells is an empty
+            // table, an interior root with >=1 key is fine. Only an interior
+            // root with 0 keys collapses (its RMP child moves into the root,
+            // keeping the root page_no stable so the catalog stays valid).
+            if _page_no != self.root_page {
+                return Err(SqliteError::Corrupt(
+                    "underflow path popped a non-root page with empty stack".into(),
+                ));
+            }
+            let (n_cells, is_leaf, rmp) = self.with_page_ref(_page_no, |page| {
+                Ok((page.no_of_cells(), page.is_leaf(), page.right_most_ptr()))
+            })?;
+            if is_leaf || n_cells > 0 {
+                return Ok(());
+            }
+            let child_no = rmp.ok_or(SqliteError::Corrupt(
+                "empty interior root has no right-most child".into(),
+            ))?;
+            // Collect the surviving child before overwriting the root.
+            let (kind, child_rmp, cells) = self.with_page_mut(child_no, |child| {
+                let mut cells = Vec::with_capacity(child.no_of_cells() as usize);
+                for i in 0..child.no_of_cells() {
+                    cells.push(child.cell_bytes_as_ref(i)?.to_vec());
+                }
+                Ok((child.header.page_kind, child.header.right_most_ptr, cells))
+            })?;
+            self.with_page_mut(_page_no, |root| {
+                root.reset_for_rebuild();
+                root.header.page_kind = kind;
+                root.header.right_most_ptr = child_rmp;
+                root.update_bytes([PageKind, RightMostPointer]);
+                for (i, bytes) in cells.iter().enumerate() {
+                    if root.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Corrupt(
+                            "root collapse: child cells do not fit in root".into(),
+                        ));
+                    }
+                }
+                Ok(())
+            })?;
+            // TODO: return child_no to the freelist (leaked for now).
+            return Ok(());
+        }
+
         let (parent_page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let max_cells = self.with_page_ref(child_page_no, |page| Ok(page.no_of_cells()))?;
         let undeflow_action = self.underflow_planner(cell_idx, max_cells);
         let path = ActivePath::from(self.cursor.stack.as_ref());
         self.try_fix_underflow(undeflow_action, child_page_no, path)?;
-        println!("Underflow Fixed on pageno {}", child_page_no);
+        // println!("Underflow Fixed on pageno {}", child_page_no);
         Ok(())
     }
     fn underflow_planner(&self, cell_idx: CellIndex, max_cells: u16) -> UnderflowAction {
