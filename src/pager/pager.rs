@@ -94,11 +94,10 @@ impl<F: SqliteFile> Pager<F> {
     /// we get a second sign by calling [`Pager::get_mut(..)`]
     pub fn start_transaction(&mut self) -> bool {
         if self.in_transaction {
-            false
-        } else {
-            self.in_transaction = true;
-            true
+            return false;
         }
+        self.in_transaction = true;
+        true
     }
     // PageGuard holds lifetime of self
     pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {
