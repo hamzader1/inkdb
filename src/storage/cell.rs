@@ -64,7 +64,7 @@ impl TableInteriorCell {
                 "invalid left child page number: 0".into(),
             ));
         }
-        let (rowid_boundary, _) = cursor.read_next_varint(usable_size)?;
+        let (rowid_boundary, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
         Ok(Self {
             left_child,
             rowid_boundary,
