@@ -79,10 +79,7 @@ impl Analyze {
         let table = match sqlite_master.tables.get(&table_name.to_lowercase()) {
             Some(table) => table,
             _ => {
-                return Err(SqliteError::RuntimeError(format!(
-                    "Table {} does not exists",
-                    table_name
-                )));
+                return Err(SqliteError::TableNotFound(table_name.to_string()));
             }
         };
         Ok(table)

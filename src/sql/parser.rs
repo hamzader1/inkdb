@@ -144,7 +144,9 @@ impl Parser {
             Some(Begin) => Ok(Ast::BeginTransaction),
             Some(Commit) => Ok(Ast::CommitTransaction),
             Some(RollBack) => Ok(Ast::RollbackTransaction),
-            _ => Err(SqliteError::Corrupt("Query is not supported yet".into())),
+            _ => Err(SqliteError::Unsupported(
+                "this statement type is not supported yet (only SELECT, INSERT, DELETE, CREATE TABLE and BEGIN/COMMIT/ROLLBACK)".into(),
+            )),
         }
     }
 }

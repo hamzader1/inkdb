@@ -10,10 +10,7 @@ impl Analyze {
         sqlite_master: &SqliteMaster,
     ) -> Result<ResolvedQuery, SqliteError> {
         if Self::get_table(sqlite_master, &stmt.name).is_ok() {
-            return Err(SqliteError::RuntimeError(format!(
-                "Table {} already exists",
-                stmt.name
-            )));
+            return Err(SqliteError::TableAlreadyExists(stmt.name));
         }
 
         Ok(ResolvedQuery::CreateTableQuery(ResolvedCreateTableQuery {

@@ -61,7 +61,10 @@ impl SqliteFile for DiskFile {
         let file_len = self.file.metadata()?.len();
 
         if (offset as usize) + buff.len() > file_len as usize {
-            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+            return Err(SqliteError::FileRange(format!(
+                "read of {} bytes at offset {offset} exceeds file length {file_len} (grow the file with set_len first)",
+                buff.len()
+            )));
         }
 
         self.file.read_exact_at(buff, offset)?;
@@ -72,7 +75,10 @@ impl SqliteFile for DiskFile {
         let file_len = self.file.metadata()?.len();
 
         if (offset as usize) + buff.len() > file_len as usize {
-            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+            return Err(SqliteError::FileRange(format!(
+                "write of {} bytes at offset {offset} exceeds file length {file_len} (grow the file with set_len first)",
+                buff.len()
+            )));
         }
 
         self.file.write_all_at(buff, offset)?;
@@ -114,7 +120,13 @@ impl SqliteFile for DiskFile {
         let file_len = self.file.metadata()?.len();
 
         if offset as usize + buf.len() > file_len as usize {
-            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+            return Err(SqliteError::FileRange(
+                format!(
+                    "read of {} bytes at offset {offset} exceeds file length {file_len}",
+                    buf.len()
+                )
+                .into(),
+            ));
         }
 
         let mut offset = offset;
@@ -124,7 +136,9 @@ impl SqliteFile for DiskFile {
             let n = self.file.seek_read(buf, offset)?;
 
             if n == 0 {
-                return Err(DbError::Corrupt("Unexpected EOF".into()));
+                return Err(DbError::FileRange(
+                    format!("unexpected EOF reading at offset {offset}").into(),
+                ));
             }
 
             offset += n as u64;
@@ -140,7 +154,13 @@ impl SqliteFile for DiskFile {
         let file_len = self.file.metadata()?.len();
 
         if offset as usize + buf.len() > file_len as usize {
-            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+            return Err(SqliteError::FileRange(
+                format!(
+                    "write of {} bytes at offset {offset} exceeds file length {file_len}",
+                    buf.len()
+                )
+                .into(),
+            ));
         }
 
         let mut offset = offset;
@@ -150,7 +170,9 @@ impl SqliteFile for DiskFile {
             let n = self.file.seek_write(buf, offset)?;
 
             if n == 0 {
-                return Err(DbError::Corrupt("failed to write the whole buffer".into()));
+                return Err(DbError::FileRange(
+                    format!("failed to write the whole buffer at offset {offset}").into(),
+                ));
             }
 
             offset += n as u64;

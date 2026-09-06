@@ -29,6 +29,7 @@ impl Analyze {
         // TODO: THIS NEEDS OPTIMAZATION
         if !has_star {
             for idx in columns.iter() {
+                // Analyze:
                 Analyze::fast_bind(table, *idx, &mut arena)?;
             }
             if let Some(predict) = where_clause {

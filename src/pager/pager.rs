@@ -91,14 +91,13 @@ impl<F: SqliteFile> Pager<F> {
         self.in_transaction
     }
     /// We do not start transaction immediately until
-    /// we get a second sign by calling [`Pager::get_mut(..)`]
+    /// we get a comfirmation by calling [`Pager::get_mut(..)`]
     pub fn start_transaction(&mut self) -> bool {
         if self.in_transaction {
-            false
-        } else {
-            self.in_transaction = true;
-            true
+            return false;
         }
+        self.in_transaction = true;
+        true
     }
     // PageGuard holds lifetime of self
     pub fn get(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {
@@ -156,12 +155,17 @@ impl<F: SqliteFile> Pager<F> {
             frame.incr_pin_count();
             frame.clear(CLEAN);
             frame.set(REFERENCED | DIRTY);
-            // This fixes the bug of inserting the same node twice
-            // for example in call like
-            // let p2_rc = get_mut(page_2);
-            // let p2_rc_2 = get_mut(page_2);
-            // this will insert the page twice
-            // which can also cause infinite loop (pointer point to it self)
+
+            /*
+             *
+             * This fixes the bug of inserting the same node twice
+             * for example in call like
+             * let p2_rc = get_mut(page_2);
+             * let p2_rc_2 = get_mut(page_2);
+             * this will insert the page twice
+             * which can also cause infinite loop (pointer point to it self)
+             *
+             */
             if !was_dirty {
                 self.dp_ll_insert(frame_id);
             }
@@ -362,14 +366,12 @@ impl<F: SqliteFile> Pager<F> {
         if let Some(exc) = exception
             && exc(page_no)
         {
-            return Err(SqliteError::Corrupt("Exception Failed".into()));
+            return Err(SqliteError::Internal(format!(
+                "page guard exception rejected page {page_no}"
+            )));
         }
-        if page_no == 0 {
-            return Err(SqliteError::Corrupt("page number cannot be zero".into()));
-        } else if page_no as usize > max_pages {
-            return Err(SqliteError::Corrupt(
-                "page number is outside the database".into(),
-            ));
+        if page_no == 0 || page_no as usize > max_pages {
+            return Err(SqliteError::InvalidPageNumber(page_no));
         }
 
         Ok(())

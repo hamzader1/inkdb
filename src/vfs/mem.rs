@@ -84,7 +84,11 @@ impl SqliteFile for MemFile {
         let end = start + buff.len();
 
         if end > bytes.len() {
-            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+            return Err(SqliteError::FileRange(format!(
+                "read of {} bytes at offset {offset} exceeds buffer length {}",
+                buff.len(),
+                bytes.len()
+            )));
         }
 
         buff.copy_from_slice(&bytes[start..end]);
@@ -99,7 +103,11 @@ impl SqliteFile for MemFile {
         let end = start + buff.len();
 
         if end > bytes.len() {
-            return Err(SqliteError::Corrupt("Range out of bounds".into()));
+            return Err(SqliteError::FileRange(format!(
+                "write of {} bytes at offset {offset} exceeds buffer length {}",
+                buff.len(),
+                bytes.len()
+            )));
         }
 
         bytes[start..end].copy_from_slice(buff);

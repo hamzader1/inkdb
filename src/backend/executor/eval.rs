@@ -92,7 +92,7 @@ impl Eval {
             Expr::Float(f) => Ok(Value::Float(f)),
             Expr::StringLitteral(ref str) => Ok(Value::Text(Cow::Owned(str.to_string()))),
             Expr::Bool(b) => Ok(Value::Integer(b as u8 as i64)),
-            Expr::ColumnRef(_) => Err(SqliteError::RuntimeError("Columns are not allowed".into())),
+            Expr::ColumnRef(_) => Err(SqliteError::Runtime("Cannot evaluate a column reference without a row: LIMIT and constant expressions must not mention columns".into())),
 
             Expr::Add(l, r) => Ok(Self::eval(arena, l)? + Self::eval(arena, r)?),
             Expr::Substract(l, r) => Ok(Self::eval(arena, l)? - Self::eval(arena, r)?),

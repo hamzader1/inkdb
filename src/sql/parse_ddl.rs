@@ -13,15 +13,16 @@ impl Parser {
         match self.peek() {
             Some(Table) => {
                 if unique {
-                    return Err(SqliteError::RuntimeError(
-                        "CREATE UNIQUE TABLE is invalid".into(),
+                    return Err(SqliteError::Runtime(
+                        "CREATE UNIQUE TABLE is invalid: UNIQUE applies to CREATE INDEX, not CREATE TABLE".into(),
                     ));
                 }
                 self.parse_create_table()
             }
             Some(Index) => self.parse_create_index(unique),
-            _ => Err(SqliteError::RuntimeError(
-                "Expected TABLE or INDEX after CREATE".into(),
+            _ => Err(SqliteError::Runtime(
+                "Expected TABLE or INDEX after CREATE (e.g. CREATE TABLE ... or CREATE INDEX ...)"
+                    .into(),
             )),
         }
     }
@@ -116,7 +117,7 @@ impl Parser {
         }
 
         let affinity = affinity.ok_or_else(|| {
-            SqliteError::RuntimeError(format!("Column '{name}' is missing a data type"))
+            SqliteError::Runtime(format!("Column '{name}' is missing a data type: expected INTEGER, TEXT, FLOAT, BOOL or BLOB"))
         })?;
 
         Ok(Column {
@@ -137,8 +138,8 @@ impl Parser {
         name: &str,
     ) -> Result<(), SqliteError> {
         if slot.is_some() {
-            return Err(SqliteError::RuntimeError(format!(
-                "duplicate data type for column '{name}'"
+            return Err(SqliteError::Runtime(format!(
+                "Duplicate data type for column '{name}': each column takes exactly one type"
             )));
         }
         *slot = Some(affinity);
@@ -153,14 +154,14 @@ impl Parser {
             match self.next_token() {
                 Some(t) if matches!(t.kind, NumberVar(_)) => {}
                 _ => {
-                    return Err(SqliteError::RuntimeError(
-                        "invalid token in type size".into(),
+                    return Err(SqliteError::Runtime(
+                        "Invalid token in type size: expected a number like VARCHAR(100)".into(),
                     ));
                 }
             }
             if !self.eat(Comma) && !self.at(RightParen) {
-                return Err(SqliteError::RuntimeError(
-                    "expected ',' or ')' in type size".into(),
+                return Err(SqliteError::Runtime(
+                    "Expected ',' or ')' in type size: e.g. DECIMAL(10, 2)".into(),
                 ));
             }
         }

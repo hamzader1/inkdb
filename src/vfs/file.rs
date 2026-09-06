@@ -17,5 +17,4 @@ pub trait SqliteFile {
     fn set_len(&self, len: usize) -> Result<(), DbError>;
 
     fn sync(&self) -> Result<(), DbError>;
-
 }
