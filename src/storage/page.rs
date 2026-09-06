@@ -483,7 +483,13 @@ impl<'p> BTreePageMut<'p> {
         };
         // a recycled frame is not guaranteed to be zeroed, so the cell count
         // has to be written out too instead of relying on the old bytes
-        page.update_bytes([NoOfCells, CellContentArea, PageKind]);
+        page.update_bytes([
+            NoOfCells,
+            CellContentArea,
+            PageKind,
+            FirstFreeBlock,
+            FragCnt,
+        ]);
         page
     }
 
@@ -599,12 +605,14 @@ impl<'p> BTreePageMut<'p> {
         self.cell_pointers.clear();
         self.header.first_freeblock = 0;
         self.header.frag_cnt = 0;
+        self.header.right_most_ptr = None;
         self.update_bytes([
             NoOfCells,
             CellContentArea,
             CellPointers,
             FragCnt,
             FirstFreeBlock,
+            RightMostPointer,
         ]);
     }
 
@@ -1372,17 +1380,10 @@ impl<'a> BTreePageMut<'a> {
     }
 
     fn update_rmp(&mut self) {
-        debug_assert!(
-            self.header.page_kind.is_interior(),
-            "Leaf pages has no right most pointer"
-        );
-        debug_assert!(
-            self.header.right_most_ptr.is_some(),
-            "Right most pointer is not initialiazed yet"
-        );
-
+        if self.is_leaf() {
+            return;
+        }
         let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
-
         self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE]
             .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
     }
@@ -1395,7 +1396,7 @@ impl<'a> BTreePageMut<'a> {
                 PageField::CellContentArea => self.update_cell_content_area(),
                 PageField::CellPointers => self.update_cell_pointers(),
                 PageField::FragCnt => self.update_frag_cnt(),
-                PageField::FirstFreeBlock => self.update_frag_cnt(),
+                PageField::FirstFreeBlock => self.update_first_free_block(),
                 PageField::RightMostPointer => self.update_rmp(),
             }
         }
