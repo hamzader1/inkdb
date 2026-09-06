@@ -228,17 +228,6 @@ impl<'p> BTreePageRef<'p> {
 
     pub fn freespace(&self) -> SqliteResult<usize> {
         let freeblocks_size = self.freeblocks_size()?;
-        dbg!(&self);
-        dbg!(
-            freeblocks_size,
-            "+",
-            self.header.frag_cnt,
-            "+",
-            self.header.cell_content_area,
-            "MINUS",
-            self.header_size(),
-            self.header.no_of_cells * 2
-        );
         let total_free_bytes = freeblocks_size
             + self.header.frag_cnt as usize
             + self.header.cell_content_area as usize
