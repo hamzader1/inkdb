@@ -1459,6 +1459,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
             let parent_separator_cell = parent_page.cell(parent_path.cell_idx)?;
             let parent_separator_cell_row_id_boundery = parent_separator_cell.row_id();
+            // Sibling keeps its rightmost subtree; save before reset wipes it.
+            let sibling_rmp = sibling_page.header.right_most_ptr;
             let new_cell_for_curr_page = Encode::encode_table_interior_cell(
                 current_page.right_most_ptr().unwrap(),
                 parent_separator_cell_row_id_boundery,
@@ -1511,6 +1513,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                         "redistribute interior: right share does not fit".into(),
                     ));
                 }
+            }
+            if sibling_page.header.right_most_ptr != sibling_rmp {
+                sibling_page.header.right_most_ptr = sibling_rmp;
+                sibling_page.update_bytes([RightMostPointer]);
             }
             return Ok(());
         }
@@ -1682,6 +1688,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         .map(BTreeCell::TableInterior)?;
         let parent_separator_cell = parent_page.cell(sibling_idx)?;
         let parent_boundary = parent_separator_cell.row_id();
+        // Current keeps its rightmost subtree; save before reset wipes it.
+        // (Sibling's new RMP is set to the promoted cell's left child below.)
+        let current_rmp = current_page.header.right_most_ptr;
         // Parent separator moves down front of right page; its left child is
         // the sibling's old right-most pointer.
         let new_cell_for_right = Encode::encode_table_interior_cell(
@@ -1722,6 +1731,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 ));
             }
         }
+        if current_page.header.right_most_ptr != current_rmp {
+            current_page.header.right_most_ptr = current_rmp;
+            current_page.update_bytes([RightMostPointer]);
+        }
 
         Ok(())
     }
@@ -1733,6 +1746,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         separator_index: CellIndex,
         parent_page: &mut BTreePageMut,
     ) -> SqliteResult<()> {
+        // Interior merge drops the parent separator; the merged page keeps
+        // the RIGHT page's right-most pointer (its subtree is the rightmost).
+        // Without this the page keeps the transient 0 written by reset and
+        // the next seek follows RMP 0 -> "page number cannot be zero".
+        let merged_rmp = right_page.header.right_most_ptr;
         right_page.reset_for_rebuild();
         for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
             if right_page.insert_cell(bytes, i as _)? == InsertionState::None {
@@ -1740,6 +1758,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     "merge: combined cells do not fit in one page".into(),
                 ));
             }
+        }
+        if right_page.header.right_most_ptr != merged_rmp {
+            right_page.header.right_most_ptr = merged_rmp;
+            right_page.update_bytes([RightMostPointer]);
         }
 
         parent_page.remove_cell(separator_index)?;
