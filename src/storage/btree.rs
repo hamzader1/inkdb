@@ -1013,7 +1013,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     // delete
     //
     pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
-        println!("Key to be deleted: {}", key);
         let res = self.cursor.seek(self.pager, key.clone())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let found_key = self
