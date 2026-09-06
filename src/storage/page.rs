@@ -77,7 +77,7 @@ impl BTreePageType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct BTreePageHeader {
     pub page_kind: BTreePageType,
     pub first_freeblock: u16,
@@ -259,12 +259,12 @@ impl<'p> BTreePageRef<'p> {
 
         let result = freespace > threshold;
 
-        println!("IS UNDERFLOE CHECK ALONG START");
-        println!(
-            "is_underflow: freespace={}, usable_size={}, threshold={}, result={}",
-            freespace, self.usable_size, threshold, result,
-        );
-        println!("IS UNDERFLOE CHECK ALONG END");
+        // println!("IS UNDERFLOE CHECK ALONG START");
+        // println!(
+        //     "is_underflow: freespace={}, usable_size={}, threshold={}, result={}",
+        //     freespace, self.usable_size, threshold, result,
+        // );
+        // println!("IS UNDERFLOE CHECK ALONG END");
 
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
@@ -276,15 +276,15 @@ impl<'p> BTreePageRef<'p> {
             Some(new_freespace) => new_freespace > threshold,
             None => true,
         };
-        println!(
-            "###\nis_underflow_after_sub: freespace={}, delta={},\n usable_size={}, threshold={},\n new_freespace={:?}, result={}\n###",
-            freespace,
-            delta,
-            self.usable_size,
-            threshold,
-            freespace.checked_add(delta),
-            result,
-        );
+        // println!(
+        //     "###\nis_underflow_after_sub: freespace={}, delta={},\n usable_size={}, threshold={},\n new_freespace={:?}, result={}\n###",
+        //     freespace,
+        //     delta,
+        //     self.usable_size,
+        //     threshold,
+        //     freespace.checked_add(delta),
+        //     result,
+        // );
 
         Ok(result)
     }
@@ -483,7 +483,13 @@ impl<'p> BTreePageMut<'p> {
         };
         // a recycled frame is not guaranteed to be zeroed, so the cell count
         // has to be written out too instead of relying on the old bytes
-        page.update_bytes([NoOfCells, CellContentArea, PageKind]);
+        page.update_bytes([
+            NoOfCells,
+            CellContentArea,
+            PageKind,
+            FirstFreeBlock,
+            FragCnt,
+        ]);
         page
     }
 
@@ -597,7 +603,17 @@ impl<'p> BTreePageMut<'p> {
         self.header.no_of_cells = 0;
         self.header.cell_content_area = self.usable_size as u16;
         self.cell_pointers.clear();
-        self.update_bytes([NoOfCells, CellContentArea]);
+        self.header.first_freeblock = 0;
+        self.header.frag_cnt = 0;
+        self.header.right_most_ptr = None;
+        self.update_bytes([
+            NoOfCells,
+            CellContentArea,
+            CellPointers,
+            FragCnt,
+            FirstFreeBlock,
+            RightMostPointer,
+        ]);
     }
 
     pub fn insert_cell<B: AsRef<[u8]>>(
@@ -715,7 +731,7 @@ impl<'p> BTreePageMut<'p> {
         );
         self.bytes[..other.usable_size].copy_from_slice(&other.bytes[..other.usable_size]);
         // the cached header/cell pointers described the page BEFORE the copy
-        self.header = other.header.clone();
+        self.header = other.header;
         self.cell_pointers = other.cell_pointers.clone();
         Ok(())
     }
@@ -923,9 +939,20 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
-    // Temporary until we create a macro update
+    // TODO: Temporary until we create a macro update
+    // TODO: Remove Result<T,E>
     pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
-        BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
+        // BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
+        //
+        Ok(BTreePageRef {
+            page_no: self.page_no,
+            header: self.header,
+            header_offset: self.header_offset,
+            bytes: self.bytes,
+            page_size: self.page_size,
+            usable_size: self.usable_size,
+            _marker: PhantomData,
+        })
     }
 }
 
@@ -1068,7 +1095,7 @@ impl<'r, 'p, F: crate::vfs::file::SqliteFile> Iterator for PageIterator<'r, 'p, 
        the btree page and the remaining P-M bytes are stored on
        overflow pages.
 */
-pub const fn compute_table_local_payload_size(usable_size: usize, payload_len: usize) -> usize {
+pub fn compute_table_local_payload_size(usable_size: usize, payload_len: usize) -> usize {
     let u = usable_size;
     let p = payload_len;
     let x = u - 35;
@@ -1308,6 +1335,8 @@ pub enum PageField {
     NoOfCells,
     CellContentArea,
     CellPointers,
+    FragCnt,
+    FirstFreeBlock,
     RightMostPointer,
 }
 
@@ -1351,19 +1380,12 @@ impl<'a> BTreePageMut<'a> {
     }
 
     fn update_rmp(&mut self) {
-        debug_assert!(
-            self.header.page_kind.is_interior(),
-            "Leaf pages has no right most pointer"
-        );
-        debug_assert!(
-            self.header.right_most_ptr.is_some(),
-            "Right most pointer is not initialiazed yet"
-        );
-
+        if self.is_leaf() {
+            return;
+        }
         let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
-
-        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE]
-            .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
+        let rmp = self.header.right_most_ptr.unwrap_or(0);
+        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE].copy_from_slice(&rmp.to_be_bytes());
     }
 
     pub fn update_bytes<const N: usize>(&mut self, fields: [PageField; N]) {
@@ -1373,9 +1395,23 @@ impl<'a> BTreePageMut<'a> {
                 PageField::NoOfCells => self.update_no_of_cells(),
                 PageField::CellContentArea => self.update_cell_content_area(),
                 PageField::CellPointers => self.update_cell_pointers(),
+                PageField::FragCnt => self.update_frag_cnt(),
+                PageField::FirstFreeBlock => self.update_first_free_block(),
                 PageField::RightMostPointer => self.update_rmp(),
             }
         }
+    }
+    fn update_frag_cnt(&mut self) {
+        let frag_cnt = self.header.frag_cnt;
+        let offset = FRAGMENTED_FREE_BYTES_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + FRAGMENTED_FREE_BYTES_SIZE]
+            .copy_from_slice(&frag_cnt.to_be_bytes());
+    }
+    fn update_first_free_block(&mut self) {
+        let first_free_block = self.header.first_freeblock;
+        let offset = FIRST_FREEBLOCK_OFFSET + self.header_offset as usize;
+        self.bytes[offset..offset + FIRST_FREEBLOCK_SIZE]
+            .copy_from_slice(&first_free_block.to_be_bytes());
     }
 
     // pub fn update_metadata<F>(&mut self, additional_metadata: Option<F>)
