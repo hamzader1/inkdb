@@ -8,6 +8,7 @@ use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::record::tuple::Tuple;
+use crate::record::tuple::{self, DecodedValue, decode_sqltype, into_borrowed, into_owned};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use PageField::*;
 use std::marker::PhantomData;
@@ -332,7 +333,8 @@ impl<'p> BTreePageRef<'p> {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
             let record_metadata = Tuple::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
-            collector.push(Tuple::decode_sqltype_owned(data, &record_metadata));
+            let decoded = decode_sqltype(data, &record_metadata);
+            collector.push(into_owned(decoded));
             remaining -= consumed;
         }
         Ok(())
@@ -350,7 +352,8 @@ impl<'p> BTreePageRef<'p> {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
             let record_metadata = Tuple::content_size(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
-            collector.push(Tuple::decode_sqltype_borrowed(data, &record_metadata));
+            let decoded = decode_sqltype(data, &record_metadata);
+            collector.push(into_borrowed(decoded));
             remaining -= consumed;
         }
         Ok(())
