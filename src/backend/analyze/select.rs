@@ -4,7 +4,6 @@ use crate::errors::SqliteError;
 use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;
 
-use super::bind::FastBind;
 use super::{Analyze, ResolvedQuery, ResolvedSelectQuery};
 
 impl Analyze {
@@ -29,7 +28,6 @@ impl Analyze {
 
         // TODO: THIS NEEDS OPTIMAZATION
         if !has_star {
-            let fast_bind = FastBind;
             for idx in columns.iter() {
                 // Analyze:
                 Analyze::fast_bind(table, *idx, &mut arena)?;
