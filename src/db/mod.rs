@@ -10,7 +10,6 @@ pub mod header;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 pub use crate::storage::sqlite_cursor::SqliteCursor;
-use crate::vfs::mem::MemVfs;
 use crate::vfs::{SqliteOptions, Vfs};
 use header::SqliteDatabaseHeader;
 use std::path::Path;

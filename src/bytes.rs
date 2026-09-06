@@ -1,3 +1,4 @@
+#![expect(unused)]
 use crate::{SqliteError, to_int};
 use std::io::Read;
 

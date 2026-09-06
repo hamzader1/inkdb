@@ -1,7 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::errors::SqliteError;
-use crate::pager::pager::Pager;
 use crate::record::Value;
 
 pub mod create;
@@ -27,6 +25,7 @@ impl Row {
     pub fn key(&self) -> u64 {
         self.key
     }
+    #[allow(unused)]
     pub(crate) fn row(&self) -> &Vec<Value<'static>> {
         &self.data
     }

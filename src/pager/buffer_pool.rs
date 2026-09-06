@@ -1,4 +1,3 @@
-use super::frame::FRAME_SIZE;
 use super::frame::{Frame, FrameId, FrameIndex};
 use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;

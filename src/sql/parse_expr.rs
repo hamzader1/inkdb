@@ -1,5 +1,3 @@
-use std::ops::Neg;
-
 use super::ast::{BinaryOperator, Expr};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;

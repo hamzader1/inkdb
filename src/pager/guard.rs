@@ -1,7 +1,6 @@
-use crate::pager::{buffer_pool, frame::FrameId};
+use crate::pager::frame::FrameId;
 
 use super::buffer_pool::BufferPool;
-use super::frame::Frame;
 use std::{marker::PhantomData, ptr::NonNull};
 
 #[derive(Debug, PartialEq)]

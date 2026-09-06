@@ -1,11 +1,7 @@
-use crate::SqliteMaster;
 use crate::errors::SqliteError;
-use crate::pager::pager::PageNo;
-use crate::record::Value;
 use crate::schema::Table;
-use crate::sql::ast::{Affinity, Ast, Expr, InsertStmt, SelectStmt};
+use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
-use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 
 use super::Analyze;
 
@@ -90,7 +86,7 @@ impl Analyze {
                 new.push(Expr::remap_l_r(&node, map[left], map[right]));
                 map[idx] = new.len() - 1;
             }
-            Expr::BinaryOp { left, op, right } => {
+            Expr::BinaryOp { left, right, .. } => {
                 let left = *left;
                 let right = *right;
 
@@ -177,7 +173,7 @@ impl Analyze {
                 Self::fast_bind(table, left, arena)?;
                 Self::fast_bind(table, right, arena)?;
             }
-            Expr::BinaryOp { left, op, right } => {
+            Expr::BinaryOp { left, right, .. } => {
                 let left = *left;
                 let right = *right;
 

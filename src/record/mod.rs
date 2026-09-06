@@ -3,7 +3,6 @@ pub mod tuple;
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::hash_map::VacantEntry;
 
 use crate::errors::SqliteError;
 use std::ops::{Add, Div, Mul, Sub};

@@ -1,11 +1,6 @@
 use crate::SqliteMaster;
 use crate::errors::SqliteError;
-use crate::pager::pager::PageNo;
-use crate::record::Value;
-use crate::schema::Table;
-use crate::sql::ast::{Affinity, Ast, CreateTable, Expr, InsertStmt, SelectStmt};
-use crate::sql::parser::ExprArena;
-use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
+use crate::sql::ast::CreateTable;
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 

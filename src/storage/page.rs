@@ -1,7 +1,3 @@
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::sync::WaitTimeoutResult;
-
 use super::btree::CellIndex;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
@@ -10,10 +6,11 @@ use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
+use crate::record::Value;
 use crate::record::tuple::Tuple;
-use crate::record::{RecordMetadata, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use PageField::*;
+use std::marker::PhantomData;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
@@ -253,19 +250,6 @@ impl<'p> BTreePageRef<'p> {
         Ok(total_size as _)
     }
     pub fn is_underflow(&self) -> SqliteResult<bool> {
-        let freespace = self.freespace()?;
-
-        let threshold = self.usable_size * 2 / 3;
-
-        let result = freespace > threshold;
-
-        // println!("IS UNDERFLOE CHECK ALONG START");
-        // println!(
-        //     "is_underflow: freespace={}, usable_size={}, threshold={}, result={}",
-        //     freespace, self.usable_size, threshold, result,
-        // );
-        // println!("IS UNDERFLOE CHECK ALONG END");
-
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
     pub fn would_underflow_after_remove(&self, delta: usize) -> SqliteResult<bool> {
@@ -276,16 +260,6 @@ impl<'p> BTreePageRef<'p> {
             Some(new_freespace) => new_freespace > threshold,
             None => true,
         };
-        // println!(
-        //     "###\nis_underflow_after_sub: freespace={}, delta={},\n usable_size={}, threshold={},\n new_freespace={:?}, result={}\n###",
-        //     freespace,
-        //     delta,
-        //     self.usable_size,
-        //     threshold,
-        //     freespace.checked_add(delta),
-        //     result,
-        // );
-
         Ok(result)
     }
     pub fn record_of_cell<F: crate::vfs::file::SqliteFile>(

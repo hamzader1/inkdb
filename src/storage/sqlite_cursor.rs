@@ -1,7 +1,5 @@
 use crate::SqliteError;
-use crate::bytes;
 use crate::to_int;
-use crate::util::sqlite_assert_one;
 use crate::util::sqlite_assert_with_corrupt_err;
 use crate::util::sqlite_assert_with_runtime_err;
 use crate::varint::decode_varint;
