@@ -1,7 +1,7 @@
 use crate::SqliteMaster;
 use crate::errors::SqliteError;
 use crate::sql::ast::{Affinity, InsertStmt};
-use crate::util::{sqlite_assert_with_corrupt_err, sqlite_assert_with_runtime_err};
+use crate::util::sqlite_assert_with_runtime_err;
 
 use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 
@@ -31,10 +31,10 @@ impl Analyze {
                 )?;
                 for (i, value) in inner_values.iter().enumerate() {
                     let sqlite_value_type = Affinity::from(value);
-                    sqlite_assert_with_corrupt_err(
+                    sqlite_assert_with_runtime_err(
                         sqlite_value_type == table.columns[i].affinity,
                         format!(
-                            "Column '{}' has data type of '{}' but '{}' were given",
+                            "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
                             table.columns[i].name, table.columns[i].affinity, sqlite_value_type
                         )
                         .as_str(),

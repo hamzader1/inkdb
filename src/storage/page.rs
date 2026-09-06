@@ -742,9 +742,10 @@ impl<'p> BTreePageMut<'p> {
     ) -> Result<(), SqliteError> {
         let content = content.as_ref();
         if cell_idx as usize >= self.cell_pointers.len() {
-            return Err(SqliteError::Corrupt(
-                "replace_cell index out of bounds".into(),
-            ));
+            return Err(SqliteError::Internal(format!(
+                "replace_cell: index {cell_idx} out of bounds (page holds {} cells)",
+                self.cell_pointers.len()
+            )));
         }
 
         // cell pointers are in KEY order, not OFFSET order anymore
@@ -765,8 +766,8 @@ impl<'p> BTreePageMut<'p> {
         self.reset_for_rebuild();
         for (i, cell) in cells.iter().enumerate() {
             if self.insert_cell(cell, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
-                    "replace_cell: replacement does not fit in page".into(),
+                return Err(SqliteError::Internal(
+                    "replace_cell: rebuilt page does not fit (replacement larger than reclaimed space)".into(),
                 ));
             }
         }

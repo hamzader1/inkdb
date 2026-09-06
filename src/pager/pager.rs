@@ -366,14 +366,12 @@ impl<F: SqliteFile> Pager<F> {
         if let Some(exc) = exception
             && exc(page_no)
         {
-            return Err(SqliteError::Corrupt("Exception Failed".into()));
+            return Err(SqliteError::Internal(format!(
+                "page guard exception rejected page {page_no}"
+            )));
         }
-        if page_no == 0 {
-            return Err(SqliteError::Corrupt("page number cannot be zero".into()));
-        } else if page_no as usize > max_pages {
-            return Err(SqliteError::Corrupt(
-                "page number is outside the database".into(),
-            ));
+        if page_no == 0 || page_no as usize > max_pages {
+            return Err(SqliteError::InvalidPageNumber(page_no));
         }
 
         Ok(())

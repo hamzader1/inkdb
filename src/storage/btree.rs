@@ -145,8 +145,8 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 }
             } else {
                 if cell_idx + 1 == page.no_of_cells() {
-                    let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
-                        "interior page has no right-most child".into(),
+                    let child = page.right_most_ptr().ok_or(SqliteError::Internal(
+                        format!("cursor next: interior page {page_no} has no right-most child")
                     ))?;
                     self.add_path(page_no, cell_idx + 1, guard);
                     self.descend_to_first(pager, child)?;
@@ -242,9 +242,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 self.state = CursorState::At;
                 return Ok(());
             }
-            let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
-                "interior page has no right-most child".into(),
-            ))?;
+            let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
+                "cursor last: interior page {page_no} has no right-most child"
+            )))?;
             self.add_path(page_no, page.no_of_cells(), guard);
             page_no = child;
         }
@@ -263,9 +263,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 self.state = CursorState::At;
                 return Ok(());
             }
-            let child = page.right_most_ptr().ok_or(SqliteError::Corrupt(
-                "interior page has no right-most child".into(),
-            ))?;
+            let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
+                "cursor descend_to_last: interior page {page_no} has no right-most child"
+            )))?;
             self.add_path(page_no, page.no_of_cells(), guard);
             page_no = child;
         }
@@ -630,13 +630,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             left_page.clear();
             //
             // rebuild metadata
-            let left_last_ptr =
-                new_left_page.cell_pointers.last().copied().ok_or_else(|| {
-                    SqliteError::Corrupt("root split with an empty left leaf".into())
-                })?;
+            let left_last_ptr = new_left_page.cell_pointers.last().copied().ok_or_else(|| {
+                SqliteError::Internal("root split with an empty left leaf".into())
+            })?;
             let rowid = new_left_page.parse_cell_at(left_last_ptr)?.row_id();
             let right_last_ptr = right_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Corrupt("root split with an empty right leaf".into())
+                SqliteError::Internal("root split with an empty right leaf".into())
             })?;
             let right_max = right_page.parse_cell_at(right_last_ptr)?.row_id();
 
@@ -696,7 +695,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         for (i, cell) in right_cells.iter().enumerate() {
             if right_page.insert_cell(cell, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "right leaf page overflowed during split".into(),
                 ));
             }
@@ -713,7 +712,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         left_page.reset_for_rebuild();
         for (i, cell) in left_cells.iter().enumerate() {
             if left_page.insert_cell(cell, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "left leaf page overflowed during split".into(),
                 ));
             }
@@ -721,11 +720,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         let left_last_ptr =
             left_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Corrupt("left leaf page is empty after split".into())
+                SqliteError::Internal("left leaf page is empty after split".into())
             })?;
         let right_last_ptr =
             right_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Corrupt("right leaf page is empty after split".into())
+                SqliteError::Internal("right leaf page is empty after split".into())
             })?;
         let metadata = SplitMetadata::new(
             left_page.page_no,
@@ -770,7 +769,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let right_cell_pointers = left_cell_pointers.split_off(left_cell_pointers.len() / 2);
         let promoted_cell_offset = left_cell_pointers
             .pop()
-            .ok_or_else(|| SqliteError::Corrupt("interior split left half is empty".into()))?;
+            .ok_or_else(|| SqliteError::Internal("interior split left half is empty".into()))?;
         let cell_to_be_promoted = interior_page.parse_cell_at(promoted_cell_offset)?;
 
         // stage both halves before writing anything, both are read from the
@@ -788,7 +787,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         for (i, cell) in left_cells.iter().enumerate() {
             if new_page.insert_cell(cell, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "new interior page overflowed during split".into(),
                 ));
             }
@@ -800,7 +799,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         interior_page.reset_for_rebuild();
         for (i, cell) in right_cells.iter().enumerate() {
             if interior_page.insert_cell(cell, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "interior page overflowed during split".into(),
                 ));
             }
@@ -1045,7 +1044,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         if is_leaf || n_cells > 0 {
             return Ok(());
         }
-        let child_no = rmp.ok_or(SqliteError::Corrupt(
+        let child_no = rmp.ok_or(SqliteError::Internal(
             "empty interior root has no right-most child".into(),
         ))?;
         // Collect the surviving child before overwriting the root.
@@ -1063,7 +1062,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             root.update_bytes([PageKind, RightMostPointer]);
             for (i, bytes) in cells.iter().enumerate() {
                 if root.insert_cell(bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "root collapse: child cells do not fit in root".into(),
                     ));
                 }
@@ -1101,7 +1100,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // root with 0 keys collapses (its RMP child moves into the root,
             // keeping the root page_no stable so the catalog stays valid).
             if _page_no != self.root_page {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "underflow path popped a non-root page with empty stack".into(),
                 ));
             }
@@ -1113,7 +1112,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let parent_n = self.with_page_ref(parent_page_no, |page| Ok(page.no_of_cells()))?;
         if parent_n == 0 {
             if parent_page_no != self.root_page {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "non-root interior page with 0 cells".into(),
                 ));
             }
@@ -1341,7 +1340,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // Byte-split alone can leave a side empty; keep both sides non-empty.
         // Interior path clamps further below (needs a cell to promote).
         if total_cells < 2 {
-            return Err(SqliteError::Corrupt(
+            return Err(SqliteError::Internal(
                 "cannot redistribute: not enough cells".into(),
             ));
         }
@@ -1371,7 +1370,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             current_page.reset_for_rebuild();
             for (i, bytes) in new_left_page_cell.iter().enumerate() {
                 if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "redistribute leaf: left share does not fit".into(),
                     ));
                 }
@@ -1379,7 +1378,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             sibling_page.reset_for_rebuild();
             for (i, bytes) in new_right_page_cells.iter().enumerate() {
                 if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "redistribute leaf: right share does not fit".into(),
                     ));
                 }
@@ -1419,7 +1418,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
             parent_page.remove_cell(parent_path.cell_idx)?;
             if parent_page.insert_cell(&new_bytes, parent_path.cell_idx)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "redistribute leaf: parent separator does not fit".into(),
                 ));
             }
@@ -1428,7 +1427,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // right share must keep at least 2 cells (promoted + remainder)
             // and the left must not shrink.
             if new_right_page_cells.len() < 2 || split_at < current_page_len {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "cannot redistribute interior: split leaves no promotable cell".into(),
                 ));
             }
@@ -1463,7 +1462,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     if current_page.insert_cell(&new_cell_for_curr_page, i as _)?
                         == InsertionState::None
                     {
-                        return Err(SqliteError::Corrupt(
+                        return Err(SqliteError::Internal(
                             "redistribute interior: parent separator does not fit".into(),
                         ));
                     }
@@ -1471,7 +1470,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 }
                 if current_page.insert_cell(bytes, (i + temp_offset) as _)? == InsertionState::None
                 {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "redistribute interior: left share does not fit".into(),
                     ));
                 }
@@ -1488,7 +1487,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             if parent_page.insert_cell(&new_parent_cell, parent_path.cell_idx)?
                 == InsertionState::None
             {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "redistribute interior: parent separator does not fit".into(),
                 ));
             }
@@ -1496,7 +1495,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // skip the cell we promote
             for (i, bytes) in new_right_page_cells[1..].iter().enumerate() {
                 if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "redistribute interior: right share does not fit".into(),
                     ));
                 }
@@ -1575,7 +1574,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             }
         }
         if total_cells < 2 {
-            return Err(SqliteError::Corrupt(
+            return Err(SqliteError::Internal(
                 "cannot redistribute: not enough cells".into(),
             ));
         }
@@ -1605,7 +1604,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             sibling_page.reset_for_rebuild();
             for (i, bytes) in new_sibling_cells.iter().enumerate() {
                 if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "redistribute leaf: left share does not fit".into(),
                     ));
                 }
@@ -1613,7 +1612,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             current_page.reset_for_rebuild();
             for (i, bytes) in new_current_cells.iter().enumerate() {
                 if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::Corrupt(
+                    return Err(SqliteError::Internal(
                         "redistribute leaf: right share does not fit".into(),
                     ));
                 }
@@ -1638,7 +1637,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             if parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?
                 == InsertionState::None
             {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "redistribute leaf: parent separator does not fit".into(),
                 ));
             }
@@ -1650,7 +1649,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // to the FRONT of the right page, sibling's last cell moves up.
         // Right share must keep >=1 cell, left share needs >=2 (promoted + remainder).
         if split_at < 2 || split_at > total_cells - 1 {
-            return Err(SqliteError::Corrupt(
+            return Err(SqliteError::Internal(
                 "cannot redistribute interior: split leaves no promotable cell".into(),
             ));
         }
@@ -1662,7 +1661,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let current_len = current_page.no_of_cells() as usize;
         let right_final = (total_cells - split_at) + 1;
         if right_final <= current_len {
-            return Err(SqliteError::Corrupt(
+            return Err(SqliteError::Internal(
                 "cannot redistribute interior: split does not grow underflowed page".into(),
             ));
         }
@@ -1691,7 +1690,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             .enumerate()
         {
             if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "redistribute interior: left share does not fit".into(),
                 ));
             }
@@ -1701,19 +1700,19 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             Encode::encode_table_interior_cell(sib_page_no, promoted_cell.row_id());
         parent_page.remove_cell(sibling_idx)?;
         if parent_page.insert_cell(&new_parent_cell, sibling_idx)? == InsertionState::None {
-            return Err(SqliteError::Corrupt(
+            return Err(SqliteError::Internal(
                 "redistribute interior: parent separator does not fit".into(),
             ));
         }
         current_page.reset_for_rebuild();
         if current_page.insert_cell(&new_cell_for_right, 0 as _)? == InsertionState::None {
-            return Err(SqliteError::Corrupt(
+            return Err(SqliteError::Internal(
                 "redistribute interior: parent separator does not fit".into(),
             ));
         }
         for (i, bytes) in new_current_cells.iter().enumerate() {
             if current_page.insert_cell(bytes, (i + 1) as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "redistribute interior: right share does not fit".into(),
                 ));
             }
@@ -1741,7 +1740,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         right_page.reset_for_rebuild();
         for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
             if right_page.insert_cell(bytes, i as _)? == InsertionState::None {
-                return Err(SqliteError::Corrupt(
+                return Err(SqliteError::Internal(
                     "merge: combined cells do not fit in one page".into(),
                 ));
             }

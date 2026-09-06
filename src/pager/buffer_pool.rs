@@ -54,7 +54,9 @@ impl BufferPool {
         sqlite_assert_one(
             self.page_table.contains_key(&page_no)
                 && *self.page_table.get(&page_no).unwrap() == frame_id,
-            SqliteError::Corrupt("Frame ID mistmatch while trying to evict the page".into()),
+            SqliteError::Internal(format!(
+                "buffer pool evict: frame {frame_id} does not map page {page_no}"
+            )),
         )?;
         self.page_table.remove(&page_no);
         self.frame_buffer[frame_id] = Frame::default();

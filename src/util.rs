@@ -14,7 +14,7 @@ pub fn sqlite_assert_with_corrupt_err(condition: bool, err: &str) -> Result<(), 
 }
 pub fn sqlite_assert_with_runtime_err(condition: bool, err: &str) -> Result<(), SqliteError> {
     if !condition {
-        return Err(SqliteError::RuntimeError(err.into()));
+        return Err(SqliteError::Runtime(err.into()));
     }
     Ok(())
 }

@@ -62,6 +62,24 @@ pub enum SqliteError {
     #[error("{0}")]
     Corrupt(String),
 
+    #[error("internal engine invariant violated: {0}")]
+    Internal(String),
+
+    #[error("table '{0}' already exists")]
+    TableAlreadyExists(String),
+
+    #[error("table '{0}' does not exist")]
+    TableNotFound(String),
+
+    #[error("column '{0}' does not exist")]
+    UnknownColumn(String),
+
+    #[error("unsupported statement: {0}")]
+    Unsupported(String),
+
+    #[error("file range out of bounds: {0}")]
+    FileRange(String),
+
     #[error("buffer pool exhausted: no unpinned frame available for eviction")]
     BufferPoolExhausted,
 
@@ -94,7 +112,7 @@ pub enum SqliteError {
     UnmatchedClosingParenthesis { input: String, position: usize },
 
     #[error("{0}")]
-    RuntimeError(String),
+    Runtime(String),
 
     #[error("cannot convert {actual} value to {expected}")]
     TypeConversionMismatch {
@@ -144,7 +162,7 @@ fn err_formatter(
     let pointer = format!(
         "{}{}",
         " ".repeat(start + 1),
-        "^".repeat(span_symbol_len - start),
+        "^".repeat(span_symbol_len.saturating_sub(start).max(1)),
     );
 
     if let Some(hint) = hint {

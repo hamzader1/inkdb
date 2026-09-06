@@ -23,10 +23,7 @@ impl Analyze {
                     return Ok(());
                 }
                 _ => {
-                    return Err(SqliteError::RuntimeError(format!(
-                        "Column {} does not exists",
-                        col_name
-                    )));
+                    return Err(SqliteError::UnknownColumn(col_name.clone()));
                 }
             },
             Expr::Star => {
@@ -97,8 +94,8 @@ impl Analyze {
                 map[idx] = new.len() - 1;
             }
             other => {
-                return Err(SqliteError::RuntimeError(format!(
-                    "Expression '{}' is not supported in this context",
+                return Err(SqliteError::Runtime(format!(
+                    "Expression '{}' cannot appear in a SELECT column list (only columns, '*' and arithmetic/comparison expressions are supported)",
                     other
                 )));
             }
@@ -120,10 +117,7 @@ impl Analyze {
                     return Ok(());
                 }
                 _ => {
-                    return Err(SqliteError::RuntimeError(format!(
-                        "Column {} does not exists",
-                        col_name
-                    )));
+                    return Err(SqliteError::UnknownColumn(col_name.clone()));
                 }
             },
             Expr::Number(_) | Expr::Float(_) | Expr::Bool(_) | Expr::StringLitteral(_) => {
@@ -181,8 +175,8 @@ impl Analyze {
                 Self::fast_bind(table, right, arena)?;
             }
             other => {
-                return Err(SqliteError::RuntimeError(format!(
-                    "Expression '{}' is not supported in this context",
+                return Err(SqliteError::Runtime(format!(
+                    "Expression '{}' cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported)",
                     other
                 )));
             }
