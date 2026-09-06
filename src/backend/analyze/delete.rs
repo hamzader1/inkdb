@@ -9,11 +9,7 @@ impl Analyze {
         mut stmt: DeleteStmt,
         sqlite_master: &SqliteMaster,
     ) -> SqliteResult<ResolvedQuery> {
-        let DeleteStmt {
-            table_name,
-            arena,
-            where_clause,
-        } = &mut stmt;
+        let DeleteStmt { table_name, .. } = &mut stmt;
         let table = Self::get_table(sqlite_master, table_name)?;
         if let Some(predict) = stmt.where_clause {
             let arena = stmt.arena.as_mut().expect(
@@ -21,7 +17,7 @@ impl Analyze {
                     Where clause without an arena parent is now allowed
                 ",
             );
-            Self::fast_bind(table, predict, stmt.arena.as_mut().unwrap())?;
+            Self::fast_bind(table, predict, arena)?;
         }
         Ok(ResolvedQuery::DeleteQuery(ResolvedDeleteQuery {
             root_page: table.root_page,

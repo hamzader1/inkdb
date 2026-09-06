@@ -1,7 +1,6 @@
 use crate::errors::SqliteError;
 
 use super::tokens::{Span, Token, TokenKind};
-use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct Lexer<'a> {

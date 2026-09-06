@@ -5,7 +5,6 @@ use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
 
 use crate::varint::encode_varint;
-use std::ops::{Deref, DerefMut};
 use std::range::Range;
 
 #[derive(Debug)]
@@ -114,7 +113,6 @@ impl IndexInteriorCell {
         cell_ptr: CellIndex,
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::new(bytes);
         // Page number of left child
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
         let left_child = cursor.read_next_u32()?;

@@ -1,11 +1,9 @@
 use std::collections::HashSet;
-use std::ops::Rem;
 use std::ptr::NonNull;
 
 use crate::errors::SqliteError;
-use crate::record::RecordMetadata;
 
-use super::buffer_pool::{self, BufferPool};
+use super::buffer_pool::BufferPool;
 use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::guard::{BorrowState, PageGuard};
@@ -13,9 +11,9 @@ use super::journal::Journal;
 use super::metadata::SqliteMetadata;
 use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::SqliteStatistics;
+use crate::DbError;
 use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
-use crate::{DbError, SqliteResult};
 
 pub type PageNo = u32;
 
@@ -274,18 +272,16 @@ impl<F: SqliteFile> Pager<F> {
         let mut prev = None;
         // safe to unwrap since we want to remove a Node,
         // so logically we at lease have one node
-        let mut is_tail = frame_id == self.dp_ll.unwrap(); // if this went wrong, we have a bug
+        let is_tail = frame_id == self.dp_ll.unwrap(); // if this panics, we have a bug
 
-        // BORROWING HELL
-        {
-            let frame = &mut self.buffer_pool.frame_buffer[frame_id];
-            next = frame.next;
-            prev = frame.prev;
-            // in case this returned the buffer pool,
-            // should not handle its old pointers so it breaks the list
-            frame.prev = None;
-            frame.next = None;
-        }
+        let frame = &mut self.buffer_pool.frame_buffer[frame_id];
+        next = frame.next;
+        prev = frame.prev;
+        // in case this returned the buffer pool,
+        // should not handle its old pointers so it breaks the list
+        frame.prev = None;
+        frame.next = None;
+
         if is_tail && prev.is_none() {
             self.dp_ll = None;
             return;

@@ -1,11 +1,9 @@
 use crate::backend::analyze::ResolvedCreateTableQuery;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::record::{SqlType, Value};
-use crate::storage::btree::{BTree, BTreeCursor};
-use crate::storage::cell::Encode;
+use crate::record::Value;
+use crate::storage::btree::BTree;
 use crate::storage::page::{BTreePageMut, BTreePageType};
-use crate::varint::encode_varint;
 use crate::vfs::file::SqliteFile;
 
 use super::Row;
@@ -24,10 +22,10 @@ impl CreateTable {
         let is_new_txn = pager.start_transaction();
         let name = &self.meta.meta.name;
         // Allocating a new page
-        let mut new_page = BTree::new(1, pager).allocate_page()?;
+        let new_page = BTree::new(1, pager).allocate_page()?;
         let mut guard = pager.get_mut(new_page)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        let page = BTreePageMut::new_from_raw_bytes(
+        BTreePageMut::new_from_raw_bytes(
             new_page,
             BTreePageType::LeafTable,
             bytes,

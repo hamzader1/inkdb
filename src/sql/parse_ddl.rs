@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::ast::Constraint;
 use super::ast::*;
 use super::parser::Parser;
-use super::tokens::TokenKind::{self, *};
+use super::tokens::TokenKind::*;
 use crate::errors::SqliteError;
 
 impl Parser {

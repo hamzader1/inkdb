@@ -1,10 +1,8 @@
-use crate::db::header::HEADER_STRING_SIZE;
 use crate::errors::SqliteError;
 use crate::vfs::disk::{DiskFile, DiskVfs};
 use crate::vfs::file::SqliteFile;
 use crate::vfs::{SqliteOptions, Vfs};
 use crate::{SqliteCursor, size_of};
-use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 
 use super::pager::PageNo;
@@ -68,7 +66,7 @@ impl RawJournal {
 
     pub fn init(&mut self) -> Result<(), SqliteError> {
         let file_path = self.path.join(format!("{}-journal", self.db_name));
-        let mut file = Vfs::open(&mut DiskVfs, file_path, SqliteOptions::all())?;
+        let file = Vfs::open(&mut DiskVfs, file_path, SqliteOptions::all())?;
         file.set_len(self.buffer.len())?;
         file.write_all_at(0, &self.buffer[0..JOURNAL_HEADER_SIZE])?;
         self.jfile = Some(file);
@@ -118,7 +116,7 @@ impl RawJournal {
             return Ok(None);
         }
 
-        let mut file = Vfs::open(&mut DiskVfs, &file_path, SqliteOptions::default())?;
+        let file = Vfs::open(&mut DiskVfs, &file_path, SqliteOptions::default())?;
         let len = file.len()?;
         let mut bytes = vec![0u8; len as _];
         file.read_exact_at(0, &mut bytes)?;

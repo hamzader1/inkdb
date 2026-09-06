@@ -3,17 +3,13 @@ use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
 use crate::record::Value;
 use crate::schema::Table;
-use crate::sql::ast::{Affinity, Ast, CreateTable, Expr, InsertStmt, SelectStmt};
+use crate::sql::ast::{Ast, CreateTable};
 use crate::sql::parser::ExprArena;
-use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 pub mod bind;
 pub mod create;
 pub(crate) mod delete;
 pub mod insert;
 pub mod select;
-
-type ColumnIndex = usize;
-type ArenaColumnIndex = usize;
 
 pub struct Analyze;
 #[derive(Debug)]

@@ -5,8 +5,6 @@ use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
 use super::page::PageField::*;
-use super::page::RIGHT_MOST_POINTER_SIZE;
-use std::cell::Cell;
 use std::fmt::Debug;
 
 use crate::SqliteResult;
@@ -19,14 +17,10 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
-use crate::storage::cell::BTreeCellType::TableInterior;
 use crate::storage::cell::TableInteriorCell;
-use crate::storage::cell::TableLeafCell;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
-use crate::varint::encode_varint;
-use crate::vfs::file::SqliteFile;
 
 pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
@@ -45,11 +39,7 @@ pub enum SeekResult {
     Exact,
     NotFound,
 }
-enum CellPosition {
-    L,
-    R,
-    M,
-}
+
 #[derive(Debug)]
 enum UnderflowAction {
     BorrowLeft,
@@ -243,9 +233,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
             if page.is_leaf() {
-                let mut is_leaf_empty = false;
                 let cell_idx = if page.no_of_cells() == 0 {
-                    is_leaf_empty = true;
                     0
                 } else {
                     page.no_of_cells() - 1
@@ -1013,7 +1001,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     // delete
     //
     pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
-        let res = self.cursor.seek(self.pager, key.clone())?;
+        self.cursor.seek(self.pager, key.clone())?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let found_key = self
             .with_page_ref(page_no, |page| {

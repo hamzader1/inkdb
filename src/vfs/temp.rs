@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn create_temp_dir(name: &str) -> std::io::Result<PathBuf> {
     let base = std::env::temp_dir();

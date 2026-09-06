@@ -3,7 +3,6 @@ use crate::record::Value;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 use crate::storage::btree::BTreeCursor;
-use crate::vfs::file::SqliteFile;
 use crate::{errors::SqliteError, sql::ast::Constraint};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -11,7 +10,7 @@ use std::rc::Rc;
 use crate::sql::ast::{
     Affinity,
     Ast::{self, CreateIndexAst, CreateTableAst},
-    Column, CreateIndex, CreateTable,
+    Column,
 };
 
 #[derive(Debug)]

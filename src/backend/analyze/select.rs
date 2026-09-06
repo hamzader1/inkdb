@@ -1,11 +1,8 @@
+use crate::SqliteMaster;
 use crate::errors::SqliteError;
-use crate::pager::pager::PageNo;
-use crate::record::Value;
-use crate::schema::Table;
-use crate::sql::ast::{Affinity, Ast, Expr, InsertStmt, SelectStmt};
+
+use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;
-use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
-use crate::{SqliteMaster, db};
 
 use super::{Analyze, ResolvedQuery, ResolvedSelectQuery};
 
@@ -38,7 +35,7 @@ impl Analyze {
                 Analyze::fast_bind(table, predict, &mut arena)?;
             }
             if let Some(limit) = limit {
-                Analyze::fast_bind(table, limit, &mut arena);
+                Analyze::fast_bind(table, limit, &mut arena)?;
             }
             let stmt = ResolvedSelectQuery {
                 root_page: table.root_page,

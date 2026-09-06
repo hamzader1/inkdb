@@ -1,16 +1,15 @@
 #![allow(unused, dead_code)] // temp for now
 // #![warn(unused_results)]
+
 pub mod backend;
-pub mod debug;
-use backend::planner::plan::*;
 mod bytes;
 pub mod db;
+pub mod debug;
 use crate::db::header::SqliteDatabaseHeader;
 pub mod record;
+mod schema;
 pub mod shell;
 pub mod sql;
-use sql::parse_ddl;
-mod schema;
 pub use schema::SqliteMaster;
 pub mod errors;
 
@@ -100,21 +99,6 @@ impl<F: SqliteFile> SqliteDatabase<F> {
         &self.header
     }
 
-    // pub fn page(&mut self, page_no: PageNo) -> Result<BTreePage, SqliteError> {
-    //     self.validate_page(page_no, None::<fn(_) -> bool>)?;
-    //     let page_size = self.header.database_page_size;
-    //     let offset = page_size * (page_no - 1);
-
-    //     let mut buff = vec![0u8; page_size as usize];
-    //     self.pager.source.read_exact_at(offset as u64, &mut buff)?;
-
-    //     BTreePage::parse(
-    //         buff,
-    //         page_no,
-    //         page_size as usize,
-    //         (page_size - self.header.reserved_space as u32) as usize,
-    //     )
-    // }
     pub fn usable_size(&self) -> u32 {
         self.header.database_page_size - self.header.reserved_space as u32
     }

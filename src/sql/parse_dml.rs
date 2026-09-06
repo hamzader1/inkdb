@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
-use super::ast::{Ast, Column, SelectStmt};
+use super::ast::{Ast, SelectStmt};
 use super::parser::Parser;
-use super::tokens::TokenKind::{self, *};
+use super::tokens::TokenKind::*;
 use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::record::Value;
@@ -50,7 +50,7 @@ impl Parser {
         self.expect(Into)?;
         let table_name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(Values)?;
-        let mut columns: Vec<std::string::String> = Vec::new();
+        let columns: Vec<std::string::String> = Vec::new();
         let mut values: Vec<_> = Vec::new();
         loop {
             let mut current_values = Vec::new();
@@ -99,7 +99,7 @@ impl Parser {
     }
     pub fn parse_delete(&mut self) -> SqliteResult<Ast> {
         self.expect(Delete)?;
-        self.expect(From);
+        self.expect(From)?;
         let table_name = self.expect_ident()?;
         let mut where_clause = None;
         let mut arena = None;

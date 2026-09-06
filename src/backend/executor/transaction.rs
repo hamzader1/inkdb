@@ -1,9 +1,7 @@
 use crate::SqliteResult;
 use crate::backend::executor::Row;
-use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::sql::parser::ExprArena;
 use crate::vfs::file::SqliteFile;
 
 #[derive(Debug)]
