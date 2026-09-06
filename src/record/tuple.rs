@@ -28,106 +28,6 @@ impl Tuple {
         }
     }
 
-    pub fn decode_sqltype_borrowed<'a>(bytes: &'a [u8], record_metadata: &RM) -> Value<'a> {
-        let mut buf = [0u8; 8];
-        match record_metadata.serial_type {
-            0 => Value::Null,
-            1 => {
-                buf[7..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            2 => {
-                buf[6..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            3 => {
-                buf[5..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            4 => {
-                buf[4..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            5 => {
-                buf[2..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            6 => {
-                buf.copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            7 => {
-                let float = f64::from_be_bytes(bytes.try_into().unwrap());
-                Value::Float(float)
-            }
-            8 => Value::Integer(0),
-            9 => Value::Integer(1),
-            12 => Value::Blob(Cow::Borrowed(bytes)),
-            13 => {
-                let text =
-                    str::from_utf8(bytes).expect("Error while parsing string from the bytes");
-
-                Value::Text(Cow::Borrowed(text))
-            }
-            _ => unreachable!(),
-        }
-    }
-    pub fn decode_sqltype_owned(bytes: &[u8], record_metadata: &RM) -> Value<'static> {
-        let mut buf = [0u8; 8];
-        match record_metadata.serial_type {
-            0 => Value::Null,
-            1 => {
-                buf[7..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            2 => {
-                buf[6..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            3 => {
-                buf[5..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            4 => {
-                buf[4..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            5 => {
-                buf[2..8].copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            6 => {
-                buf.copy_from_slice(bytes);
-                let int = i64::from_be_bytes(buf);
-                Value::Integer(int)
-            }
-            7 => {
-                let float = f64::from_be_bytes(bytes.try_into().unwrap());
-                Value::Float(float)
-            }
-            8 => Value::Integer(0),
-            9 => Value::Integer(1),
-            12 => Value::Blob(Cow::Owned(bytes.to_owned())),
-            13 => {
-                let text =
-                    str::from_utf8(bytes).expect("Error while parsing string from the bytes");
-                Value::Text(Cow::Owned(text.to_owned()))
-            }
-            _ => unreachable!(),
-        }
-    }
-
     pub fn encode_sqltype(value: &Value, output: &mut Vec<u8>) -> usize {
         match value {
             Value::Integer(n) => {
@@ -187,4 +87,87 @@ const fn text_encoding(len: usize) -> usize {
 
 const fn blob_encoding(len: usize) -> usize {
     (len * 2) + 12
+}
+
+pub enum DecodedValue<'a> {
+    Null,
+    Integer(i64),
+    Float(f64),
+    Blob(&'a [u8]),
+    Text(&'a str),
+}
+
+pub fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RM) -> DecodedValue<'a> {
+    let mut buf = [0u8; 8];
+
+    match record_metadata.serial_type {
+        0 => DecodedValue::Null,
+
+        1 => {
+            buf[7..8].copy_from_slice(bytes);
+            DecodedValue::Integer(i64::from_be_bytes(buf))
+        }
+
+        2 => {
+            buf[6..8].copy_from_slice(bytes);
+            DecodedValue::Integer(i64::from_be_bytes(buf))
+        }
+
+        3 => {
+            buf[5..8].copy_from_slice(bytes);
+            DecodedValue::Integer(i64::from_be_bytes(buf))
+        }
+
+        4 => {
+            buf[4..8].copy_from_slice(bytes);
+            DecodedValue::Integer(i64::from_be_bytes(buf))
+        }
+
+        5 => {
+            buf[2..8].copy_from_slice(bytes);
+            DecodedValue::Integer(i64::from_be_bytes(buf))
+        }
+
+        6 => {
+            buf.copy_from_slice(bytes);
+            DecodedValue::Integer(i64::from_be_bytes(buf))
+        }
+
+        7 => {
+            let float = f64::from_be_bytes(bytes.try_into().unwrap());
+            DecodedValue::Float(float)
+        }
+
+        8 => DecodedValue::Integer(0),
+        9 => DecodedValue::Integer(1),
+
+        12 => DecodedValue::Blob(bytes),
+
+        13 => {
+            let text = str::from_utf8(bytes).expect("Error while parsing string from the bytes");
+
+            DecodedValue::Text(text)
+        }
+
+        _ => unreachable!(),
+    }
+}
+pub fn into_borrowed<'a>(value: DecodedValue<'a>) -> Value<'a> {
+    match value {
+        DecodedValue::Null => Value::Null,
+        DecodedValue::Integer(v) => Value::Integer(v),
+        DecodedValue::Float(v) => Value::Float(v),
+        DecodedValue::Blob(v) => Value::Blob(Cow::Borrowed(v)),
+        DecodedValue::Text(v) => Value::Text(Cow::Borrowed(v)),
+    }
+}
+
+pub fn into_owned(value: DecodedValue<'_>) -> Value<'static> {
+    match value {
+        DecodedValue::Null => Value::Null,
+        DecodedValue::Integer(v) => Value::Integer(v),
+        DecodedValue::Float(v) => Value::Float(v),
+        DecodedValue::Blob(v) => Value::Blob(Cow::Owned(v.to_owned())),
+        DecodedValue::Text(v) => Value::Text(Cow::Owned(v.to_owned())),
+    }
 }
