@@ -145,9 +145,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 }
             } else {
                 if cell_idx + 1 == page.no_of_cells() {
-                    let child = page.right_most_ptr().ok_or(SqliteError::Internal(
-                        format!("cursor next: interior page {page_no} has no right-most child")
-                    ))?;
+                    let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
+                        "cursor next: interior page {page_no} has no right-most child"
+                    )))?;
                     self.add_path(page_no, cell_idx + 1, guard);
                     self.descend_to_first(pager, child)?;
                     self.state = CursorState::At;
