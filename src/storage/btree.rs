@@ -1535,7 +1535,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             all_cells_as_bytes.push(bytes);
         }
 
-        let k = current_page.no_of_cells() as usize;
         for i in 0..current_page.no_of_cells() {
             let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();
             total_size_in_bytes += bytes.len();
@@ -1574,18 +1573,104 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // sibling gets the LEFT half, current_page gets the RIGHT half
         let (new_sibling_cells, new_current_cells) = all_cells_as_bytes.split_at(split_at);
 
-        let (new_left_page_cell, new_right_page_cells) = all_cells_bytes.split_at(split_at);
-        // last cell of the left share
-        // this is the one whose row_id becomes the separator
-        let separator_index = split_at - 1;
+        if current_page.is_leaf() {
+            debug_assert!(
+                sibling_page.is_leaf(),
+                "The current page is a leaf ({}), while its sibling page is an interior node ({}).",
+                current_page.page_no,
+                sib_page_no
+            );
+            let separator_index = split_at - 1;
+            let sibling_len = sibling_page.no_of_cells() as usize;
+            let separator_key = if separator_index < sibling_len {
+                // it's still one of sibling_page's original cells
+                sibling_page.cell(separator_index as _)?.row_id()
+            } else {
+                // it's one of current_page's original cells
+                current_page
+                    .cell((separator_index - sibling_len) as _)?
+                    .row_id()
+            };
 
-        let separator_key = if separator_index < k {
-            // it's still one of current_page's original cells
-            current_page.cell(separator_index as _)?.row_id()
-        } else {
-            // it's one of sibling_page's original cells
-            sibling_page.cell((separator_index - k) as _)?.row_id()
-        };
+            sibling_page.reset_for_rebuild();
+            for (i, bytes) in new_sibling_cells.iter().enumerate() {
+                if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                    return Err(SqliteError::Corrupt(
+                        "redistribute leaf: left share does not fit".into(),
+                    ));
+                }
+            }
+            current_page.reset_for_rebuild();
+            for (i, bytes) in new_current_cells.iter().enumerate() {
+                if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                    return Err(SqliteError::Corrupt(
+                        "redistribute leaf: right share does not fit".into(),
+                    ));
+                }
+            }
+
+            debug_assert!(
+                !sibling_page.is_underflow()?,
+                "Sibling page still underflows after redistribution (page_no: {}, free_space: {})",
+                sibling_page.page_no,
+                sibling_page.freespace()?
+            );
+            debug_assert!(
+                !current_page.is_underflow()?,
+                "Current page still underflows after redistribution (page_no: {}, free_space: {})",
+                current_page.page_no,
+                current_page.freespace()?
+            );
+
+            // separator key = last key of sibling's new share, points to sibling (left child)
+            let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
+            parent_page.remove_cell(parent_path.cell_idx - 1)?;
+            if parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?
+                == InsertionState::None
+            {
+                return Err(SqliteError::Corrupt(
+                    "redistribute leaf: parent separator does not fit".into(),
+                ));
+            }
+
+            return Ok(());
+        }
+
+        // Interior mirror of try_borrow_right_v2: parent separator moves down
+        // to the FRONT of the right page, sibling's last cell moves up.
+        // Right share must keep >=1 cell, left share needs >=2 (promoted + remainder).
+        if split_at < 2 || split_at > total_cells - 1 {
+            return Err(SqliteError::Corrupt(
+                "cannot redistribute interior: split leaves no promotable cell".into(),
+            ));
+        }
+        debug_assert_eq!(
+            current_page.header.page_kind, sibling_page.header.page_kind,
+            "Current page kind ({:?}) does not match sibling page kind ({:?})",
+            current_page.header.page_kind, sibling_page.header.page_kind,
+        );
+        let current_len = current_page.no_of_cells() as usize;
+        let right_final = (total_cells - split_at) + 1;
+        if right_final <= current_len {
+            return Err(SqliteError::Corrupt(
+                "cannot redistribute interior: split does not grow underflowed page".into(),
+            ));
+        }
+        // Promoted cell = last of left share. Parse before rebuilds overwrite.
+        let promoted_cell = TableInteriorCell::parse(
+            &new_sibling_cells[new_sibling_cells.len() - 1],
+            0,
+            self.pager.metadata.usable_size,
+        )
+        .map(BTreeCell::TableInterior)?;
+        let parent_separator_cell = parent_page.cell(sibling_idx)?;
+        let parent_boundary = parent_separator_cell.row_id();
+        // Parent separator moves down front of right page; its left child is
+        // the sibling's old right-most pointer.
+        let new_cell_for_right = Encode::encode_table_interior_cell(
+            sibling_page.right_most_ptr().unwrap(),
+            parent_boundary,
+        );
 
         sibling_page.reset_for_rebuild();
         for (i, bytes) in new_sibling_cells[..new_sibling_cells.len() - 1]
