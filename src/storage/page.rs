@@ -634,6 +634,72 @@ impl<'p> BTreePageMut<'p> {
         Ok(InsertionState::Inserted)
     }
 
+    /*
+
+     * Claim `size` bytes from the freelist (first-fit).
+     * - leftover == 0: unlink the whole block.
+     * - 0 < leftover < 4: unlink the block, crumbs go to frag_cnt (too small
+     * to form a freeblock).
+     * - leftover >= 4: carve `size` bytes off the front, the remainder stays
+     * a freeblock at [offset + size] with the old next pointer; prev (or
+     * the header when taking from the head) is relinked to it.
+
+    */
+    pub fn get_freeblock(&mut self, size: u16) -> SqliteResult<Option<u16>> {
+        if self.header.first_freeblock == 0 {
+            return Ok(None);
+        }
+        let mut prev: Option<u16> = None;
+        let mut current = self.header.first_freeblock;
+        while current != 0 {
+            let block = FreeCell::parse(current, self.bytes)?;
+            if block.size >= size {
+                let leftover = block.size - size;
+                if leftover < 4 {
+                    // Unlink the whole block; crumbs (<4) become fragmentation.
+                    match prev {
+                        None => {
+                            self.header.first_freeblock = block.next;
+                            self.update_bytes([FirstFreeBlock]);
+                        }
+                        Some(prev_off) => {
+                            let prev_off = prev_off as usize;
+                            self.bytes[prev_off..prev_off + 2]
+                                .copy_from_slice(&block.next.to_be_bytes());
+                        }
+                    }
+                    if leftover > 0 {
+                        self.header.frag_cnt = self.header.frag_cnt.saturating_add(leftover as u8);
+                        self.update_bytes([FragCnt]);
+                    }
+                } else {
+                    // Split: caller takes [offset, offset + size), remainder
+                    // stays a freeblock at offset + size.
+                    let new_off = current + size;
+                    let new_off_usize = new_off as usize;
+                    self.bytes[new_off_usize..new_off_usize + 2]
+                        .copy_from_slice(&block.next.to_be_bytes());
+                    self.bytes[new_off_usize + 2..new_off_usize + 4]
+                        .copy_from_slice(&leftover.to_be_bytes());
+                    match prev {
+                        None => {
+                            self.header.first_freeblock = new_off;
+                            self.update_bytes([FirstFreeBlock]);
+                        }
+                        Some(prev_off) => {
+                            let prev_off = prev_off as usize;
+                            self.bytes[prev_off..prev_off + 2]
+                                .copy_from_slice(&new_off.to_be_bytes());
+                        }
+                    }
+                }
+                return Ok(Some(block.starting_offset));
+            }
+            prev = Some(current);
+            current = block.next;
+        }
+        Ok(None)
+    }
     #[expect(clippy::missing_safety_doc)]
     pub unsafe fn insert_cell_raw(
         &mut self,
