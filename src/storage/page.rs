@@ -259,12 +259,12 @@ impl<'p> BTreePageRef<'p> {
 
         let result = freespace > threshold;
 
-        println!("IS UNDERFLOE CHECK ALONG START");
-        println!(
-            "is_underflow: freespace={}, usable_size={}, threshold={}, result={}",
-            freespace, self.usable_size, threshold, result,
-        );
-        println!("IS UNDERFLOE CHECK ALONG END");
+        // println!("IS UNDERFLOE CHECK ALONG START");
+        // println!(
+        //     "is_underflow: freespace={}, usable_size={}, threshold={}, result={}",
+        //     freespace, self.usable_size, threshold, result,
+        // );
+        // println!("IS UNDERFLOE CHECK ALONG END");
 
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
@@ -276,15 +276,15 @@ impl<'p> BTreePageRef<'p> {
             Some(new_freespace) => new_freespace > threshold,
             None => true,
         };
-        println!(
-            "###\nis_underflow_after_sub: freespace={}, delta={},\n usable_size={}, threshold={},\n new_freespace={:?}, result={}\n###",
-            freespace,
-            delta,
-            self.usable_size,
-            threshold,
-            freespace.checked_add(delta),
-            result,
-        );
+        // println!(
+        //     "###\nis_underflow_after_sub: freespace={}, delta={},\n usable_size={}, threshold={},\n new_freespace={:?}, result={}\n###",
+        //     freespace,
+        //     delta,
+        //     self.usable_size,
+        //     threshold,
+        //     freespace.checked_add(delta),
+        //     result,
+        // );
 
         Ok(result)
     }
@@ -1384,8 +1384,8 @@ impl<'a> BTreePageMut<'a> {
             return;
         }
         let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
-        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE]
-            .copy_from_slice(&self.header.right_most_ptr.unwrap().to_be_bytes());
+        let rmp = self.header.right_most_ptr.unwrap_or(0);
+        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE].copy_from_slice(&rmp.to_be_bytes());
     }
 
     pub fn update_bytes<const N: usize>(&mut self, fields: [PageField; N]) {
