@@ -228,10 +228,21 @@ impl<'p> BTreePageRef<'p> {
 
     pub fn freespace(&self) -> SqliteResult<usize> {
         let freeblocks_size = self.freeblocks_size()?;
+        dbg!(&self);
+        dbg!(
+            freeblocks_size,
+            "+",
+            self.header.frag_cnt,
+            "+",
+            self.header.cell_content_area,
+            "MINUS",
+            self.header_size(),
+            self.header.no_of_cells * 2
+        );
         let total_free_bytes = freeblocks_size
             + self.header.frag_cnt as usize
-            + (self.header.cell_content_area as usize
-                - (self.header_size() as u16 + self.header.no_of_cells * 2) as usize);
+            + self.header.cell_content_area as usize
+            - (self.header_size() as u16 + self.header.no_of_cells * 2) as usize;
         Ok(total_free_bytes)
     }
     fn freeblocks_size(&self) -> SqliteResult<usize> {
@@ -622,15 +633,42 @@ impl<'p> BTreePageMut<'p> {
         cell_idx: CellIndex,
     ) -> Result<InsertionState, SqliteError> {
         let content = content.as_ref();
+        if let Some(offset) = self.get_freeblock(content.as_ref().len() as _)? {
+            // Body reuses a freeblock slot (already inside the content area,
+            // CCA must not move) — but the pointer array still needs 2 bytes
+            // from the unallocated gap.
+            let gap = self
+                .header
+                .cell_content_area
+                .saturating_sub(self.header_size() as u16 + self.header.no_of_cells * 2)
+                as usize;
+            if gap < 2 {
+                return Ok(InsertionState::None); // overflow: no room for pointer
+            }
+            return self.insert_cell_at(content, offset as usize, cell_idx, false);
+        }
         if self.remaining_space() < content.len() + 2 {
             return Ok(InsertionState::None); // overflow
         }
-        let entry_offset = self.header.cell_content_area as usize - content.len();
-        self.bytes[entry_offset..entry_offset + content.len()].copy_from_slice(content);
-        self.cell_pointers.insert(cell_idx as _, entry_offset as _);
-        self.header.cell_content_area -= content.len() as u16;
+        let offset = self.header.cell_content_area as usize - content.len();
+        self.insert_cell_at(content, offset, cell_idx, true)
+    }
+    fn insert_cell_at(
+        &mut self,
+        content: &[u8],
+        offset: usize,
+        cell_idx: CellIndex,
+        from_top: bool,
+    ) -> SqliteResult<InsertionState> {
+        self.bytes[offset..offset + content.len()].copy_from_slice(content);
+        self.cell_pointers.insert(cell_idx as _, offset as _);
         self.header.no_of_cells += 1;
-        self.update_bytes([CellPointers, CellContentArea, NoOfCells]);
+        if from_top {
+            self.header.cell_content_area -= content.len() as u16;
+            self.update_bytes([CellPointers, CellContentArea, NoOfCells]);
+        } else {
+            self.update_bytes([CellPointers, NoOfCells]);
+        }
         Ok(InsertionState::Inserted)
     }
 
