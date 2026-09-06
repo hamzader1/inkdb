@@ -1047,6 +1047,45 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         Ok(())
     }
+    /// Collapse an empty interior root: move its single (right-most) child
+    /// into the root page, keeping the root page_no stable so the catalog
+    /// stays valid. Leaf roots and roots with >=1 key are left alone.
+    /// The orphaned child page is leaked for now (TODO: freelist).
+    fn collapse_root(&mut self, root_no: PageNo) -> SqliteResult<()> {
+        let (n_cells, is_leaf, rmp) = self.with_page_ref(root_no, |page| {
+            Ok((page.no_of_cells(), page.is_leaf(), page.right_most_ptr()))
+        })?;
+        if is_leaf || n_cells > 0 {
+            return Ok(());
+        }
+        let child_no = rmp.ok_or(SqliteError::Corrupt(
+            "empty interior root has no right-most child".into(),
+        ))?;
+        // Collect the surviving child before overwriting the root.
+        let (kind, child_rmp, cells) = self.with_page_mut(child_no, |child| {
+            let mut cells = Vec::with_capacity(child.no_of_cells() as usize);
+            for i in 0..child.no_of_cells() {
+                cells.push(child.cell_bytes_as_ref(i)?.to_vec());
+            }
+            Ok((child.header.page_kind, child.header.right_most_ptr, cells))
+        })?;
+        self.with_page_mut(root_no, |root| {
+            root.reset_for_rebuild();
+            root.header.page_kind = kind;
+            root.header.right_most_ptr = child_rmp;
+            root.update_bytes([PageKind, RightMostPointer]);
+            for (i, bytes) in cells.iter().enumerate() {
+                if root.insert_cell(bytes, i as _)? == InsertionState::None {
+                    return Err(SqliteError::Corrupt(
+                        "root collapse: child cells do not fit in root".into(),
+                    ));
+                }
+            }
+            Ok(())
+        })?;
+        // TODO: return child_no to the freelist (leaked for now).
+        Ok(())
+    }
     /*
      * THIS FUNCTION RELIES ON THE UNDERFLOW PAGE BEING THE LAST ENTRY
      * IN THE PATH. WE MUST ENSURE THE PATH IS POSITIONED
