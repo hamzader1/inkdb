@@ -2,7 +2,6 @@ use crate::{
     SqliteCursor, SqliteResult,
     errors::SqliteError,
     pager::pager::{PageNo, Pager},
-    storage::page::BTreePageMut,
     util::validate_page,
     vfs::file::SqliteFile,
 };
@@ -43,10 +42,10 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         let bytes = guard.bytes_as_mut_unchecked();
         let mut cursor = SqliteCursor::new(bytes);
         let next_page_no = cursor.read_next_u32()?;
-        self.validate_non_one_page(next_page_no)?;
+        if next_page_no != 0 {
+            self.validate_non_one_page(next_page_no)?;
+        }
 
-        // TODO: validate the page
-        // Pager::validate_page(next_page_no, 0, Some(|p| p == 1))?;
         let leaf_count = cursor.read_next_u32()?;
 
         // Case [A]: no leaves, we pop the trunk page itself.
@@ -60,7 +59,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         // Case [B]: Some leaves, we pop the last one
         cursor.move_forward_by((4 * (leaf_count - 1)) as _)?;
         let last_leaf_page_no = cursor.read_next_u32()?;
-        self.validate_non_one_page(leaf_count)?;
+        self.validate_non_one_page(last_leaf_page_no)?;
 
         bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
         Ok(Some(FreeListAllocMeta::new(
