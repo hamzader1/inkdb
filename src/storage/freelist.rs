@@ -17,18 +17,14 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
     pub fn alloc(
         &mut self,
         first_freelist_truck_page: u32,
-        // first_freelist_trunk_bytes: &mut [u8],
         total_free_pages: u32,
-        // total_free_pages_bytes: &mut [u8],
     ) -> SqliteResult<Option<FreeListAllocMeta>> {
         self.try_alloc(first_freelist_truck_page, total_free_pages)
     }
     fn try_alloc(
         &mut self,
         first_freelist_truck_page: u32,
-        // first_freelist_trunk_bytes: &mut [u8],
         total_free_pages: u32,
-        // total_free_pages_bytes: &mut [u8],
     ) -> SqliteResult<Option<FreeListAllocMeta>> {
         let mut current_page_no = first_freelist_truck_page;
         match (current_page_no, total_free_pages) {
@@ -103,7 +99,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         first_freelist_truck_page: u32,
         total_free_pages: u32,
         usable_size: usize,
-    ) -> Result<Option<FreeListAllocMeta>, SqliteError> {
+    ) -> Result<FreeListAllocMeta, SqliteError> {
         let mut current_page_no = first_freelist_truck_page;
         while current_page_no != 0 {
             let mut guard = self.pager.get_mut(current_page_no)?;
@@ -118,11 +114,11 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
                 let curr_pos = cursor.stream_pos() as usize;
                 bytes[curr_pos..curr_pos + 4].copy_from_slice(&u32::to_be_bytes(page_no));
                 bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count + 1));
-                return Ok(Some(FreeListAllocMeta::new(
+                return Ok(FreeListAllocMeta::new(
                     None,
                     first_freelist_truck_page,
                     total_free_pages + 1,
-                )));
+                ));
             } else {
                 current_page_no = next_page_no;
             }
@@ -132,30 +128,26 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         let bytes = guard.bytes_as_mut_unchecked();
         bytes[0..4].copy_from_slice(&u32::to_be_bytes(first_freelist_truck_page));
         bytes[4..8].copy_from_slice(&[0, 0, 0, 0]);
-        Ok(Some(FreeListAllocMeta::new(
-            None,
-            page_no,
-            total_free_pages + 1,
-        )))
+        Ok(FreeListAllocMeta::new(None, page_no, total_free_pages + 1))
     }
 }
 
 pub struct FreeListAllocMeta {
     pub allocated_page: Option<u32>,
     pub first_freelist_trunk_page: u32,
-    pub total_freelist_no: u32,
+    pub total_freelist_pages: u32,
 }
 
 impl FreeListAllocMeta {
     fn new(
         allocated_page: Option<u32>,
         first_freelist_trunk_page: u32,
-        total_freelist_no: u32,
+        total_freelist_pages: u32,
     ) -> Self {
         Self {
             allocated_page,
             first_freelist_trunk_page,
-            total_freelist_no,
+            total_freelist_pages,
         }
     }
 }
