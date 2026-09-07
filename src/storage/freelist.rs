@@ -64,14 +64,14 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
                                 current_page_no == first_freelist_truck_page,
                                 "current page has no page to point it, but at the same time its not the first freelist trunk page"
                             );
-                            let alloc_meta = FreeListAllocMeta::new(current_page_no, 0, 0);
+                            let alloc_meta = FreeListAllocMeta::new(Some(current_page_no), 0, 0);
                             return Ok(Some(alloc_meta));
                         }
                         Some(p) => {
                             let mut g = self.pager.get_mut(p)?;
                             g.bytes_as_mut_unchecked()[0..4].copy_from_slice(&[0, 0, 0, 0]);
                             return Ok(Some(FreeListAllocMeta::new(
-                                current_page_no,
+                                Some(current_page_no),
                                 first_freelist_truck_page,
                                 total_free_pages - 1,
                             )));
@@ -88,7 +88,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
                 let last_leaf_page_no = cursor.read_next_u32()?;
                 bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
                 return Ok(Some(FreeListAllocMeta::new(
-                    last_leaf_page_no,
+                    Some(last_leaf_page_no),
                     first_freelist_truck_page,
                     total_free_pages - 1,
                 )));
@@ -96,16 +96,62 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         }
         Ok(None)
     }
+
+    pub fn push(
+        &mut self,
+        page_no: PageNo,
+        first_freelist_truck_page: u32,
+        total_free_pages: u32,
+        usable_size: usize,
+    ) -> Result<Option<FreeListAllocMeta>, SqliteError> {
+        let mut current_page_no = first_freelist_truck_page;
+        while current_page_no != 0 {
+            let mut guard = self.pager.get_mut(current_page_no)?;
+            let bytes = guard.bytes_as_mut_unchecked();
+            let mut cursor = SqliteCursor::new(bytes);
+            let next_page_no = cursor.read_next_u32()?;
+            let leaf_count = cursor.read_next_u32()?;
+            // check if there is enough space for the new cell
+            let leaf_offset = 8usize + 4usize * leaf_count as usize;
+            if leaf_offset + 4 <= usable_size {
+                cursor.move_backward_by(u64::from(leaf_count * 4))?;
+                let curr_pos = cursor.stream_pos() as usize;
+                bytes[curr_pos..curr_pos + 4].copy_from_slice(&u32::to_be_bytes(page_no));
+                bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count + 1));
+                return Ok(Some(FreeListAllocMeta::new(
+                    None,
+                    first_freelist_truck_page,
+                    total_free_pages + 1,
+                )));
+            } else {
+                current_page_no = next_page_no;
+            }
+        }
+
+        let mut guard = self.pager.get_mut(page_no)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        bytes[0..4].copy_from_slice(&u32::to_be_bytes(first_freelist_truck_page));
+        bytes[4..8].copy_from_slice(&[0, 0, 0, 0]);
+        Ok(Some(FreeListAllocMeta::new(
+            None,
+            page_no,
+            total_free_pages + 1,
+        )))
+    }
 }
 
 pub struct FreeListAllocMeta {
-    pub allocated_page: u32,
+    pub allocated_page: Option<u32>,
     pub first_freelist_trunk_page: u32,
     pub total_freelist_no: u32,
 }
 
 impl FreeListAllocMeta {
-    fn new(allocated_page: u32, first_freelist_trunk_page: u32, total_freelist_no: u32) -> Self {
+    fn new(
+        allocated_page: Option<u32>,
+        first_freelist_trunk_page: u32,
+        total_freelist_no: u32,
+    ) -> Self {
         Self {
             allocated_page,
             first_freelist_trunk_page,
