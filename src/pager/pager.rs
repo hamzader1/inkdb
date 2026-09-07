@@ -109,7 +109,7 @@ impl<F: SqliteFile> Pager<F> {
         self.ensure_page_loaded(page_no)?;
         Ok(self
             .get_fast(page_no)
-            .expect("page should be present after get_impl"))
+            .expect("page should be present after loading it"))
     }
 
     pub fn get_mut(&mut self, page_no: PageNo) -> Result<PageGuard, DbError> {
@@ -124,7 +124,7 @@ impl<F: SqliteFile> Pager<F> {
         }
         Ok(self
             .get_fast_mut(page_no, was_dirty)?
-            .expect("page should be present after get_impl"))
+            .expect("page should be present after loading it"))
     }
 
     // cache look up
