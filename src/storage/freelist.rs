@@ -3,6 +3,7 @@ use crate::{
     errors::SqliteError,
     pager::pager::{PageNo, Pager},
     storage::page::BTreePageMut,
+    util::validate_page,
     vfs::file::SqliteFile,
 };
 
@@ -34,7 +35,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
             }
             _ => {}
         };
-
+        self.validate_non_one_page(current_page_no)?;
         // Allocation only ever touches the head trunk: leaves on it get
         // popped, otherwise the trunk page itself is popped and the header
         // advances to the next trunk.
@@ -42,9 +43,12 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         let bytes = guard.bytes_as_mut_unchecked();
         let mut cursor = SqliteCursor::new(bytes);
         let next_page_no = cursor.read_next_u32()?;
+        self.validate_non_one_page(next_page_no)?;
+
         // TODO: validate the page
         // Pager::validate_page(next_page_no, 0, Some(|p| p == 1))?;
         let leaf_count = cursor.read_next_u32()?;
+
         // Case [A]: no leaves, we pop the trunk page itself.
         if leaf_count == 0 {
             return Ok(Some(FreeListAllocMeta::new(
@@ -56,6 +60,8 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         // Case [B]: Some leaves, we pop the last one
         cursor.move_forward_by((4 * (leaf_count - 1)) as _)?;
         let last_leaf_page_no = cursor.read_next_u32()?;
+        self.validate_non_one_page(leaf_count)?;
+
         bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
         Ok(Some(FreeListAllocMeta::new(
             Some(last_leaf_page_no),
@@ -100,6 +106,14 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         bytes[0..4].copy_from_slice(&u32::to_be_bytes(first_freelist_truck_page));
         bytes[4..8].copy_from_slice(&[0, 0, 0, 0]);
         Ok(FreeListAllocMeta::new(None, page_no, total_free_pages + 1))
+    }
+
+    pub fn validate_non_one_page(&self, page_no: PageNo) -> SqliteResult<()> {
+        validate_page(
+            page_no,
+            self.pager.metadata.max_allocated_pages,
+            Some(|p| p == 1),
+        )
     }
 }
 
