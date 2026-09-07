@@ -29,7 +29,7 @@ impl<F: SqliteFile> Filter<F> {
                 Some(row) => row,
                 _ => return Ok(None),
             };
-            if Eval::eval_row(arena, self.predict, &row).to_bool() {
+            if Eval::eval(arena, self.predict, Some(&row))?.to_bool() {
                 return Ok(Some(row));
             }
         }

@@ -33,11 +33,11 @@ impl Analyze {
     }
 }
 
-/// Single post-order traversal shared by both binders. Each hook returns
-/// "where this node ended up in the sink's world": a position in the new
-/// arena for slow (things move, `*` expands), the input index for fast
-/// (binding happens in place).
 impl Analyze {
+    /// Single post-order traversal shared by both binders. Each hook returns
+    /// "where this node ended up in the sink's world": a position in the new
+    /// arena for slow (things move, `*` expands), the input index for fast
+    /// (binding happens in place).
     pub fn walk(
         table: &Table,
         idx: usize,

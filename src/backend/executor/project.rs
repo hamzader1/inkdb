@@ -1,4 +1,5 @@
 use crate::backend::planner::plan::Plan;
+use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::parser::ExprArena;
@@ -28,8 +29,11 @@ impl<F: SqliteFile> Project<F> {
             let output_row: Vec<Value<'static>> = self
                 .columns
                 .iter()
-                .map(|i| Eval::eval_row(arena, *i, &row))
-                .collect();
+                .map(|i| {
+                    let value = Eval::eval(arena, *i, Some(&row))?;
+                    Ok(value)
+                })
+                .collect::<Result<Vec<_>, SqliteError>>()?;
             row.data = output_row;
             return Ok(Some(row));
         }

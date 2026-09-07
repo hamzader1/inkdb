@@ -84,7 +84,7 @@ impl<F: SqliteFile> Plan<F> {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
         if let Some(limit) = resolved_query.limit {
-            let limit = Eval::eval(&resolved_query.arena, limit)?.get_int()? as usize;
+            let limit = Eval::eval(&resolved_query.arena, limit, None)?.get_int()? as usize;
             child = Self::Limit(Limit::new(Box::new(child), limit));
         }
         let parent = Self::Project(Project::new(
