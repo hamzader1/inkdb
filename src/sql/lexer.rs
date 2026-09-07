@@ -254,12 +254,20 @@ impl<'a> Lexer<'a> {
                     push_token(&mut tokens, TokenKind::Tilde, start, self.pos);
                 }
 
-                // .
+                // . — either a leading-dot float (.5) or a plain Dot.
                 '.' => {
-                    let start = self.pos;
-                    self.next_char();
+                    let is_float =
+                        matches!(self.chars.clone().nth(1), Some(c) if c.is_ascii_digit());
+                    if is_float {
+                        let start = self.pos;
+                        let tok = self.extract_number()?;
+                        push_token(&mut tokens, tok, start, self.pos);
+                    } else {
+                        let start = self.pos;
+                        self.next_char();
 
-                    push_token(&mut tokens, TokenKind::Dot, start, self.pos);
+                        push_token(&mut tokens, TokenKind::Dot, start, self.pos);
+                    }
                 }
 
                 // SQL identifiers / keywords
@@ -390,8 +398,10 @@ impl<'a> Lexer<'a> {
     fn extract_number(&mut self) -> Result<TokenKind, SqliteError> {
         let start = self.pos;
         let mut number = String::new();
+        let mut is_float = false;
 
-        // Integer part
+        // Integer part (may be empty for leading-dot floats like .5 —
+        // the '.' arm only routes here when a digit follows the dot).
         while let Some(&ch) = self.chars.peek() {
             if ch.is_ascii_digit() {
                 number.push(ch);
@@ -401,12 +411,14 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Decimal part
+        /* Fractional part.
+         * A trailing dot with no digits (5.) is still a
+         * float, matching SQLite.
+         */
         if let Some('.') = self.chars.peek() {
+            is_float = true;
             number.push('.');
             self.next_char();
-
-            let decimal_start = self.pos;
 
             while let Some(&ch) = self.chars.peek() {
                 if ch.is_ascii_digit() {
@@ -416,19 +428,47 @@ impl<'a> Lexer<'a> {
                     break;
                 }
             }
-
-            if self.pos == decimal_start {
-                return Err(SqliteError::InvalidNumber {
-                    input: self.input.to_string(),
-                    start,
-                    end: self.pos,
-                });
-            }
-            return Ok(TokenKind::FloatVar(number.parse().unwrap()));
         }
 
-        // TODO HANDLE ERRORS
-        Ok(TokenKind::NumberVar(number.parse().unwrap()))
+        if matches!(self.chars.peek(), Some('e') | Some('E')) {
+            let mut probe = self.chars.clone();
+            probe.next(); // e/E
+            if matches!(probe.peek(), Some('+') | Some('-')) {
+                probe.next();
+            }
+            if matches!(probe.peek(), Some(c) if c.is_ascii_digit()) {
+                is_float = true;
+                number.push(self.next_char().unwrap_or('e'));
+                if matches!(self.chars.peek(), Some('+') | Some('-')) {
+                    number.push(self.next_char().unwrap_or('+'));
+                }
+                while let Some(&ch) = self.chars.peek() {
+                    if ch.is_ascii_digit() {
+                        number.push(ch);
+                        self.next_char();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let invalid = |end| SqliteError::InvalidNumber {
+            input: self.input.to_string(),
+            start,
+            end,
+        };
+        if is_float {
+            number
+                .parse::<f64>()
+                .map(TokenKind::FloatVar)
+                .map_err(|_| invalid(self.pos))
+        } else {
+            number
+                .parse::<i64>()
+                .map(TokenKind::NumberVar)
+                .map_err(|_| invalid(self.pos))
+        }
     }
 }
 
