@@ -1,5 +1,6 @@
 use super::cell::BTreeCell;
 use super::cell::Encode;
+use super::freelist::FreeList;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
@@ -962,23 +963,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     //     USE FREE LIST AS PRIMARY SOURCE, THEN ALLOCATE IF NONE
     //
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
-        let max_allocated_pages = self.pager.metadata.max_allocated_pages;
-        let new_page_no = max_allocated_pages + 1;
-        let new_len = self.pager.metadata.page_size * (max_allocated_pages + 1);
-        self.pager.source.set_len(new_len)?;
-        self.pager.metadata.max_allocated_pages += 1;
-        self.update_max_allocated_pages()?;
-        Ok(new_page_no as _)
+        self.pager.allocate_new_page()
     }
-    // TODO: CACHE DATABASE HEADER AS WE NEED TO READ AND WRITE CONSTENTLY FROM IT
-    pub fn update_max_allocated_pages(&mut self) -> Result<(), SqliteError> {
-        let mut guard = self.pager.get_mut(1)?;
-        let bytes = guard.bytes_as_mut().unwrap();
-        bytes[DATABASE_SIZE_IN_PAGES_OFFSET
-            ..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
-            .copy_from_slice(&(self.pager.metadata.max_allocated_pages as u32).to_be_bytes());
-
-        Ok(())
+    pub fn deallocate_page(&mut self, page_no: PageNo) -> SqliteResult<()> {
+        self.pager.dealloc(page_no)
     }
 
     pub fn seek_into_first(&mut self) -> Result<(), SqliteError> {
