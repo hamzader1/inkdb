@@ -1057,7 +1057,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             }
             Ok(())
         })?;
-        // TODO: return child_no to the freelist (leaked for now).
+        // The child's content now lives in the root; free the orphan.
+        self.deallocate_page(child_no)?;
         Ok(())
     }
     /*
@@ -1311,6 +1312,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 &mut sibling_page,
                 parent_path.cell_idx,
                 &mut parent_page,
+                child_page_no,
             )?;
             return Ok(());
         }
@@ -1547,6 +1549,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 &mut current_page,
                 sibling_idx,
                 &mut parent_page,
+                sib_page_no,
             )?;
             return Ok(());
         }
@@ -1719,6 +1722,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         right_page: &mut BTreePageMut,
         separator_index: CellIndex,
         parent_page: &mut BTreePageMut,
+        abandoned: PageNo,
     ) -> SqliteResult<()> {
         // Interior merge drops the parent separator; the merged page keeps
         // the RIGHT page's right-most pointer (its subtree is the rightmost).
@@ -1743,6 +1747,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let parent_no = parent_page.page_no;
             self.fix_page_underflow(parent_no)?;
         }
+        // All content now lives in right_page; the left page is garbage.
+        // Free it only on the success path so a failed rebalance never
+        // frees a page the tree still references.
+        self.deallocate_page(abandoned)?;
 
         Ok(())
     }
