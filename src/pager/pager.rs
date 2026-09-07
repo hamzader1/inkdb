@@ -393,17 +393,19 @@ impl<F: SqliteFile> Pager<F> {
     }
 
     pub fn rollback(&mut self) -> Result<(), SqliteError> {
-        let mut iterator = self.journal.make_iterator();
-        while let Some(page) = iterator.iter()? {
-            if self.journal_pages.contains(&page.page_no) {
-                let mut page_guard = self.get_mut(page.page_no)?;
-                page_guard
-                    .bytes_as_mut()
-                    .unwrap()
-                    .copy_from_slice(page.data);
+        if self.journal.is_init() {
+            let mut iterator = self.journal.make_iterator();
+            while let Some(page) = iterator.iter()? {
+                if self.journal_pages.contains(&page.page_no) {
+                    let mut page_guard = self.get_mut(page.page_no)?;
+                    page_guard
+                        .bytes_as_mut()
+                        .unwrap()
+                        .copy_from_slice(page.data);
+                }
             }
+            self.journal.destroy_internal()?;
         }
-        self.journal.destroy_internal()?;
         self.in_transaction = false;
         Ok(())
     }
