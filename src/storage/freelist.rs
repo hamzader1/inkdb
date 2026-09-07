@@ -19,14 +19,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
         first_freelist_truck_page: u32,
         total_free_pages: u32,
     ) -> SqliteResult<Option<FreeListAllocMeta>> {
-        self.try_alloc(first_freelist_truck_page, total_free_pages)
-    }
-    fn try_alloc(
-        &mut self,
-        first_freelist_truck_page: u32,
-        total_free_pages: u32,
-    ) -> SqliteResult<Option<FreeListAllocMeta>> {
-        let mut current_page_no = first_freelist_truck_page;
+        let current_page_no = first_freelist_truck_page;
         match (current_page_no, total_free_pages) {
             (0, 0) => return Ok(None),
             (0, _) => {
@@ -42,55 +35,33 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
             _ => {}
         };
 
-        let mut prev: Option<PageNo> = None;
-        while current_page_no > 0 {
-            let mut guard = self.pager.get_mut(current_page_no)?;
-            let bytes = guard.bytes_as_mut_unchecked();
-            let mut cursor = SqliteCursor::new(bytes);
-            let next_page_no = cursor.read_next_u32()?;
-            // TODO: validate the page
-            // Pager::validate_page(next_page_no, 0, Some(|p| p == 1))?;
-            let leaf_count = cursor.read_next_u32()?;
-            // Case [A]: no leaves, we pop the current page
-            if leaf_count == 0 {
-                if next_page_no == 0 {
-                    match prev {
-                        None => {
-                            debug_assert!(
-                                current_page_no == first_freelist_truck_page,
-                                "current page has no page to point it, but at the same time its not the first freelist trunk page"
-                            );
-                            let alloc_meta = FreeListAllocMeta::new(Some(current_page_no), 0, 0);
-                            return Ok(Some(alloc_meta));
-                        }
-                        Some(p) => {
-                            let mut g = self.pager.get_mut(p)?;
-                            g.bytes_as_mut_unchecked()[0..4].copy_from_slice(&[0, 0, 0, 0]);
-                            return Ok(Some(FreeListAllocMeta::new(
-                                Some(current_page_no),
-                                first_freelist_truck_page,
-                                total_free_pages - 1,
-                            )));
-                        }
-                    }
-                } else {
-                    prev = Some(current_page_no);
-                    current_page_no = next_page_no;
-                }
-            }
-            // Case [B]: Some leaves, we pop the last one
-            else {
-                cursor.move_forward_by((4 * (leaf_count - 1)) as _)?;
-                let last_leaf_page_no = cursor.read_next_u32()?;
-                bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
-                return Ok(Some(FreeListAllocMeta::new(
-                    Some(last_leaf_page_no),
-                    first_freelist_truck_page,
-                    total_free_pages - 1,
-                )));
-            }
+        // Allocation only ever touches the head trunk: leaves on it get
+        // popped, otherwise the trunk page itself is popped and the header
+        // advances to the next trunk.
+        let mut guard = self.pager.get_mut(current_page_no)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        let mut cursor = SqliteCursor::new(bytes);
+        let next_page_no = cursor.read_next_u32()?;
+        // TODO: validate the page
+        // Pager::validate_page(next_page_no, 0, Some(|p| p == 1))?;
+        let leaf_count = cursor.read_next_u32()?;
+        // Case [A]: no leaves, we pop the trunk page itself.
+        if leaf_count == 0 {
+            return Ok(Some(FreeListAllocMeta::new(
+                Some(current_page_no),
+                next_page_no,
+                total_free_pages - 1,
+            )));
         }
-        Ok(None)
+        // Case [B]: Some leaves, we pop the last one
+        cursor.move_forward_by((4 * (leaf_count - 1)) as _)?;
+        let last_leaf_page_no = cursor.read_next_u32()?;
+        bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
+        Ok(Some(FreeListAllocMeta::new(
+            Some(last_leaf_page_no),
+            first_freelist_truck_page,
+            total_free_pages - 1,
+        )))
     }
 
     pub fn push(
@@ -110,7 +81,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
             // check if there is enough space for the new cell
             let leaf_offset = 8usize + 4usize * leaf_count as usize;
             if leaf_offset + 4 <= usable_size {
-                cursor.move_backward_by(u64::from(leaf_count * 4))?;
+                cursor.move_forward_by(u64::from(leaf_count * 4))?;
                 let curr_pos = cursor.stream_pos() as usize;
                 bytes[curr_pos..curr_pos + 4].copy_from_slice(&u32::to_be_bytes(page_no));
                 bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count + 1));
