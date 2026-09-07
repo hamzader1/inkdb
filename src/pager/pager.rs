@@ -1,7 +1,14 @@
 use std::collections::HashSet;
 use std::ptr::NonNull;
 
+use crate::db::header::{
+    DATABASE_SIZE_IN_PAGES_OFFSET, DATABASE_SIZE_IN_PAGES_SIZE, FIRST_FREELIST_TRUNK_PAGE_OFFSET,
+    FIRST_FREELIST_TRUNK_PAGE_SIZE, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
+    TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
+};
 use crate::errors::SqliteError;
+use crate::storage::freelist::FreeList;
+use crate::storage::page::{FIRST_FREEBLOCK_OFFSET, FIRST_FREEBLOCK_SIZE};
 
 use super::buffer_pool::BufferPool;
 use super::frame::FrameId;
@@ -11,9 +18,9 @@ use super::journal::Journal;
 use super::metadata::SqliteMetadata;
 use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::SqliteStatistics;
-use crate::DbError;
 use crate::pager::frame::Frame;
 use crate::vfs::file::SqliteFile;
+use crate::{DbError, SqliteResult};
 
 pub type PageNo = u32;
 
@@ -35,6 +42,8 @@ impl<F: SqliteFile> Pager<F> {
         page_size: usize,
         usable_size: usize,
         max_allocated_pages: usize,
+        first_freelist_truck_page: u32,
+        total_freelist_pages: u32,
     ) -> Result<Self, SqliteError> {
         let journal_meta = JournalMeta {
             db_name: source.name().to_string(),
@@ -48,7 +57,13 @@ impl<F: SqliteFile> Pager<F> {
             dp_ll: None,
             journal: Journal::uninit(),
             journal_pages: HashSet::new(),
-            metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
+            metadata: SqliteMetadata::new(
+                page_size,
+                usable_size,
+                max_allocated_pages,
+                first_freelist_truck_page,
+                total_freelist_pages,
+            ),
             statistics: SqliteStatistics::default(),
             in_transaction: false,
         };
@@ -63,6 +78,9 @@ impl<F: SqliteFile> Pager<F> {
         page_size: usize,
         usable_size: usize,
         max_allocated_pages: usize,
+        first_freelist_truck_page: u32,
+        total_freelist_pages: u32,
+
         cache_size: usize,
     ) -> Result<Self, SqliteError> {
         let journal_meta = JournalMeta {
@@ -77,7 +95,13 @@ impl<F: SqliteFile> Pager<F> {
             dp_ll: None,
             journal: Journal::uninit(),
             journal_pages: HashSet::new(),
-            metadata: SqliteMetadata::new(page_size, usable_size, max_allocated_pages),
+            metadata: SqliteMetadata::new(
+                page_size,
+                usable_size,
+                max_allocated_pages,
+                first_freelist_truck_page,
+                total_freelist_pages,
+            ),
             statistics: SqliteStatistics::default(),
             in_transaction: false,
         };
@@ -432,6 +456,79 @@ impl<F: SqliteFile> Pager<F> {
             self.source.sync()?;
             RawJournal::destroy_external(file_path)?;
         }
+        Ok(())
+    }
+
+    pub fn allocate_new_page(&mut self) -> Result<PageNo, SqliteError> {
+        // Freelist check
+        let first_freelist_truck_page = self.metadata.first_freelist_truck_page;
+        let total_free_pages = self.metadata.total_freelist_pages;
+        // Freelist as 1st source
+        if let Some(alloc_meta) =
+            FreeList::new(self).alloc(first_freelist_truck_page, total_free_pages)?
+        {
+            self.metadata.first_freelist_truck_page = alloc_meta.first_freelist_trunk_page;
+            self.metadata.total_freelist_pages = alloc_meta.total_freelist_pages;
+            self.update_first_freelist_truck_page()?;
+            self.update_total_free_pages()?;
+            return Ok(alloc_meta.allocated_page.unwrap());
+        }
+        let max_allocated_pages = self.metadata.max_allocated_pages;
+        let new_page_no = max_allocated_pages + 1;
+        let new_len = self.metadata.page_size * (max_allocated_pages + 1);
+        self.source.set_len(new_len)?;
+        self.metadata.max_allocated_pages += 1;
+        self.update_max_allocated_pages()?;
+        Ok(new_page_no as _)
+    }
+    pub fn update_max_allocated_pages(&mut self) -> Result<(), SqliteError> {
+        let mut guard = self.get_mut(1)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        bytes[DATABASE_SIZE_IN_PAGES_OFFSET
+            ..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
+            .copy_from_slice(&(self.metadata.max_allocated_pages as u32).to_be_bytes());
+
+        Ok(())
+    }
+
+    pub fn dealloc(&mut self, page_no: PageNo) -> SqliteResult<()> {
+        let first_freelist_truck_page = self.metadata.first_freelist_truck_page;
+        let total_free_pages = self.metadata.total_freelist_pages;
+        let usable_size = self.metadata.usable_size;
+
+        let dealloc_meta = FreeList::new(self).push(
+            page_no,
+            first_freelist_truck_page,
+            total_free_pages,
+            usable_size,
+        )?;
+        if dealloc_meta.first_freelist_trunk_page != first_freelist_truck_page {
+            self.metadata.first_freelist_truck_page = dealloc_meta.first_freelist_trunk_page;
+            self.update_first_freelist_truck_page()?;
+        }
+        if dealloc_meta.total_freelist_pages != total_free_pages {
+            self.metadata.total_freelist_pages = dealloc_meta.total_freelist_pages;
+            self.update_total_free_pages()?;
+        }
+        Ok(())
+    }
+
+    pub fn update_first_freelist_truck_page(&mut self) -> Result<(), SqliteError> {
+        let mut guard = self.get_mut(1)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        bytes[FIRST_FREELIST_TRUNK_PAGE_OFFSET
+            ..FIRST_FREELIST_TRUNK_PAGE_OFFSET + FIRST_FREELIST_TRUNK_PAGE_SIZE]
+            .copy_from_slice(&(self.metadata.first_freelist_truck_page).to_be_bytes());
+
+        Ok(())
+    }
+    pub fn update_total_free_pages(&mut self) -> SqliteResult<()> {
+        let mut guard = self.get_mut(1)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        bytes[TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET
+            ..TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET + TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE]
+            .copy_from_slice(&(self.metadata.total_freelist_pages).to_be_bytes());
+
         Ok(())
     }
 }
