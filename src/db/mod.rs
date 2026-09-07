@@ -64,6 +64,8 @@ impl<F: crate::vfs::file::SqliteFile> Database<F> {
             header.database_page_size as usize,
             (header.database_page_size - header.reserved_space as u32) as _,
             header.database_size_in_pages as _,
+            header.first_freelist_trunk_page,
+            header.total_number_of_freelist_pages,
         )?;
         Ok(Self { pager, header })
     }
@@ -82,6 +84,8 @@ impl<F: crate::vfs::file::SqliteFile> Database<F> {
             header.database_page_size as _,
             (header.database_page_size - header.reserved_space as u32) as _,
             header.database_size_in_pages as _,
+            header.first_freelist_trunk_page,
+            header.total_number_of_freelist_pages,
             cache_size,
         )?;
         Ok(Self { pager, header })
