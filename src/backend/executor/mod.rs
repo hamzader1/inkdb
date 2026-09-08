@@ -11,6 +11,7 @@ pub mod limit;
 pub mod project;
 pub mod tablescan;
 pub mod transaction;
+pub mod truncate;
 
 #[derive(Debug)]
 pub struct Row {
