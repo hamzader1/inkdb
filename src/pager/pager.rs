@@ -40,6 +40,7 @@ pub struct Pager<F: SqliteFile> {
     /// next transaction would allocate/free using stale freelist state.
     /*
      * ISSUE: https://github.com/hamzader1/inkdb/issues/35
+     * FIX:   https://github.com/hamzader1/inkdb/pull/36
      */
     txn_snapshot: Option<SqliteMetadata>,
 }
@@ -459,7 +460,7 @@ impl<F: SqliteFile> Pager<F> {
         self.journal_pages.clear();
         // Replay restored page images (including page 1).
         // Now rewind the in memory header to match. Done after replay: pages allocated
-        // mid-transaction still validate while being revisited above.
+        // mid transaction still validate while being revisited above.
         if let Some(snapshot) = self.txn_snapshot.take() {
             self.metadata = snapshot;
         }
