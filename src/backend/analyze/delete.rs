@@ -1,10 +1,11 @@
-use crate::backend::analyze::ResolvedDeleteQuery;
+use crate::backend::analyze::{ResolvedDeleteQuery, ResolvedTruncateTableQuery};
 use crate::sql::ast::DeleteStmt;
 use crate::{SqliteMaster, SqliteResult};
 
 use super::{Analyze, ResolvedQuery};
 
 impl Analyze {
+    // TODO: Expand and add optimazer
     pub fn analyze_delete_stmt(
         mut stmt: DeleteStmt,
         sqlite_master: &SqliteMaster,
@@ -18,6 +19,12 @@ impl Analyze {
                 ",
             );
             Self::fast_bind(table, predict, arena)?;
+        }
+        // BASIC, Sql ( "DELETE FROM t" )
+        else {
+            return Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
+                root_page: table.root_page,
+            }));
         }
         Ok(ResolvedQuery::DeleteQuery(ResolvedDeleteQuery {
             root_page: table.root_page,
