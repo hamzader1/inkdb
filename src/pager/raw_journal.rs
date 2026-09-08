@@ -27,6 +27,7 @@ pub struct RawJournal {
     path: PathBuf,
     page_size: u16,
     db_name: String,
+    pub db_size: u32,
     page_count: u32,
     jfile: Option<DiskFile>,
 }
@@ -59,6 +60,7 @@ impl RawJournal {
             path,
             db_name,
             page_count: 0,
+            db_size,
             page_size: p_size,
             jfile: None,
         }
@@ -84,13 +86,14 @@ impl RawJournal {
     }
     pub fn commit(&mut self) -> Result<(), SqliteError> {
         assert!(self.jfile.is_some());
+        // The page count IS the commit record: it must be durable in the
+        // same write as the data. Writing data first with count 0 and
+        // patching after leaves a crash window where recovery discards
+        // real records while evicted dirty pages are already on disk.
+        self.buffer[8..12].copy_from_slice(&u32::to_be_bytes(self.page_count));
         let file = self.jfile.as_mut().unwrap();
         file.set_len(self.buffer.len())?;
         file.write_all_at(0 as _, &self.buffer)?;
-        file.sync()?;
-        let page_count_slice = &mut self.buffer[8..12];
-        page_count_slice.copy_from_slice(&u32::to_be_bytes(self.page_count));
-        file.write_all_at(8, page_count_slice)?;
         file.sync()?;
         Ok(())
     }
@@ -108,6 +111,7 @@ impl RawJournal {
             self.buffer.set_len(JOURNAL_HEADER_SIZE);
             self.buffer[8..12].copy_from_slice(&[0, 0, 0, 0]);
         }
+        self.page_count = 0;
     }
 
     pub fn recover(db_name: &str, path: PathBuf) -> Result<Option<RecoverMetadata>, SqliteError> {

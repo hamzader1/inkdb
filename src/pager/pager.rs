@@ -143,7 +143,9 @@ impl<F: SqliteFile> Pager<F> {
             None::<fn(_) -> bool>,
         )?;
         let was_dirty = self.ensure_page_loaded(page_no)?;
-        if self.journal.is_active() {
+        // Init once per transaction: re-opening on every mut touch
+        // truncates the journal file back to its header each time.
+        if self.journal.is_active() && !self.journal.is_init() {
             self.journal.init()?;
         }
         Ok(self
@@ -411,6 +413,12 @@ impl<F: SqliteFile> Pager<F> {
             self.source.sync()?;
             self.journal.destroy_internal()?;
         }
+        // Drop per-transaction state: without this the next transaction
+        // replays (or rolls back) pages from already-committed ones.
+        if self.journal.is_active() {
+            self.journal.reset();
+        }
+        self.journal_pages.clear();
         self.in_transaction = false;
 
         Ok(())
@@ -423,17 +431,19 @@ impl<F: SqliteFile> Pager<F> {
                 if self.journal_pages.contains(&page.page_no) {
                     let mut page_guard = self.get_mut(page.page_no)?;
                     page_guard
-                        .bytes_as_mut()
-                        .unwrap()
+                        .bytes_as_mut_unchecked()
                         .copy_from_slice(page.data);
                 }
             }
             self.journal.destroy_internal()?;
         }
+        self.journal.reset();
+        self.journal_pages.clear();
         self.in_transaction = false;
         Ok(())
     }
 
+    // TODO: DO NOT USE RAWJOURNAL. JOURNAL INSTEAD.
     pub fn recover_from_crash(&mut self) -> Result<(), SqliteError> {
         let recover_meta = RawJournal::recover(self.source.name(), self.source.path())?;
         if let Some(meta) = recover_meta {
