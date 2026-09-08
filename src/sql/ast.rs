@@ -164,6 +164,10 @@ pub enum Constraint {
     NotNull,
     Unique,
 }
+#[derive(Debug)]
+pub struct TruncateTable {
+    pub table_name: String,
+}
 
 #[derive(Debug)]
 pub enum Ast {
@@ -172,6 +176,7 @@ pub enum Ast {
     SelectStmtAst(SelectStmt),
     InsertStmtAst(InsertStmt),
     DeleteStmtAst(DeleteStmt),
+    TruncateTableAst(TruncateTable),
     BeginTransaction,
     CommitTransaction,
     RollbackTransaction,

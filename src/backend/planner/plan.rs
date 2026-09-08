@@ -14,6 +14,7 @@ use crate::backend::executor::limit::Limit;
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
+use crate::backend::executor::truncate::TruncateTable;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
@@ -28,6 +29,7 @@ pub enum Plan<F: SqliteFile> {
     Insert(Insert<'static, F>),
     Delete(Delete<F>),
     CreateTable(CreateTable),
+    TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
@@ -71,7 +73,9 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::RollbackTransactionQuery => Ok(PlanContext::Logical(
                 Plan::RollbackTransaction(RollBackTransaction),
             )),
-            _ => todo!(),
+            ResolvedQuery::TruncateTable(stmt) => Ok(PlanContext::Logical(Plan::TruncateTable(
+                TruncateTable::new(stmt.root_page),
+            ))),
         }
     }
 
@@ -139,7 +143,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::BeginTransaction(bt) => bt.next(pager),
             Self::CommitTransaction(ct) => ct.next(pager),
             Self::RollbackTransaction(rbt) => rbt.next(pager),
-            _ => todo!("Plan missing impl"),
+            Self::TruncateTable(tb) => tb.next(pager),
         }
     }
 }
