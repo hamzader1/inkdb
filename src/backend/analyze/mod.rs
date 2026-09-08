@@ -40,7 +40,7 @@ pub struct ResolvedDeleteQuery {
 }
 
 #[derive(Debug)]
-pub struct TruncateTableQuery {
+pub struct ResolvedTruncateTableQuery {
     pub root_page: u32,
 }
 
@@ -50,7 +50,7 @@ pub enum ResolvedQuery {
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
     DeleteQuery(ResolvedDeleteQuery),
-    TruncateTable(TruncateTableQuery),
+    TruncateTable(ResolvedTruncateTableQuery),
     BeginTransactionQuery,
     CommitTransactionQuery,
     RollbackTransactionQuery,
@@ -77,7 +77,7 @@ impl Analyze {
             Ast::TruncateTableAst(t_stmt) => {
                 let table = Self::get_table(sqlite_master, &t_stmt.table_name)?;
                 let root_page = table.root_page;
-                Ok(ResolvedQuery::TruncateTable(TruncateTableQuery {
+                Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
                     root_page,
                 }))
             }

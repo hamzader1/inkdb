@@ -73,8 +73,9 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::RollbackTransactionQuery => Ok(PlanContext::Logical(
                 Plan::RollbackTransaction(RollBackTransaction),
             )),
-            ResolvedQuery::TruncateTable(stmt) => Ok(PlanContext::Logical(Plan::TruncateTable(
-                TruncateTable::new(stmt.root_page),
+            ResolvedQuery::TruncateTable(stmt) => Ok(PlanContext::Resolved(PreparedPlan::new(
+                Plan::TruncateTable(TruncateTable::new(stmt.root_page)),
+                None,
             ))),
         }
     }
