@@ -34,6 +34,14 @@ pub struct Pager<F: SqliteFile> {
     pub metadata: SqliteMetadata,
     pub statistics: SqliteStatistics,
     in_transaction: bool,
+    /// Header fields at transaction start.
+    /// Rollback reverts page images
+    /// (including page 1) but not this struct, without the snapshot the
+    /// next transaction would allocate/free using stale freelist state.
+    /*
+     * ISSUE: https://github.com/hamzader1/inkdb/issues/35
+     */
+    txn_snapshot: Option<SqliteMetadata>,
 }
 
 impl<F: SqliteFile> Pager<F> {
@@ -66,6 +74,7 @@ impl<F: SqliteFile> Pager<F> {
             ),
             statistics: SqliteStatistics::default(),
             in_transaction: false,
+            txn_snapshot: None,
         };
 
         pager.recover_from_crash()?;
@@ -104,6 +113,7 @@ impl<F: SqliteFile> Pager<F> {
             ),
             statistics: SqliteStatistics::default(),
             in_transaction: false,
+            txn_snapshot: None,
         };
 
         pager.recover_from_crash()?;
@@ -120,6 +130,9 @@ impl<F: SqliteFile> Pager<F> {
         if self.in_transaction {
             return false;
         }
+        // Snapshot header state: rollback reverts page images but cannot
+        // rewind this struct restore points come from here.
+        self.txn_snapshot = Some(self.metadata);
         self.in_transaction = true;
         true
     }
@@ -413,12 +426,15 @@ impl<F: SqliteFile> Pager<F> {
             self.source.sync()?;
             self.journal.destroy_internal()?;
         }
-        // Drop per-transaction state: without this the next transaction
-        // replays (or rolls back) pages from already-committed ones.
+        // Drop per transaction state: without this the next transaction
+        // replays (or rolls back) pages from already committed ones.
         if self.journal.is_active() {
             self.journal.reset();
         }
         self.journal_pages.clear();
+        // Committed header state stands.
+        // The snapshot has served.
+        self.txn_snapshot = None;
         self.in_transaction = false;
 
         Ok(())
@@ -437,8 +453,16 @@ impl<F: SqliteFile> Pager<F> {
             }
             self.journal.destroy_internal()?;
         }
-        self.journal.reset();
+        if self.journal.is_active() {
+            self.journal.reset();
+        }
         self.journal_pages.clear();
+        // Replay restored page images (including page 1).
+        // Now rewind the in memory header to match. Done after replay: pages allocated
+        // mid-transaction still validate while being revisited above.
+        if let Some(snapshot) = self.txn_snapshot.take() {
+            self.metadata = snapshot;
+        }
         self.in_transaction = false;
         Ok(())
     }
