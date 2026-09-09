@@ -27,7 +27,7 @@ pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
 pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
 pub type CellIndex = u16;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CursorState {
     At,
     Invalid,
@@ -35,13 +35,13 @@ pub enum CursorState {
     BeforeFirst,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum SeekResult {
     Exact,
     NotFound,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum UnderflowAction {
     BorrowLeft,
     BorrowRight,
@@ -53,6 +53,7 @@ pub struct Path {
     pub page_no: PageNo,
     pub cell_idx: u16,
     guard: PageGuard,
+    pub yeilded: bool,
 }
 impl Path {
     fn new(page_no: PageNo, cell_idx: CellIndex, guard: PageGuard) -> Self {
@@ -60,17 +61,23 @@ impl Path {
             page_no,
             cell_idx,
             guard,
+            yeilded: false,
         }
     }
 }
 pub enum SearchResult {
-    Found { row_id: i64, cell_index: CellIndex },
-    Descend { child: u32, cell_index: CellIndex },
+    Descend {
+        child: u32,
+        cell_index: CellIndex,
+        /// Whether an equal key was seen during the probe. Table probes
+        /// never set this; index probes set it when a divider equals the
+        /// target (duplicates may still live in leaves below).
+        exact: bool,
+    },
 }
 impl SearchResult {
     pub fn cell_index(&self) -> CellIndex {
         match self {
-            Self::Found { cell_index, .. } => *cell_index,
             Self::Descend { cell_index, .. } => *cell_index,
         }
     }
@@ -99,6 +106,11 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     ) -> Result<SeekResult, SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
+        // Exactness seen anywhere (interior divider or leaf). Interior
+        // matches must NOT stop the descent: duplicates live in leaves
+        // below, so we park the divider unyielded, descend left, and let
+        // forward iteration visit the whole run in order.
+        let mut exact = false;
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
@@ -106,6 +118,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 let (found, cell_idx) = self.binary_search_leaf(&page, pager, &target)?;
                 self.stack.push(Path::new(page_no, cell_idx, guard));
                 if found {
+                    exact = true;
+                }
+                if exact {
                     return Ok(SeekResult::Exact);
                 }
                 return Ok(SeekResult::NotFound);
@@ -113,28 +128,28 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             self.state = CursorState::At;
             let search_result = self.binary_search_interior(&page, pager, &target)?;
             match search_result {
-                SearchResult::Found { cell_index, .. } => {
-                    self.stack.push(Path::new(page_no, cell_index, guard));
-                    return Ok(SeekResult::Exact);
-                }
-                SearchResult::Descend { child, cell_index } => {
+                SearchResult::Descend {
+                    child,
+                    cell_index,
+                    exact: saw_eq,
+                } => {
+                    // Parked unyielded: forward iteration yields this divider
+                    // itself when the left subtree is exhausted.
                     self.stack.push(Path::new(page_no, cell_index, guard));
                     page_no = child;
+                    exact |= saw_eq;
                 }
             }
         }
     }
 
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
-        // TODO: Index cursor iteration requires visiting
-        // interior index cells during traversal.
-        //
-        // Currently supported for table B-trees only.
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
                 cell_idx,
                 guard,
+                yeilded,
             } = path;
 
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
@@ -145,7 +160,19 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                     return Ok(());
                 }
             } else {
-                if cell_idx + 1 == page.no_of_cells() {
+                if page.page_type() == BTreePageType::InteriorIndex
+                    && !yeilded
+                    && cell_idx < page.no_of_cells()
+                {
+                    self.stack.push(Path {
+                        page_no,
+                        cell_idx,
+                        guard,
+                        yeilded: true,
+                    });
+                    self.state = CursorState::At;
+                    return Ok(());
+                } else if cell_idx + 1 == page.no_of_cells() {
                     let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
                         "cursor next: interior page {page_no} has no right-most child"
                     )))?;
@@ -206,6 +233,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 page_no,
                 cell_idx,
                 guard,
+                yeilded,
             } = path;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
             if page.is_leaf() {
@@ -278,6 +306,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 page_no,
                 cell_idx,
                 guard,
+                yeilded,
             } = path;
 
             let page = page_as_ref_with_pager(*page_no, guard, pager)?;
@@ -308,6 +337,10 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
 
         let mut l = 0;
         let mut r = cell_count;
+        // Lower bound: equality keeps going left so the descent lands at
+        // the FIRST position holding the target. Stopping at the first ==
+        // inside the page would abandon earlier duplicates on this page.
+        let mut saw_eq = false;
 
         while l < r {
             let m = l + (r - l) / 2;
@@ -323,16 +356,22 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 }
             } else {
                 let mut payload = page.record_of(&cell, pager)?;
-                let row_id = payload.pop().unwrap().get_int()?;
+                payload.pop().ok_or(SqliteError::Internal(
+                    "index interior cell has an empty payload".into(),
+                ))?;
                 let tuple = Value::Tuple(payload);
                 if &tuple == target {
-                    return Ok(SearchResult::Found {
-                        row_id,
-                        cell_index: m,
-                    });
-                }
-
-                if &tuple > target {
+                    /*
+                     *
+                     * This fixed the bug of:
+                     * Imagine we have an index on X column as this <10, 10, 20, 20, 20, 30, 40>
+                     * without this, we will return the FIRST FOUND
+                     * so we lost (everything == TARGET) < m
+                     *
+                     */
+                    saw_eq = true;
+                    r = m;
+                } else if &tuple > target {
                     r = m;
                 } else {
                     l = m + 1;
@@ -344,12 +383,15 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             return Ok(SearchResult::Descend {
                 child: page.cell(l)?.left_child(),
                 cell_index: l,
+                exact: saw_eq,
             });
         }
 
+        // Past the end: every key compared less-than, so no equality seen.
         Ok(SearchResult::Descend {
             child: page.right_most_ptr().unwrap(),
             cell_index: cell_count,
+            exact: false,
         })
     }
     pub fn last_visited_entry(&self) -> Option<(u32, u16)> {
@@ -379,7 +421,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         let cell_cnt = page.no_of_cells();
         let mut l = 0;
         let mut r = cell_cnt;
-
+        let mut found = None;
         while l < r {
             let m: u16 = l + ((r - l) / 2);
 
@@ -392,7 +434,8 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             };
 
             if &value == target {
-                return Ok((true, m));
+                found = Some(m);
+                r = m;
             } else if &value > target {
                 r = m;
             } else {
@@ -400,6 +443,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             }
         }
 
+        if let Some(m) = found {
+            return Ok((true, m));
+        }
         Ok((false, l))
     }
 
@@ -503,6 +549,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     }
     pub fn search(&mut self, target: Value) -> SqliteResult<SeekResult> {
         self.cursor.seek(self.pager, target)
+    }
+    pub fn next(&mut self) -> SqliteResult<()> {
+        self.cursor.next(self.pager)
+    }
+    pub fn prev(&mut self) -> SqliteResult<()> {
+        self.cursor.prev(self.pager)
     }
 
     pub fn insert(&mut self, key: Value, mut content: Vec<u8>) -> Result<(), SqliteError> {
