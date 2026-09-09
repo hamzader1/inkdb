@@ -10,6 +10,7 @@ use crate::record::Value;
 use crate::record::tuple::Tuple;
 use crate::record::tuple::{self, DecodedValue, decode_sqltype, into_borrowed, into_owned};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
+use crate::varint::encode_varint;
 use PageField::*;
 use std::marker::PhantomData;
 
@@ -548,6 +549,60 @@ impl<'p> BTreePageMut<'p> {
         Ok(start..end)
     }
 
+    fn cell_span_beta(&self, cell_ptr: u16) -> SqliteResult<()> {
+        let start = cell_ptr as usize;
+        let cell = self.cell_by_ptr(cell_ptr)?;
+        let end = match self.page_type() {
+            BTreePageType::LeafTable => {
+                start
+                    + LEFT_CHILD_POINTER_SIZE
+                    + encode_varint(
+                        &mut [0u8; 9],
+                        cell.with_table_leaf_cell(|cell| Some(cell.row_id)).unwrap(),
+                    )
+            }
+            BTreePageType::LeafIndex => {
+                encode_varint(
+                    &mut [0u8; 9],
+                    cell.with_index_leaf_cell(|c| Some(c.payload_len)).unwrap(),
+                ) + cell
+                    .with_index_leaf_cell(|c| {
+                        Some(
+                            c.payload.end
+                                + if c.first_overflow_page.is_some() {
+                                    4
+                                } else {
+                                    0
+                                },
+                        )
+                    })
+                    .unwrap()
+            }
+
+            BTreePageType::InteriorTable => cell
+                .with_table_interior_cell(|c| {
+                    Some(LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary))
+                })
+                .unwrap(),
+
+            BTreePageType::InteriorIndex => cell
+                .with_index_interior_cell(|c| {
+                    Some(
+                        LEFT_CHILD_POINTER_SIZE
+                            + encode_varint(&mut [0u8; 9], c.payload_len)
+                            + c.payload.end
+                            + if c.first_overflow_page.is_some() {
+                                4
+                            } else {
+                                0
+                            },
+                    )
+                })
+                .unwrap(),
+        };
+        Ok(())
+    }
+
     pub fn cell_bytes_as_ref(&self, cell_index: u16) -> SqliteResult<&[u8]> {
         let cell_offset = self.as_ref()?.get_cell_offset(cell_index)?;
         let cell_span = self.cell_span(cell_offset)?;
@@ -797,6 +852,8 @@ impl<'p> BTreePageMut<'p> {
     pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
         // cell pointers are absolute page offsets, so a raw copy is only valid
         // between pages that keep their btree header at the same offset
+        //
+        // TODO: Will this hold if we split sqlite_master BTree?
         debug_assert!(
             self.header_offset == other.header_offset,
             "copy_data_from between pages with different header offsets",
