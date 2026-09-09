@@ -25,29 +25,70 @@ pub enum BTreeCellType {
 
 #[derive(Debug)]
 pub struct TableInteriorCell {
-    left_child: PageNo,
-    rowid_boundary: u64,
+    pub left_child: PageNo,
+    pub rowid_boundary: u64,
 }
 
 #[derive(Debug)]
 pub struct TableLeafCell {
-    payload_len: u64,
-    row_id: u64,
-    local_payload_range: Range<usize>,
-    first_overflow_page: Option<PageNo>,
+    pub payload_len: u64,
+    pub row_id: u64,
+    pub local_payload_range: Range<usize>,
+    pub first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexInteriorCell {
-    left_child: PageNo,
-    payload_len: u64,
-    payload: Range<usize>,
-    first_overflow_page: Option<PageNo>,
+    pub left_child: PageNo,
+    pub payload_len: u64,
+    pub payload: Range<usize>,
+    pub first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexLeafCell {
-    payload_len: u64,
-    payload: Range<usize>,
-    first_overflow_page: Option<PageNo>,
+    pub payload_len: u64,
+    pub payload: Range<usize>,
+    pub first_overflow_page: Option<PageNo>,
+}
+impl BTreeCell {
+    pub fn with_index_leaf_cell<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&IndexLeafCell) -> Option<R>,
+    {
+        if let Self::IndexLeaf(x) = self {
+            return f(x);
+        }
+        None
+    }
+
+    pub fn with_table_leaf_cell<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&TableLeafCell) -> Option<R>,
+    {
+        if let Self::TableLeaf(x) = self {
+            return f(x);
+        }
+        None
+    }
+
+    pub fn with_table_interior_cell<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&TableInteriorCell) -> Option<R>,
+    {
+        if let Self::TableInterior(x) = self {
+            return f(x);
+        }
+        None
+    }
+
+    pub fn with_index_interior_cell<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&IndexInteriorCell) -> Option<R>,
+    {
+        if let Self::IndexInterior(x) = self {
+            return f(x);
+        }
+        None
+    }
 }
 // TODO: REMOVE FUCKING OFFSET HANDLING BY THE FUCKING CELL
 impl TableInteriorCell {
