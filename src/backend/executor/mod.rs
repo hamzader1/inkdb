@@ -6,6 +6,7 @@ pub mod create;
 pub mod delete;
 pub mod eval;
 pub mod filter;
+pub mod index;
 pub mod insert;
 pub mod limit;
 pub mod project;
