@@ -44,7 +44,7 @@ impl Database<DiskFile> {
         let sqlite_master = SqliteMaster::new(&mut self.pager)?;
         let resolved_query = Analyze::analyze(res, &sqlite_master)?;
 
-        let mut plan = Plan::create_plan(resolved_query, &mut self.pager)?;
+        let mut plan = Plan::create_plan(resolved_query, &mut self.pager, &sqlite_master)?;
         while let Some(row) = plan.next(&mut self.pager)? {
             println!("{}", RowWrapper(row));
         }

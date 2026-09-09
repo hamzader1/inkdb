@@ -18,6 +18,10 @@ impl<F: SqliteFile> Delete<F> {
     pub fn new(child: Box<Plan<F>>, root_page: PageNo) -> Self {
         Self { child, root_page }
     }
+    /// Child subtree for optimizer traversal.
+    pub fn child_mut(&mut self) -> &mut Plan<F> {
+        &mut self.child
+    }
     pub fn next(
         &mut self,
         pager: &mut Pager<F>,

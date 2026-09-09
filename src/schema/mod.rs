@@ -28,6 +28,9 @@ impl Table {
         }
         None
     }
+    pub fn get_col_name(&self, idx: usize) -> Option<&Column> {
+        self.columns.get(idx)
+    }
     pub fn get_cols_len(&self) -> usize {
         self.columns.len()
     }
@@ -54,6 +57,15 @@ pub struct Index {
     pub root_page: u32,
     columns: Vec<String>, // single/multi col index
     unique: bool,         // is unique
+}
+
+impl Index {
+    pub fn has_index_on(&self, col_name: &str, table_name: &str) -> bool {
+        // LIMITED: for single col index
+        // TODO: HANDLE MULTIPLE INDEXES
+        let (indexed_col, indexed_table) = (&self.columns[0], &self.table);
+        indexed_table == table_name && indexed_col == col_name
+    }
 }
 
 #[derive(Debug)]

@@ -14,6 +14,7 @@ pub mod select;
 pub struct Analyze;
 #[derive(Debug)]
 pub struct ResolvedSelectQuery {
+    pub table_name: String,
     pub root_page: u32,
     pub arena: ExprArena,
     pub columns: Vec<usize>,

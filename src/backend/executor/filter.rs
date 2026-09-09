@@ -16,6 +16,12 @@ impl<F: SqliteFile> Filter<F> {
     pub fn new(child: Box<Plan<F>>, predict: usize) -> Self {
         Self { child, predict }
     }
+    pub fn child_mut(&mut self) -> &mut Plan<F> {
+        &mut self.child
+    }
+    pub fn predicate(&self) -> usize {
+        self.predict
+    }
 }
 
 impl<F: SqliteFile> Filter<F> {

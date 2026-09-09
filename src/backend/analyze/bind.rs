@@ -178,12 +178,6 @@ impl BindSink for SlowBind<'_> {
     }
 }
 
-/*
- *
- * that too much
- *
-*/
-
 pub struct FastBind;
 impl BindSink for FastBind {
     fn ident(
