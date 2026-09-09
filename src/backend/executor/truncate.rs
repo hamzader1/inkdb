@@ -32,6 +32,17 @@ impl TruncateTable {
         );
         Ok(None)
     }
+    /*
+     *
+     *  Currently we are leaking overflowed pages, since we can't easly know if a page has a row
+     *  which its payload linked to other pages (overflow pages)
+     *
+     *  We leave it as it now since we do not include overflow page in our tests
+     *
+     *  NOTE / TODO:
+     *      Back to row by row delete or add a linked list of overflow pages
+     *
+     * */
     fn dfs<F: SqliteFile>(
         root_page: u32,
         page_no: u32,

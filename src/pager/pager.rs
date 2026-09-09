@@ -40,7 +40,6 @@ pub struct Pager<F: SqliteFile> {
     /// next transaction would allocate/free using stale freelist state.
     /*
      * ISSUE: https://github.com/hamzader1/inkdb/issues/35
-     * FIX:   https://github.com/hamzader1/inkdb/pull/36
      */
     txn_snapshot: Option<SqliteMetadata>,
 }
