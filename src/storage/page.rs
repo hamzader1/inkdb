@@ -224,6 +224,11 @@ impl<'p> BTreePageRef<'p> {
         }
     }
 
+    pub fn is_index(&self) -> bool {
+        self.header.page_kind == BTreePageType::InteriorIndex
+            || self.header.page_kind == BTreePageType::LeafIndex
+    }
+
     pub fn freespace(&self) -> SqliteResult<usize> {
         let freeblocks_size = self.freeblocks_size()?;
         let total_free_bytes = freeblocks_size
