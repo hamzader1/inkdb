@@ -32,7 +32,7 @@ pub enum Plan<F: SqliteFile> {
     Insert(Insert<'static, F>),
     Delete(Delete<F>),
     CreateTable(CreateTable),
-    IndexExactMatch(IndexExactMatch),
+    IndexExactMatch(IndexExactMatch<F>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
@@ -123,6 +123,7 @@ impl<F: SqliteFile> Plan<F> {
         ));
         Optimazer::optimaze_select(
             &mut parent,
+            pager,
             sqlite_master,
             &resolved_query.table_name,
             resolved_query.root_page,

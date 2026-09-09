@@ -2,6 +2,7 @@ use super::planner::plan::{self, Plan};
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::index::IndexExactMatch;
 use crate::errors::SqliteError;
+use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
@@ -13,6 +14,7 @@ pub struct Optimazer;
 impl Optimazer {
     pub fn optimaze_select<F: SqliteFile>(
         plan: &mut Plan<F>,
+        pager: &mut Pager<F>,
         sqlite_master: &SqliteMaster,
         table_name: &str,
         root_page: u32,
@@ -23,7 +25,8 @@ impl Optimazer {
             if child.is_filter() {
                 match Self::optimaze_where(child, arena, sqlite_master, table_name, root_page)? {
                     Some(x) => {
-                        let new_child = Plan::IndexExactMatch(IndexExactMatch::new(x.0, x.1, x.2));
+                        let new_child =
+                            Plan::IndexExactMatch(IndexExactMatch::new(pager, x.0, x.1, x.2)?);
                         *child = new_child;
                     }
                     _ => break,
