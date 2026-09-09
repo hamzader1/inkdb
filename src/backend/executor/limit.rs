@@ -21,6 +21,10 @@ impl<F: SqliteFile> Limit<F> {
             is_done: false,
         }
     }
+    /// Child subtree for optimizer traversal.
+    pub fn child_mut(&mut self) -> &mut Plan<F> {
+        &mut self.child
+    }
     pub fn next(
         &mut self,
         pager: &mut Pager<F>,

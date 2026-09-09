@@ -39,6 +39,7 @@ impl Analyze {
                 Analyze::fast_bind(table, limit, &mut arena)?;
             }
             let stmt = ResolvedSelectQuery {
+                table_name,
                 root_page: table.root_page,
                 arena,
                 columns,
@@ -100,6 +101,7 @@ impl Analyze {
             *limit = map[*limit];
         }
         let stmt = ResolvedSelectQuery {
+            table_name,
             root_page: table.root_page,
             arena: ExprArena { nodes: new_arena },
             columns: new_cols,

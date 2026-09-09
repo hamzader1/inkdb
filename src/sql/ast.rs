@@ -68,14 +68,14 @@ impl Expr {
             Expr::Or { left: _, right: _ } => Expr::Or { left: l, right: r },
             Expr::BinaryOp { left, op, right } => Expr::BinaryOp {
                 left: l,
-                op: op.clone(),
+                op: *op,
                 right: r,
             },
             _ => panic!("Reached unmapped Expression"),
         }
     }
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum BinaryOperator {
     Eq,
     NotEq,

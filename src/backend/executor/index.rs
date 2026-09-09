@@ -11,34 +11,40 @@ use crate::{
     vfs::file::SqliteFile,
 };
 
-struct IndexExactMatch<F: SqliteFile> {
-    child: Plan<F>,
+#[derive(Debug)]
+pub struct IndexExactMatch {
+    // child: Box<Plan<F>>,
     index_root_page: u32,
     relation_root_page: u32,
-    key: Value<'static>,
-    target: usize,
+    target: Value<'static>,
+    is_done: bool,
 }
 
-impl<F: SqliteFile> IndexExactMatch<F> {
-    fn new(
-        child: Plan<F>,
+impl IndexExactMatch {
+    pub fn new(
+        // child: Box<Plan<F>>,
         index_root_page: u32,
         relation_root_page: u32,
-        key: Value<'static>,
-        target: usize,
+        target: Value<'static>,
     ) -> Self {
         Self {
-            child,
+            // child,
             index_root_page,
             relation_root_page,
-            key,
             target,
+            is_done: false,
         }
     }
-    pub fn next(&mut self, pager: &mut Pager<F>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
-        let target = Eval::eval(arena, self.target, None)?;
+    pub fn next<F: SqliteFile>(
+        &mut self,
+        pager: &mut Pager<F>,
+        arena: &ExprArena,
+    ) -> SqliteResult<Option<Row>> {
+        if self.is_done {
+            return Ok(None);
+        }
         let mut index_btree = BTree::new(self.index_root_page, pager);
-        let seek_res = index_btree.search(target)?;
+        let seek_res = index_btree.search(Value::Tuple(vec![self.target.clone()]))?;
         if seek_res == SeekResult::NotFound {
             return Ok(None);
         }
@@ -56,6 +62,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
                 .collect();
 
             let row = Row::new(row_id.get_int()? as _, relation_record);
+            self.is_done = true;
             return Ok(Some(row));
         }
 
