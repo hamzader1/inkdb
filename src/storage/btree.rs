@@ -325,7 +325,6 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 let mut payload = page.record_of(&cell, pager)?;
                 let row_id = payload.pop().unwrap().get_int()?;
                 let tuple = Value::Tuple(payload);
-
                 if &tuple == target {
                     return Ok(SearchResult::Found {
                         row_id,
@@ -387,7 +386,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             let value = if page.page_type() == BTreePageType::LeafTable {
                 page.cell(m)?.row_id().into_sqlite_value()
             } else {
-                Value::Tuple(page.record_of_cell(m, pager)?)
+                let mut tuple = page.record_of_cell(m, pager)?;
+                let _row_id = tuple.pop();
+                Value::Tuple(tuple)
             };
 
             if &value == target {
@@ -499,6 +500,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             pager,
             cursor,
         }
+    }
+    pub fn search(&mut self, target: Value) -> SqliteResult<SeekResult> {
+        self.cursor.seek(self.pager, target)
     }
 
     pub fn insert(&mut self, key: Value, mut content: Vec<u8>) -> Result<(), SqliteError> {

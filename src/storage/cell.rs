@@ -199,14 +199,6 @@ impl BTreeCell {
             _ => unreachable!(), // we never reach here, we check before calling
         }
     }
-    pub fn cell_type(&self) -> BTreeCellType {
-        match self {
-            BTreeCell::IndexInterior(_) => BTreeCellType::IndexInterior,
-            BTreeCell::IndexLeaf(_) => BTreeCellType::IndexLeaf,
-            BTreeCell::TableLeaf(_) => BTreeCellType::TableLeaf,
-            _ => BTreeCellType::TableInterior,
-        }
-    }
 
     pub fn overflow_page(&self) -> Option<PageNo> {
         match self {
