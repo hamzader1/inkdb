@@ -77,7 +77,7 @@ impl Optimazer {
                     }
                 }
             }
-            _ => unreachable!(),
+            _ => return Ok(None),
         }
         todo!()
     }
@@ -115,6 +115,21 @@ impl Optimazer {
 
         Ok(None)
     }
+
+    /*
+     *
+     *
+     * We use this function to remove repeated calculations for example
+     * Expr: ((6 + 4) * (8 - 3) - 10) / 2;
+     * Evaluate to 20.
+     *
+     * as well as this help us to decide if we can use Index based search
+     * if this returns OK
+     * we are sure that the expression has no non-constant variables like variables from columns
+     *
+     *
+     */
+
     fn try_cast_to_const_expr(arena: &ExprArena, index: usize) -> Option<Value<'static>> {
         Eval::eval(arena, index, None).ok()
     }

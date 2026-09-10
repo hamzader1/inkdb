@@ -25,29 +25,70 @@ pub enum BTreeCellType {
 
 #[derive(Debug)]
 pub struct TableInteriorCell {
-    left_child: PageNo,
-    rowid_boundary: u64,
+    pub left_child: PageNo,
+    pub rowid_boundary: u64,
 }
 
 #[derive(Debug)]
 pub struct TableLeafCell {
-    payload_len: u64,
-    row_id: u64,
-    local_payload_range: Range<usize>,
-    first_overflow_page: Option<PageNo>,
+    pub payload_len: u64,
+    pub row_id: u64,
+    pub local_payload_range: Range<usize>,
+    pub first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexInteriorCell {
-    left_child: PageNo,
-    payload_len: u64,
-    payload: Range<usize>,
-    first_overflow_page: Option<PageNo>,
+    pub left_child: PageNo,
+    pub payload_len: u64,
+    pub payload: Range<usize>,
+    pub first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexLeafCell {
-    payload_len: u64,
-    payload: Range<usize>,
-    first_overflow_page: Option<PageNo>,
+    pub payload_len: u64,
+    pub payload: Range<usize>,
+    pub first_overflow_page: Option<PageNo>,
+}
+impl BTreeCell {
+    pub fn with_index_leaf_cell<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&IndexLeafCell) -> R,
+    {
+        match self {
+            Self::IndexLeaf(x) => f(x),
+            _ => unreachable!("expected BTreeCell::IndexLeaf, but found {}", self),
+        }
+    }
+
+    pub fn with_table_leaf_cell<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&TableLeafCell) -> R,
+    {
+        match self {
+            Self::TableLeaf(x) => f(x),
+            _ => unreachable!("expected BTreeCell::TableLeaf, but found {}", self),
+        }
+    }
+
+    pub fn with_table_interior_cell<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&TableInteriorCell) -> R,
+    {
+        match self {
+            Self::TableInterior(x) => f(x),
+            _ => unreachable!("expected BTreeCell::TableInterior, but found {}", self),
+        }
+    }
+
+    pub fn with_index_interior_cell<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&IndexInteriorCell) -> R,
+    {
+        match self {
+            Self::IndexInterior(x) => f(x),
+            _ => unreachable!("expected BTreeCell::IndexInterior, but found {}", self),
+        }
+    }
 }
 // TODO: REMOVE FUCKING OFFSET HANDLING BY THE FUCKING CELL
 impl TableInteriorCell {
@@ -248,6 +289,13 @@ impl Encode {
         v.extend_from_slice(&buff[..byte_needed_for_row_id]);
         v
     }
+
+    pub fn encode_index_interior_cell(page_no: PageNo, bytes: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&u32::to_be_bytes(page_no));
+        v.extend_from_slice(bytes);
+        v
+    }
 }
 
 impl From<&BTreeCell> for Vec<u8> {
@@ -258,5 +306,18 @@ impl From<&BTreeCell> for Vec<u8> {
             }
             _ => todo!("Auto encode is not implemented for other cells yet"),
         }
+    }
+}
+
+impl std::fmt::Display for BTreeCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            BTreeCell::TableInterior(_) => "TableInterior",
+            BTreeCell::TableLeaf(_) => "TableLeaf",
+            BTreeCell::IndexInterior(_) => "IndexInterior",
+            BTreeCell::IndexLeaf(_) => "IndexLeaf",
+        };
+
+        write!(f, "{}", name)
     }
 }

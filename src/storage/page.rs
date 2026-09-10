@@ -6,12 +6,15 @@ use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
-use crate::record::Value;
 use crate::record::tuple::Tuple;
 use crate::record::tuple::{self, DecodedValue, decode_sqltype, into_borrowed, into_owned};
+use crate::record::{SqlType, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
+use crate::varint::encode_varint;
+use crate::vfs::file::SqliteFile;
 use PageField::*;
 use std::marker::PhantomData;
+use std::range::Range;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
@@ -518,33 +521,76 @@ impl<'p> BTreePageMut<'p> {
         }
     }
 
+    // pub fn cell_span(&self, cell_ptr: u16) -> Result<std::ops::Range<usize>, SqliteError> {
+    //     let start = cell_ptr as usize;
+    //     let cell = self.parse_cell_at(cell_ptr)?;
+    //     let end = if self.header.page_kind == BTreePageType::InteriorTable {
+    //         // left child pointer + rowid varint, no payload
+    //         start
+    //             + LEFT_CHILD_POINTER_SIZE
+    //             + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
+    //     } else {
+    //         // payload_range() covers the LOCAL payload only, the overflow page
+    //         // pointer that follows it belongs to the cell as well
+    //         cell.payload_range().end
+    //             + if cell.overflow_page().is_some() {
+    //                 OVERFLOW_POINTER_SIZE
+    //             } else {
+    //                 0
+    //             }
+    //     };
+    //     debug_assert!(
+    //         end > start && end <= self.usable_size,
+    //         "cell span out of page bounds",
+    //     );
+    //     Ok(start..end)
+    // }
+
     /// The exact byte span the cell occupies on this page.
     ///
     /// Cell pointers are stored in KEY order while the bodies are laid out in
     /// ALLOCATION order, so the distance to the next pointer says nothing about
     /// a cell's length: the span has to be derived from the cell itself.
-    pub fn cell_span(&self, cell_ptr: u16) -> Result<std::ops::Range<usize>, SqliteError> {
+    pub fn cell_span(&self, cell_ptr: u16) -> SqliteResult<std::ops::Range<usize>> {
         let start = cell_ptr as usize;
         let cell = self.parse_cell_at(cell_ptr)?;
-        let end = if self.header.page_kind == BTreePageType::InteriorTable {
-            // left child pointer + rowid varint, no payload
-            start
-                + LEFT_CHILD_POINTER_SIZE
-                + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
-        } else {
-            // payload_range() covers the LOCAL payload only, the overflow page
-            // pointer that follows it belongs to the cell as well
-            cell.payload_range().end
-                + if cell.overflow_page().is_some() {
-                    OVERFLOW_POINTER_SIZE
-                } else {
-                    0
-                }
+        let end = match self.page_type() {
+            BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
+                c.local_payload_range.end
+                    + if cell.overflow_page().is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
+            }),
+            BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
+                c.payload.end
+                    + if c.first_overflow_page.is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
+            }),
+
+            BTreePageType::InteriorTable => cell.with_table_interior_cell(|c| {
+                start + LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary)
+            }),
+
+            BTreePageType::InteriorIndex => cell.with_index_interior_cell(|c| {
+                /* Start to cell.payload.start covers
+                 *
+                 * LEFT_CHILD_POINTER_SIZE
+                 * encode_varint(&mut [0u8; 9], c.payload_len)
+                 *
+                 */
+                c.payload.end
+                    + if c.first_overflow_page.is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
+            }),
         };
-        debug_assert!(
-            end > start && end <= self.usable_size,
-            "cell span out of page bounds",
-        );
         Ok(start..end)
     }
 
@@ -797,6 +843,8 @@ impl<'p> BTreePageMut<'p> {
     pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
         // cell pointers are absolute page offsets, so a raw copy is only valid
         // between pages that keep their btree header at the same offset
+        //
+        // TODO: Will this hold if we split sqlite_master BTree?
         debug_assert!(
             self.header_offset == other.header_offset,
             "copy_data_from between pages with different header offsets",
@@ -994,6 +1042,11 @@ impl<'p> BTreePageMut<'p> {
         let cell_sp = self.cell_span(self.as_ref()?.get_cell_offset(cell_index)?)?;
         Ok(cell_sp.end - cell_sp.start)
     }
+    pub fn cell_size_by_offset(&self, offset: u16) -> SqliteResult<usize> {
+        assert!((offset as usize) < self.usable_size);
+        let cell_sp = self.cell_span(offset)?;
+        Ok(cell_sp.end - cell_sp.start)
+    }
 
     pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
@@ -1015,7 +1068,27 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
-    // TODO: Temporary until we create a macro update
+    pub fn cell_key<F: SqliteFile>(
+        &self,
+        cell: &BTreeCell,
+        pager: &mut Pager<F>,
+    ) -> SqliteResult<Value<'static>> {
+        match cell {
+            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
+            BTreeCell::TableInterior(table_interior) => {
+                Ok(table_interior.rowid_boundary.into_sqlite_value())
+            }
+            BTreeCell::IndexInterior(index_interior) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+            BTreeCell::IndexLeaf(index_leaf) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+        }
+    }
+
     // TODO: Remove Result<T,E>
     pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
         // BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
