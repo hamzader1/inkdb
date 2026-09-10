@@ -6,6 +6,7 @@ use super::page::BTreePageOps;
 use super::page::BTreePageRef;
 use super::page::InsertionState;
 use super::page::PageField::*;
+use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::SqliteResult;
@@ -23,9 +24,41 @@ use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
 use crate::util::sqlite_assert_with_corrupt_err;
 
-pub const DATABASE_SIZE_IN_PAGES_OFFSET: usize = 28;
-pub const DATABASE_SIZE_IN_PAGES_SIZE: usize = 4;
 pub type CellIndex = u16;
+
+/// Prefix comparison of an index entry `[key…, rowid]` against a seek
+/// target (`Tuple(key…)`). Only the overlapping positions decide: extra
+/// trailing entry elements (the rowid) never participate unless the target
+/// covers them too.
+/// Returns the ordering plus whether the target covered the whole entry —
+/// a full hit is a unique entry, a prefix hit sits inside a duplicate run.
+fn compare_index_entry(entry: &[Value], target: &Value) -> Result<(Ordering, bool), SqliteError> {
+    let keys = match target {
+        Value::Tuple(cols) => cols,
+        _ => {
+            return Err(SqliteError::Internal(
+                "index seek target must be a tuple of key columns".into(),
+            ));
+        }
+    };
+    if keys.len() > entry.len() {
+        return Err(SqliteError::Internal(format!(
+            "index seek target has {} columns but entries hold {}",
+            keys.len(),
+            entry.len()
+        )));
+    }
+    for (stored, wanted) in entry.iter().zip(keys.iter()) {
+        if stored == wanted {
+            continue;
+        }
+        if stored > wanted {
+            return Ok((Ordering::Greater, false));
+        }
+        return Ok((Ordering::Less, false));
+    }
+    Ok((Ordering::Equal, keys.len() == entry.len()))
+}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CursorState {
@@ -355,23 +388,12 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                     l = m + 1;
                 }
             } else {
-                let mut payload = page.record_of(&cell, pager)?;
-                payload.pop().ok_or(SqliteError::Internal(
-                    "index interior cell has an empty payload".into(),
-                ))?;
-                let tuple = Value::Tuple(payload);
-                if &tuple == target {
-                    /*
-                     *
-                     * This fixed the bug of:
-                     * Imagine we have an index on X column as this <10, 10, 20, 20, 20, 30, 40>
-                     * without this, we will return the FIRST FOUND
-                     * so we lost (everything == TARGET) < m
-                     *
-                     */
+                let entry = page.record_of(&cell, pager)?;
+                let (ord, _full) = compare_index_entry(&entry, target)?;
+                if ord == Ordering::Equal {
                     saw_eq = true;
                     r = m;
-                } else if &tuple > target {
+                } else if ord == Ordering::Greater {
                     r = m;
                 } else {
                     l = m + 1;
@@ -428,9 +450,22 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             let value = if page.page_type() == BTreePageType::LeafTable {
                 page.cell(m)?.row_id().into_sqlite_value()
             } else {
-                let mut tuple = page.record_of_cell(m, pager)?;
-                let _row_id = tuple.pop();
-                Value::Tuple(tuple)
+                let entry = page.record_of_cell(m, pager)?;
+                let (ord, full) = compare_index_entry(&entry, target)?;
+                if ord == Ordering::Equal {
+                    if full {
+                        return Ok((true, m));
+                    }
+                    found = Some(m);
+                    r = m;
+                    continue;
+                }
+                if ord == Ordering::Greater {
+                    r = m;
+                } else {
+                    l = m + 1;
+                }
+                continue;
             };
 
             if &value == target {
@@ -515,7 +550,9 @@ pub struct SplitMetadata {
     pub left_page: u32,
     pub right_page: u32,
     pub boundary: Value<'static>,
+    pub boundary_bytes: Option<Vec<u8>>,
     pub right_max: Value<'static>,
+    pub right_max_bytes: Option<Vec<u8>>,
 }
 impl SplitMetadata {
     pub fn new(
@@ -529,6 +566,8 @@ impl SplitMetadata {
             right_page,
             boundary,
             right_max,
+            boundary_bytes: None,
+            right_max_bytes: None,
         }
     }
 }
@@ -618,20 +657,36 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let mut right_page_guard = self.pager.get_mut(split_metadata.right_page)?;
         let right_page = self.page_as_mut(split_metadata.right_page, &mut right_page_guard)?;
 
+        let is_index = right_page.as_ref()?.is_index();
         if let Some(path) = self.cursor.stack.pop() {
             let parent_page_as_ref = self.page_as_ref(path.page_no, &path.guard)?;
             let index = self
                 .cursor
                 .binary_search_interior(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
                 .cell_index();
-            let left_page_payload = Encode::encode_table_interior_cell(
-                left_page.page_no,
-                split_metadata.boundary.get_int()? as _,
-            );
-            let right_page_payload = Encode::encode_table_interior_cell(
-                right_page.page_no,
-                split_metadata.right_max.get_int()? as _,
-            );
+            // At this point we are not longer dealing with Leaves
+            let left_page_payload = if is_index {
+                Encode::encode_index_interior_cell(
+                    left_page.page_no,
+                    split_metadata.boundary_bytes.as_ref().unwrap(),
+                )
+            } else {
+                Encode::encode_table_interior_cell(
+                    left_page.page_no,
+                    split_metadata.boundary.get_int()? as _,
+                )
+            };
+            let right_page_payload = if is_index {
+                Encode::encode_index_interior_cell(
+                    right_page.page_no,
+                    split_metadata.right_max_bytes.as_ref().unwrap(),
+                )
+            } else {
+                Encode::encode_table_interior_cell(
+                    right_page.page_no,
+                    split_metadata.right_max.get_int()? as _,
+                )
+            };
 
             let mut guard = self.pager.get_mut(path.page_no)?;
             let mut parent_page_as_mut = self.page_as_mut(path.page_no, &mut guard)?;
@@ -681,8 +736,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
             let mut new_left_page = BTreePageMut::new_from_raw_bytes(
                 new_left_page_no,
-                BTreePageType::LeafTable,
-                new_left_page_guard.bytes_as_mut().unwrap(),
+                left_page.page_type(),
+                new_left_page_guard.bytes_as_mut_unchecked(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
@@ -694,16 +749,22 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let left_last_ptr = new_left_page.cell_pointers.last().copied().ok_or_else(|| {
                 SqliteError::Internal("root split with an empty left leaf".into())
             })?;
-            let rowid = new_left_page.parse_cell_at(left_last_ptr)?.row_id();
+            let key =
+                new_left_page.cell_key(&new_left_page.parse_cell_at(left_last_ptr)?, self.pager)?;
             let right_last_ptr = right_page.cell_pointers.last().copied().ok_or_else(|| {
                 SqliteError::Internal("root split with an empty right leaf".into())
             })?;
-            let right_max = right_page.parse_cell_at(right_last_ptr)?.row_id();
+            let right_max =
+                right_page.cell_key(&right_page.parse_cell_at(right_last_ptr)?, self.pager)?;
 
             let mut root = BTreePageMut::new_from_raw_bytes(
                 left_page.page_no,
-                BTreePageType::InteriorTable,
-                left_page_guard.bytes_as_mut().unwrap(),
+                (if is_index {
+                    BTreePageType::InteriorIndex
+                } else {
+                    BTreePageType::InteriorTable
+                }),
+                left_page_guard.bytes_as_mut_unchecked(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
@@ -711,14 +772,20 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             root.header.right_most_ptr = Some(right_page.page_no);
             root.update_bytes([RightMostPointer]);
 
-            let left_child_payload =
-                Encode::encode_table_interior_cell(new_left_page_no, rowid as _);
+            let left_child_payload = if !is_index {
+                Encode::encode_table_interior_cell(new_left_page_no, key.get_int()? as _)
+            } else {
+                Encode::encode_index_interior_cell(
+                    new_left_page_no,
+                    &split_metadata.boundary_bytes.unwrap(),
+                )
+            };
             root.insert_cell(&left_child_payload, 0)?;
             Ok(SplitMetadata::new(
                 new_left_page_no,
                 right_page.page_no,
-                rowid.into_sqlite_value(),
-                right_max.into_sqlite_value(),
+                key,
+                right_max,
             ))
         }
     }
@@ -726,26 +793,33 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
         let mut left_page_guard = self.pager.get_mut(page_no)?;
         let mut left_page = self.page_as_mut(page_no, &mut left_page_guard)?;
+        let is_index = left_page.as_ref()?.is_index();
 
-        debug_assert!(
-            left_page.cell_pointers.len() >= 2,
-            "cannot split a leaf page holding fewer than two cells",
-        );
-        // TODO add freelist check
+        if !is_index {
+            debug_assert!(
+                left_page.cell_pointers.len() >= 2,
+                "cannot split a leaf table page holding fewer than two cells",
+            )
+        } else {
+            debug_assert!(
+                left_page.cell_pointers.len() >= 3,
+                "cannot split a leaf index page holding fewer than three cells",
+            )
+        }
         let right_page_no = self.allocate_page()?;
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
         let mut right_page = BTreePageMut::new_from_raw_bytes(
             right_page_no,
             left_page.header.page_kind,
-            right_page_guard.bytes_as_mut().unwrap(),
+            right_page_guard.bytes_as_mut_unchecked(),
             self.pager.metadata.page_size,
             self.pager.metadata.usable_size,
         );
         let split_at = left_page.cell_pointers.len() / 2;
         let right_cell_pointers = left_page.cell_pointers.split_off(split_at);
         let mut left_cells: Vec<Vec<u8>> = Vec::with_capacity(left_page.cell_pointers.len());
-        for i in 0..left_page.cell_pointers.len() {
-            let span = left_page.cell_span(left_page.cell_pointers[i])?;
+        for &cell_offset in left_page.cell_pointers.iter() {
+            let span = left_page.cell_span(cell_offset)?;
             left_cells.push(left_page.bytes[span].to_vec());
         }
         let mut right_cells: Vec<&[u8]> = Vec::with_capacity(right_cell_pointers.len());
@@ -787,18 +861,31 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             right_page.cell_pointers.last().copied().ok_or_else(|| {
                 SqliteError::Internal("right leaf page is empty after split".into())
             })?;
-        let metadata = SplitMetadata::new(
+
+        let left_cell = left_page.parse_cell_at(left_last_ptr)?;
+        let left_cell_key = left_page.cell_key(&left_cell, self.pager)?;
+        let right_cell = right_page.parse_cell_at(right_last_ptr)?;
+        let right_cell_key = right_page.cell_key(&right_cell, self.pager)?;
+
+        let mut metadata = SplitMetadata::new(
             left_page.page_no,
             right_page.page_no,
-            left_page
-                .parse_cell_at(left_last_ptr)?
-                .row_id()
-                .into_sqlite_value(),
-            right_page
-                .parse_cell_at(right_last_ptr)?
-                .row_id()
-                .into_sqlite_value(),
+            left_cell_key,
+            right_cell_key,
         );
+
+        if is_index {
+            let left_cell_span = left_page.cell_span(left_last_ptr)?;
+            let left_cell_bytes = left_page.bytes[left_cell_span].to_vec();
+            let right_cell_span = right_page.cell_span(right_last_ptr)?;
+            let right_cell_bytes = right_page.bytes[right_cell_span].to_vec();
+            metadata.boundary_bytes = Some(left_cell_bytes);
+            metadata.right_max_bytes = Some(right_cell_bytes);
+
+            // remove the cell
+            debug_assert_eq!(left_page.cell_pointers.last(), Some(&left_last_ptr));
+            left_page.remove_cell(left_page.no_of_cells() - 1);
+        }
 
         Ok(metadata)
     }
@@ -807,6 +894,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // ORIGINAL PAGE
         let mut interior_page_guard = self.pager.get_mut(page_no)?;
         let mut interior_page = self.page_as_mut(page_no, &mut interior_page_guard)?;
+        let is_index = interior_page.as_ref()?.is_index();
         // one cell would make the pop below panic, two would leave the new page
         // without a single cell
         debug_assert!(
@@ -820,8 +908,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
         let mut new_page = BTreePageMut::new_from_raw_bytes(
             new_page_no,
-            BTreePageType::InteriorTable,
-            new_page_guard.bytes_as_mut().unwrap(),
+            interior_page.header.page_kind,
+            new_page_guard.bytes_as_mut_unchecked(),
             self.pager.metadata.page_size,
             self.pager.metadata.usable_size,
         );
@@ -832,6 +920,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             .pop()
             .ok_or_else(|| SqliteError::Internal("interior split left half is empty".into()))?;
         let cell_to_be_promoted = interior_page.parse_cell_at(promoted_cell_offset)?;
+        let cell_to_be_promoted_key = interior_page.cell_key(&cell_to_be_promoted, self.pager)?;
+
+        let cell_range = interior_page.cell_span(promoted_cell_offset)?;
+        let cell_to_be_promoted_bytes: Vec<u8> =
+            interior_page.bytes[(cell_range.start + 4)..cell_range.end].to_owned();
 
         // stage both halves before writing anything, both are read from the
         // bytes of the original page
@@ -867,10 +960,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         }
         // PROMOTE KEY STAGE
 
-        let promoted_cell_payload =
-            Encode::encode_table_interior_cell(new_page.page_no, cell_to_be_promoted.row_id() as _);
-        let promoted_key = cell_to_be_promoted.row_id().into_sqlite_value();
-
+        let promoted_cell_payload = if is_index {
+            Encode::encode_index_interior_cell(new_page.page_no, &cell_to_be_promoted_bytes)
+        } else {
+            Encode::encode_table_interior_cell(new_page.page_no, cell_to_be_promoted.row_id() as _)
+        };
+        let promoted_key = cell_to_be_promoted_key;
         if let Some(path) = self.cursor.stack.pop() {
             let mut parent_guard = self.pager.get_mut(path.page_no)?;
             let mut parent_page = self.page_as_mut(path.page_no, &mut parent_guard)?;
@@ -884,8 +979,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 InsertionState::Inserted => Ok(SplitMetadata::new(
                     new_page_no,
                     interior_page.page_no,
+                    promoted_key.clone(),
                     promoted_key,
-                    cell_to_be_promoted.row_id().into_sqlite_value(),
                 )),
                 InsertionState::None => {
                     let split_metadata = self.split_interior(path.page_no)?;
@@ -894,8 +989,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     Ok(SplitMetadata::new(
                         new_page_no,
                         interior_page.page_no,
+                        key.clone(),
                         key,
-                        cell_to_be_promoted.row_id().into_sqlite_value(),
                     ))
                 }
             }
@@ -906,8 +1001,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
             let mut new_right_page = BTreePageMut::new_from_raw_bytes(
                 new_right_page_no,
-                BTreePageType::InteriorTable,
-                new_right_page_guard.bytes_as_mut().unwrap(),
+                interior_page.header.page_kind,
+                new_right_page_guard.bytes_as_mut_unchecked(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
@@ -918,8 +1013,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // SAFE TO USE THE METADATA SINCE ITS CACHED
             let mut root = BTreePageMut::new_from_raw_bytes(
                 interior_page.page_no,
-                BTreePageType::InteriorTable,
-                interior_page_guard.bytes_as_mut().unwrap(),
+                interior_page.header.page_kind,
+                interior_page_guard.bytes_as_mut_unchecked(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
             );
@@ -932,8 +1027,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             Ok(SplitMetadata::new(
                 new_page_no,
                 new_right_page_no,
-                cell_to_be_promoted.row_id().into_sqlite_value(),
-                cell_to_be_promoted.row_id().into_sqlite_value(),
+                promoted_key.clone(),
+                promoted_key,
             ))
         }
     }
