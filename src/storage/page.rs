@@ -6,11 +6,12 @@ use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
-use crate::record::Value;
 use crate::record::tuple::Tuple;
 use crate::record::tuple::{self, DecodedValue, decode_sqltype, into_borrowed, into_owned};
+use crate::record::{SqlType, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::varint::encode_varint;
+use crate::vfs::file::SqliteFile;
 use PageField::*;
 use std::marker::PhantomData;
 use std::range::Range;
@@ -552,15 +553,20 @@ impl<'p> BTreePageMut<'p> {
     /// a cell's length: the span has to be derived from the cell itself.
     pub fn cell_span(&self, cell_ptr: u16) -> SqliteResult<std::ops::Range<usize>> {
         let start = cell_ptr as usize;
-        let cell = self.cell_by_ptr(cell_ptr)?;
+        let cell = self.parse_cell_at(cell_ptr)?;
         let end = match self.page_type() {
             BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
-                c.local_payload_range.end + if cell.overflow_page().is_some() { 4 } else { 0 }
+                c.local_payload_range.end
+                    + if cell.overflow_page().is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
             }),
             BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
                 c.payload.end
                     + if c.first_overflow_page.is_some() {
-                        4
+                        OVERFLOW_POINTER_SIZE
                     } else {
                         0
                     }
@@ -579,7 +585,7 @@ impl<'p> BTreePageMut<'p> {
                  */
                 c.payload.end
                     + if c.first_overflow_page.is_some() {
-                        4
+                        OVERFLOW_POINTER_SIZE
                     } else {
                         0
                     }
@@ -1036,6 +1042,11 @@ impl<'p> BTreePageMut<'p> {
         let cell_sp = self.cell_span(self.as_ref()?.get_cell_offset(cell_index)?)?;
         Ok(cell_sp.end - cell_sp.start)
     }
+    pub fn cell_size_by_offset(&self, offset: u16) -> SqliteResult<usize> {
+        assert!((offset as usize) < self.usable_size);
+        let cell_sp = self.cell_span(offset)?;
+        Ok(cell_sp.end - cell_sp.start)
+    }
 
     pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
         let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
@@ -1057,7 +1068,27 @@ impl<'p> BTreePageMut<'p> {
         Ok(())
     }
 
-    // TODO: Temporary until we create a macro update
+    pub fn cell_key<F: SqliteFile>(
+        &self,
+        cell: &BTreeCell,
+        pager: &mut Pager<F>,
+    ) -> SqliteResult<Value<'static>> {
+        match cell {
+            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
+            BTreeCell::TableInterior(table_interior) => {
+                Ok(table_interior.rowid_boundary.into_sqlite_value())
+            }
+            BTreeCell::IndexInterior(index_interior) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+            BTreeCell::IndexLeaf(index_leaf) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+        }
+    }
+
     // TODO: Remove Result<T,E>
     pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
         // BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
