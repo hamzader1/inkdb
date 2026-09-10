@@ -289,6 +289,13 @@ impl Encode {
         v.extend_from_slice(&buff[..byte_needed_for_row_id]);
         v
     }
+
+    pub fn encode_index_interior_cell(page_no: PageNo, bytes: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&u32::to_be_bytes(page_no));
+        v.extend_from_slice(bytes);
+        v
+    }
 }
 
 impl From<&BTreeCell> for Vec<u8> {
