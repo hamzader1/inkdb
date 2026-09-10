@@ -13,6 +13,7 @@ use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::varint::encode_varint;
 use PageField::*;
 use std::marker::PhantomData;
+use std::range::Range;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
@@ -519,88 +520,72 @@ impl<'p> BTreePageMut<'p> {
         }
     }
 
+    // pub fn cell_span(&self, cell_ptr: u16) -> Result<std::ops::Range<usize>, SqliteError> {
+    //     let start = cell_ptr as usize;
+    //     let cell = self.parse_cell_at(cell_ptr)?;
+    //     let end = if self.header.page_kind == BTreePageType::InteriorTable {
+    //         // left child pointer + rowid varint, no payload
+    //         start
+    //             + LEFT_CHILD_POINTER_SIZE
+    //             + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
+    //     } else {
+    //         // payload_range() covers the LOCAL payload only, the overflow page
+    //         // pointer that follows it belongs to the cell as well
+    //         cell.payload_range().end
+    //             + if cell.overflow_page().is_some() {
+    //                 OVERFLOW_POINTER_SIZE
+    //             } else {
+    //                 0
+    //             }
+    //     };
+    //     debug_assert!(
+    //         end > start && end <= self.usable_size,
+    //         "cell span out of page bounds",
+    //     );
+    //     Ok(start..end)
+    // }
+
     /// The exact byte span the cell occupies on this page.
     ///
     /// Cell pointers are stored in KEY order while the bodies are laid out in
     /// ALLOCATION order, so the distance to the next pointer says nothing about
     /// a cell's length: the span has to be derived from the cell itself.
-    pub fn cell_span(&self, cell_ptr: u16) -> Result<std::ops::Range<usize>, SqliteError> {
-        let start = cell_ptr as usize;
-        let cell = self.parse_cell_at(cell_ptr)?;
-        let end = if self.header.page_kind == BTreePageType::InteriorTable {
-            // left child pointer + rowid varint, no payload
-            start
-                + LEFT_CHILD_POINTER_SIZE
-                + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
-        } else {
-            // payload_range() covers the LOCAL payload only, the overflow page
-            // pointer that follows it belongs to the cell as well
-            cell.payload_range().end
-                + if cell.overflow_page().is_some() {
-                    OVERFLOW_POINTER_SIZE
-                } else {
-                    0
-                }
-        };
-        debug_assert!(
-            end > start && end <= self.usable_size,
-            "cell span out of page bounds",
-        );
-        Ok(start..end)
-    }
-
-    fn cell_span_beta(&self, cell_ptr: u16) -> SqliteResult<()> {
+    pub fn cell_span(&self, cell_ptr: u16) -> SqliteResult<std::ops::Range<usize>> {
         let start = cell_ptr as usize;
         let cell = self.cell_by_ptr(cell_ptr)?;
         let end = match self.page_type() {
-            BTreePageType::LeafTable => {
-                start
-                    + LEFT_CHILD_POINTER_SIZE
-                    + encode_varint(
-                        &mut [0u8; 9],
-                        cell.with_table_leaf_cell(|cell| Some(cell.row_id)).unwrap(),
-                    )
-            }
-            BTreePageType::LeafIndex => {
-                encode_varint(
-                    &mut [0u8; 9],
-                    cell.with_index_leaf_cell(|c| Some(c.payload_len)).unwrap(),
-                ) + cell
-                    .with_index_leaf_cell(|c| {
-                        Some(
-                            c.payload.end
-                                + if c.first_overflow_page.is_some() {
-                                    4
-                                } else {
-                                    0
-                                },
-                        )
-                    })
-                    .unwrap()
-            }
+            BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
+                c.local_payload_range.end + if cell.overflow_page().is_some() { 4 } else { 0 }
+            }),
+            BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
+                c.payload.end
+                    + if c.first_overflow_page.is_some() {
+                        4
+                    } else {
+                        0
+                    }
+            }),
 
-            BTreePageType::InteriorTable => cell
-                .with_table_interior_cell(|c| {
-                    Some(LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary))
-                })
-                .unwrap(),
+            BTreePageType::InteriorTable => cell.with_table_interior_cell(|c| {
+                start + LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary)
+            }),
 
-            BTreePageType::InteriorIndex => cell
-                .with_index_interior_cell(|c| {
-                    Some(
-                        LEFT_CHILD_POINTER_SIZE
-                            + encode_varint(&mut [0u8; 9], c.payload_len)
-                            + c.payload.end
-                            + if c.first_overflow_page.is_some() {
-                                4
-                            } else {
-                                0
-                            },
-                    )
-                })
-                .unwrap(),
+            BTreePageType::InteriorIndex => cell.with_index_interior_cell(|c| {
+                /* Start to cell.payload.start covers
+                 *
+                 * LEFT_CHILD_POINTER_SIZE
+                 * encode_varint(&mut [0u8; 9], c.payload_len)
+                 *
+                 */
+                c.payload.end
+                    + if c.first_overflow_page.is_some() {
+                        4
+                    } else {
+                        0
+                    }
+            }),
         };
-        Ok(())
+        Ok(start..end)
     }
 
     pub fn cell_bytes_as_ref(&self, cell_index: u16) -> SqliteResult<&[u8]> {
