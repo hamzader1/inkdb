@@ -550,6 +550,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     pub fn search(&mut self, target: Value) -> SqliteResult<SeekResult> {
         self.cursor.seek(self.pager, target)
     }
+    /*
+     * TODO: REMOVE THIS
+     */
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> SqliteResult<()> {
         self.cursor.next(self.pager)
     }
@@ -732,7 +736,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
         let mut right_page = BTreePageMut::new_from_raw_bytes(
             right_page_no,
-            BTreePageType::LeafTable,
+            left_page.header.page_kind,
             right_page_guard.bytes_as_mut().unwrap(),
             self.pager.metadata.page_size,
             self.pager.metadata.usable_size,
