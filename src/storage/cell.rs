@@ -50,44 +50,44 @@ pub struct IndexLeafCell {
     pub first_overflow_page: Option<PageNo>,
 }
 impl BTreeCell {
-    pub fn with_index_leaf_cell<F, R>(&self, f: F) -> Option<R>
+    pub fn with_index_leaf_cell<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&IndexLeafCell) -> Option<R>,
+        F: FnOnce(&IndexLeafCell) -> R,
     {
-        if let Self::IndexLeaf(x) = self {
-            return f(x);
+        match self {
+            Self::IndexLeaf(x) => f(x),
+            _ => unreachable!("expected BTreeCell::IndexLeaf, but found {}", self),
         }
-        None
     }
 
-    pub fn with_table_leaf_cell<F, R>(&self, f: F) -> Option<R>
+    pub fn with_table_leaf_cell<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&TableLeafCell) -> Option<R>,
+        F: FnOnce(&TableLeafCell) -> R,
     {
-        if let Self::TableLeaf(x) = self {
-            return f(x);
+        match self {
+            Self::TableLeaf(x) => f(x),
+            _ => unreachable!("expected BTreeCell::TableLeaf, but found {}", self),
         }
-        None
     }
 
-    pub fn with_table_interior_cell<F, R>(&self, f: F) -> Option<R>
+    pub fn with_table_interior_cell<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&TableInteriorCell) -> Option<R>,
+        F: FnOnce(&TableInteriorCell) -> R,
     {
-        if let Self::TableInterior(x) = self {
-            return f(x);
+        match self {
+            Self::TableInterior(x) => f(x),
+            _ => unreachable!("expected BTreeCell::TableInterior, but found {}", self),
         }
-        None
     }
 
-    pub fn with_index_interior_cell<F, R>(&self, f: F) -> Option<R>
+    pub fn with_index_interior_cell<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&IndexInteriorCell) -> Option<R>,
+        F: FnOnce(&IndexInteriorCell) -> R,
     {
-        if let Self::IndexInterior(x) = self {
-            return f(x);
+        match self {
+            Self::IndexInterior(x) => f(x),
+            _ => unreachable!("expected BTreeCell::IndexInterior, but found {}", self),
         }
-        None
     }
 }
 // TODO: REMOVE FUCKING OFFSET HANDLING BY THE FUCKING CELL
@@ -299,5 +299,18 @@ impl From<&BTreeCell> for Vec<u8> {
             }
             _ => todo!("Auto encode is not implemented for other cells yet"),
         }
+    }
+}
+
+impl std::fmt::Display for BTreeCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            BTreeCell::TableInterior(_) => "TableInterior",
+            BTreeCell::TableLeaf(_) => "TableLeaf",
+            BTreeCell::IndexInterior(_) => "IndexInterior",
+            BTreeCell::IndexLeaf(_) => "IndexLeaf",
+        };
+
+        write!(f, "{}", name)
     }
 }
