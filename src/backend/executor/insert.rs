@@ -13,37 +13,67 @@ pub struct Insert<'a, F: SqliteFile> {
     values: Vec<Vec<Value<'a>>>,
 
     #[allow(unused)]
-    hint: Option<u64>,
+    hint: Option<Value<'static>>,
+    pub is_index: bool,
     _phantom: std::marker::PhantomData<F>,
 }
 
 impl<'a, F: SqliteFile> Insert<'a, F> {
-    pub fn new(root_page: PageNo, values: Vec<Vec<Value<'a>>>, hint: Option<u64>) -> Self {
+    pub fn new(
+        root_page: PageNo,
+        values: Vec<Vec<Value<'a>>>,
+        hint: Option<Value<'static>>,
+    ) -> Self {
         Self {
             root_page,
             values,
             hint,
+            is_index: false,
             _phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn next(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&'_ self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         let mut btree = BTree::new(self.root_page, pager);
-        btree.seek_into_last()?;
+        dbg!(self.root_page);
+        if !self.is_index {
+            btree.seek_into_last()?;
+        } else {
+            btree.seek(Value::Tuple(self.values[0].clone()))?;
+        }
+
         let is_empty = btree.current_page_header_unchecked()?.no_of_cells == 0;
         let (page_no, cell_idx) = btree.cursor.last_visited_entry_unchecked();
-        let next_row_id = if is_empty {
-            1
+        if !self.is_index {
+            //
+            //  if table
+            let next_row_id = if is_empty {
+                1
+            } else {
+                btree.with_page_ref::<_, u64>(page_no, |page| Ok(page.cell(cell_idx)?.row_id()))?
+                    + 1
+            };
+            self.insert_batch(&mut btree, next_row_id.into_sqlite_value(), false)?;
         } else {
-            btree.with_page_ref::<_, u64>(page_no, |page| Ok(page.cell(cell_idx)?.row_id()))? + 1
-        };
-        self.insert_batch(&mut btree, next_row_id)?;
+            self.insert_batch(
+                &mut btree,
+                Value::Tuple(self.values[0].iter().map(|c| c.into_owned()).collect()),
+                true,
+            )?;
+        }
+        //
+        //
         Ok(None)
     }
-    fn insert_batch(&self, btree: &mut BTree<F>, mut row_id: u64) -> Result<(), SqliteError> {
+    fn insert_batch(
+        &self,
+        btree: &mut BTree<F>,
+        mut key: Value<'static>,
+        is_index: bool,
+    ) -> Result<(), SqliteError> {
+        let mut header = Vec::<u8>::new();
+        let mut payload = Vec::<u8>::new();
         for inner_values in self.values.iter() {
-            let mut header = Vec::<u8>::new();
-            let mut payload = Vec::<u8>::new();
             let mut buffer = [0u8; 9];
             for value in inner_values.iter() {
                 let data_type = Tuple::encode_sqltype(value, &mut payload);
@@ -57,9 +87,16 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
                 header.insert(0, *byte);
             }
             header.extend_from_slice(&payload);
-            let cell_payload = Encode::encode_table_leaf_cell(header, row_id as _);
-            btree.insert(row_id.into_sqlite_value(), cell_payload)?;
-            row_id += 1;
+            if !is_index {
+                let cell_payload =
+                    Encode::encode_table_leaf_cell(header.clone(), key.get_int()? as _);
+                key = Value::Integer(key.get_int()? + 1i64);
+                btree.insert(key.clone(), cell_payload)?;
+            } else {
+                btree.insert(key.clone(), Encode::encode_index_leaf_cell(header.clone()))?;
+            }
+            header.clear();
+            payload.clear();
         }
         Ok(())
     }

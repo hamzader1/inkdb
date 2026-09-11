@@ -33,11 +33,7 @@ impl<F: SqliteFile> TableScan<F> {
     }
 }
 impl<F: SqliteFile> TableScan<F> {
-    pub fn next(
-        &mut self,
-        pager: &mut Pager<F>,
-        // arena: &ExprArena,
-    ) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         if self.is_done {
             return Ok(None);
         }

@@ -1,7 +1,8 @@
 use crate::backend::analyze::{ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
+use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::record::Value;
+use crate::record::{SqlType, Value};
 use crate::storage::btree::{BTree, page_as_mut_with_pager};
 use crate::storage::page::{BTreePageMut, BTreePageType};
 use crate::vfs::file::SqliteFile;
@@ -14,12 +15,14 @@ pub struct CreateTable {
     meta: ResolvedCreateTableQuery,
 }
 #[derive(Debug)]
-pub struct CreateIndex {
+pub struct CreateIndex<F: SqliteFile> {
+    child: Box<Plan<F>>,
     index_root_page: u32,
     col_idx: usize, // todo: remake usize -> Vec::<usize>;
 }
-impl CreateIndex {
+impl<F: SqliteFile> CreateIndex<F> {
     pub fn new(
+        child: Box<Plan<F>>,
         meta: ResolvedCreateIndexQuery,
         pager: &mut Pager<impl SqliteFile>,
     ) -> Result<Self, SqliteError> {
@@ -45,11 +48,19 @@ impl CreateIndex {
         let insert = Insert::new(1, vec![row.to_vec()], None);
         insert.next(pager)?;
         Ok(Self {
+            child,
             index_root_page: new_page,
             col_idx: meta.column_index,
         })
     }
-    pub fn next(&self, pager: &mut Pager<impl SqliteFile>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+        while let Some(row) = self.child.next(pager, None)? {
+            let record = [row[self.col_idx].clone(), row.key.into_sqlite_value()];
+            let mut insert_plan: Insert<'static, F> =
+                Insert::new(self.index_root_page, vec![record.to_vec()], None);
+            insert_plan.is_index = true;
+            insert_plan.next(pager)?;
+        }
         Ok(None)
     }
 }
