@@ -145,6 +145,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         // forward iteration visit the whole run in order.
         let mut exact = false;
         loop {
+            dbg!(page_no);
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
             if page.is_leaf() {
@@ -586,7 +587,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             cursor,
         }
     }
-    pub fn search(&mut self, target: Value) -> SqliteResult<SeekResult> {
+    pub fn seek(&mut self, target: Value) -> SqliteResult<SeekResult> {
         self.cursor.seek(self.pager, target)
     }
     /*
@@ -605,9 +606,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let mut page_guard = self.pager.get_mut(page_no)?;
         let mut page = self.page_as_mut(page_no, &mut page_guard)?;
-        self.fix_overlow(&mut content)?;
+        // self.fix_overlow(&mut content)?;
         if let InsertionState::Inserted = page.insert_cell(&content, cell_idx)? {
-            dbg!(&page);
             return Ok(());
         } else {
             let meta = self.balance(page_no)?;
@@ -951,6 +951,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         new_page.update_bytes([RightMostPointer]);
 
+        // The original page keeps the RIGHT half: its right-most subtree is
+        // untouched, so its RMP must survive the reset. Without this the
+        // page keeps the transient 0 and the next descent follows RMP 0.
+        let old_rmp = interior_page.header.right_most_ptr;
         interior_page.reset_for_rebuild();
         for (i, cell) in right_cells.iter().enumerate() {
             if interior_page.insert_cell(cell, i as _)? == InsertionState::None {
@@ -958,6 +962,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     "interior page overflowed during split".into(),
                 ));
             }
+        }
+        if interior_page.header.right_most_ptr != old_rmp {
+            interior_page.header.right_most_ptr = old_rmp;
+            interior_page.update_bytes([RightMostPointer]);
         }
         // PROMOTE KEY STAGE
 
@@ -1162,8 +1170,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // println!("CellId: {}\n###", cell_idx);
 
         let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
-            // println!("BEFORE CALLING REMOVE CELL");
-            // dbg!(&page);
             page.remove_cell(cell_idx)?;
             let is_undeflow = page.is_underflow()?;
             Ok(is_undeflow)
