@@ -841,8 +841,11 @@ impl<'p> BTreePageMut<'p> {
             - (self.header_size()) as usize
     }
 
-    // UNSAFE TO USE THE HEADER
-    // UNSAFE TO CALL UNLESS REWRITE THE HEADER
+    /*
+     * UNSAFE TO:
+     *   CALL UNLESS REWRITE THE HEADER
+     *   USE THE HEADER
+     */
     pub fn clear(&mut self) {
         self.bytes[self.header_offset as usize..self.usable_size].fill(0);
     }
