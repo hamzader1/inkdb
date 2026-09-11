@@ -815,7 +815,11 @@ impl<'p> BTreePageMut<'p> {
         }
 
         // every body is staged, the page can be rebuilt in place now. this also
-        // reclaims the space of the cell being replaced
+        // reclaims the space of the cell being replaced.
+        // The rebuild wipes the right most pointer: interiors get it back
+        // below (leaves ignore it). Without this every separator update on
+        // a parent zeroes its RMP.
+        let rmp = self.header.right_most_ptr;
         self.reset_for_rebuild();
         for (i, cell) in cells.iter().enumerate() {
             if self.insert_cell(cell, i as _)? == InsertionState::None {
@@ -823,6 +827,10 @@ impl<'p> BTreePageMut<'p> {
                     "replace_cell: rebuilt page does not fit (replacement larger than reclaimed space)".into(),
                 ));
             }
+        }
+        if self.header.right_most_ptr != rmp {
+            self.header.right_most_ptr = rmp;
+            self.update_bytes([RightMostPointer]);
         }
         Ok(())
     }
