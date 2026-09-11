@@ -1,7 +1,8 @@
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
 use crate::backend::analyze::{
-    ResolvedDeleteQuery, ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery,
+    ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedInsertQuery, ResolvedQuery,
+    ResolvedSelectQuery,
 };
 use crate::backend::executor::Row;
 use crate::backend::executor::create::{CreateIndex, CreateTable};
@@ -32,7 +33,7 @@ pub enum Plan<F: SqliteFile> {
     Insert(Insert<'static, F>),
     Delete(Delete<F>),
     CreateTable(CreateTable),
-    CreateIndex(CreateIndex),
+    CreateIndex(CreateIndex<F>),
     IndexExactMatch(IndexExactMatch<F>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
@@ -103,9 +104,9 @@ impl<F: SqliteFile> Plan<F> {
                 Plan::TruncateTable(TruncateTable::new(stmt.root_page)),
                 None,
             ))),
-            ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateIndex(
-                CreateIndex::new(stmt, pager)?,
-            ))),
+            ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Resolved(
+                Self::init_create_index_plan(stmt, pager)?,
+            )),
             _ => todo!(),
         }
     }
@@ -162,6 +163,15 @@ impl<F: SqliteFile> Plan<F> {
         }
         let parent = Self::Delete(Delete::new(Box::new(child), resolved_query.root_page));
         Ok(PreparedPlan::new(parent, resolved_query.arena))
+    }
+
+    pub fn init_create_index_plan(
+        resolved_query: ResolvedCreateIndexQuery,
+        pager: &mut Pager<F>,
+    ) -> SqliteResult<PreparedPlan<F>> {
+        let child = Self::TableScan(TableScan::new(resolved_query.relation_root_page, pager)?);
+        let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query, pager)?);
+        Ok(PreparedPlan::new(parent, None))
     }
 }
 
