@@ -281,6 +281,15 @@ impl Encode {
         v
     }
 
+    pub fn encode_index_leaf_cell(record: Vec<u8>) -> Vec<u8> {
+        let mut v = Vec::new();
+        let mut buff = [0u8; 9];
+        let byte_needed_for_len = encode_varint(&mut buff, record.len() as _);
+        v.extend_from_slice(&buff[..byte_needed_for_len]);
+        v.extend_from_slice(&record);
+        v
+    }
+
     pub fn encode_table_interior_cell(page_no: PageNo, row_id: u64) -> Vec<u8> {
         let mut v = Vec::new();
         v.extend_from_slice(&page_no.to_be_bytes());

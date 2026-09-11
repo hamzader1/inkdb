@@ -113,32 +113,40 @@ impl<'a> SqliteCursor<'a> {
 
     pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], SqliteError> {
         let ahead_by = ahead_by as usize;
+        let offset = self.offset as usize;
+        let end = offset.checked_add(ahead_by).ok_or(SqliteError::Corrupt(
+            "cursor offset overflow while reading ahead".into(),
+        ))?;
         sqlite_assert_with_corrupt_err(
-            ahead_by <= self.bytes.len(),
+            end <= self.bytes.len(),
             &format!(
-                "Cursor advanced past the end of the buffer: attempted offset {} exceeds buffer length {}",
-                ahead_by,
+                "Cursor advanced past the end of the buffer: attempted range {}..{} exceeds buffer length {}",
+                offset,
+                end,
                 self.bytes.len()
             ),
         )?;
-        let offset = self.offset as usize;
-        let buf = &self.bytes[offset..offset + ahead_by];
+        let buf = &self.bytes[offset..end];
         self.offset += ahead_by as u64;
         Ok(buf)
     }
 
     pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], SqliteError> {
         let ahead_by = ahead_by as usize;
+        let offset = self.offset as usize;
+        let end = offset.checked_add(ahead_by).ok_or(SqliteError::Corrupt(
+            "cursor offset overflow while peeking ahead".into(),
+        ))?;
         sqlite_assert_with_corrupt_err(
-            ahead_by <= self.bytes.len(),
+            end <= self.bytes.len(),
             &format!(
-                "Cursor peeked past the end of the buffer: attempted offset {} exceeds buffer length {}",
-                ahead_by,
+                "Cursor peeked past the end of the buffer: attempted range {}..{} exceeds buffer length {}",
+                offset,
+                end,
                 self.bytes.len()
             ),
         )?;
-        let offset = self.offset as usize;
-        let buf = &self.bytes[offset..offset + ahead_by];
+        let buf = &self.bytes[offset..end];
         Ok(buf)
     }
 

@@ -65,6 +65,7 @@ impl Parser {
         }
         self.expect(RightParen)?;
         Ok(Ast::CreateIndexAst(CreateIndex {
+            query: self.query.clone(),
             unique,
             name,
             table,

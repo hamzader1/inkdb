@@ -56,7 +56,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
                 return Ok(None);
             }
             let mut relation_btree = BTree::new(self.relation_root_page, pager);
-            relation_btree.search(row_id.clone());
+            relation_btree.seek(row_id.clone());
             let relation_record = relation_btree
                 .cursor
                 .current_record(pager)?

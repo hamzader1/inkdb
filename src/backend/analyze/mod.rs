@@ -26,7 +26,7 @@ pub struct ResolvedSelectQuery {
 pub struct ResolvedInsertQuery {
     pub root_page: PageNo,
     pub values: Vec<Vec<Value<'static>>>,
-    pub entry_hint: Option<u64>, // row id hint
+    pub entry_hint: Option<Value<'static>>, // row id hint
 }
 #[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
@@ -45,11 +45,22 @@ pub struct ResolvedTruncateTableQuery {
     pub root_page: u32,
 }
 
+use std::rc::Rc;
+#[derive(Debug)]
+pub struct ResolvedCreateIndexQuery {
+    pub query: Rc<str>,
+    pub relation_root_page: u32,
+    pub relation_name: String,
+    pub index_name: String,
+    pub column_index: usize, // todo: usize -> Vec::<usize>
+}
+
 #[derive(Debug)]
 pub enum ResolvedQuery {
     SelectQuery(ResolvedSelectQuery),
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
+    CreateIndexQuery(ResolvedCreateIndexQuery),
     DeleteQuery(ResolvedDeleteQuery),
     TruncateTable(ResolvedTruncateTableQuery),
     BeginTransactionQuery,
@@ -82,6 +93,7 @@ impl Analyze {
                     root_page,
                 }))
             }
+            Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, sqlite_master),
             _ => todo!(),
         }
     }
