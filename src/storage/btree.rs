@@ -607,6 +607,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let mut page = self.page_as_mut(page_no, &mut page_guard)?;
         self.fix_overlow(&mut content)?;
         if let InsertionState::Inserted = page.insert_cell(&content, cell_idx)? {
+            dbg!(&page);
             return Ok(());
         } else {
             let meta = self.balance(page_no)?;

@@ -13,6 +13,7 @@ pub struct CreateTable {
 
 #[derive(Debug)]
 pub struct CreateIndex {
+    pub query: Rc<str>,
     pub unique: bool,
     pub name: String,
     pub table: String,
@@ -25,6 +26,7 @@ pub struct Column {
     pub affinity: Affinity,
     pub constraints: Option<Vec<Constraint>>,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(i64),

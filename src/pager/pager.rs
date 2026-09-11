@@ -501,12 +501,14 @@ impl<F: SqliteFile> Pager<F> {
         if let Some(alloc_meta) =
             FreeList::new(self).alloc(first_freelist_truck_page, total_free_pages)?
         {
+            println!("allocation from freelist");
             self.metadata.first_freelist_truck_page = alloc_meta.first_freelist_trunk_page;
             self.metadata.total_freelist_pages = alloc_meta.total_freelist_pages;
             self.update_first_freelist_truck_page()?;
             self.update_total_free_pages()?;
             return Ok(alloc_meta.allocated_page.unwrap());
         }
+        println!("allocation from disk(EXPAND)");
         let max_allocated_pages = self.metadata.max_allocated_pages;
         let new_page_no = max_allocated_pages + 1;
         let new_len = self.metadata.page_size * (max_allocated_pages + 1);

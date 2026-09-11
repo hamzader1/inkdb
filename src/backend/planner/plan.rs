@@ -4,7 +4,7 @@ use crate::backend::analyze::{
     ResolvedDeleteQuery, ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery,
 };
 use crate::backend::executor::Row;
-use crate::backend::executor::create::CreateTable;
+use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
@@ -32,12 +32,14 @@ pub enum Plan<F: SqliteFile> {
     Insert(Insert<'static, F>),
     Delete(Delete<F>),
     CreateTable(CreateTable),
+    CreateIndex(CreateIndex),
     IndexExactMatch(IndexExactMatch<F>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
 }
+
 impl<F: SqliteFile> Plan<F> {
     pub fn is_filter(&self) -> bool {
         matches!(*self, Plan::Filter(_))
@@ -101,6 +103,10 @@ impl<F: SqliteFile> Plan<F> {
                 Plan::TruncateTable(TruncateTable::new(stmt.root_page)),
                 None,
             ))),
+            ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateIndex(
+                CreateIndex::new(stmt, pager)?,
+            ))),
+            _ => todo!(),
         }
     }
 
@@ -178,6 +184,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::RollbackTransaction(rbt) => rbt.next(pager),
             Self::TruncateTable(tb) => tb.next(pager),
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
+            Self::CreateIndex(ci) => ci.next(pager),
             _ => todo!(),
         }
     }
