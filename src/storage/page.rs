@@ -481,13 +481,12 @@ impl<'p> BTreePageMut<'p> {
     fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteError> {
         let header_size = self.header_size();
         let Self {
-            header_offset,
             header,
             cell_pointers,
             bytes,
             ..
         } = self;
-        let mut cursor = SqliteCursor::with_offset(bytes, (*header_offset + header_size) as _)?;
+        let mut cursor = SqliteCursor::with_offset(bytes, header_size as _)?;
         for _ in 0..header.no_of_cells {
             let cell_pointer = cursor.read_next_u16()?;
             cell_pointers.push(cell_pointer);
@@ -841,18 +840,16 @@ impl<'p> BTreePageMut<'p> {
     }
 
     pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
-        // cell pointers are absolute page offsets, so a raw copy is only valid
-        // between pages that keep their btree header at the same offset
-        //
-        // TODO: Will this hold if we split sqlite_master BTree?
-        debug_assert!(
-            self.header_offset == other.header_offset,
-            "copy_data_from between pages with different header offsets",
-        );
-        debug_assert!(
-            self.usable_size == other.usable_size && self.bytes.len() >= other.usable_size,
-            "copy_data_from between pages with different usable sizes",
-        );
+        if self.header_offset != other.header_offset {
+            return Err(SqliteError::Internal(
+                "copy_data_from between pages with different header offsets".into(),
+            ));
+        }
+        if self.usable_size != other.usable_size || self.bytes.len() < other.usable_size {
+            return Err(SqliteError::Internal(
+                "copy_data_from between pages with different usable sizes".into(),
+            ));
+        }
         self.bytes[..other.usable_size].copy_from_slice(&other.bytes[..other.usable_size]);
         // the cached header/cell pointers described the page BEFORE the copy
         self.header = other.header;
