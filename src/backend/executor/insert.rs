@@ -11,9 +11,6 @@ use crate::vfs::file::SqliteFile;
 pub struct Insert<'a, F: SqliteFile> {
     root_page: PageNo,
     values: Vec<Vec<Value<'a>>>,
-    /// Next row to insert. Insert is a proper volcano operator: one row
-    /// per `next()` call, `None` when exhausted — parents (e.g. BuildIndex)
-    /// pull inserted rows upward instead of Insert pushing them down.
     pos: usize,
 
     #[allow(unused)]
@@ -56,16 +53,8 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
                     + 1
             };
             let inner = &self.values[self.pos];
-            self.insert_one(
-                &mut btree,
-                inner,
-                next_row_id.into_sqlite_value(),
-                false,
-            )?;
-            let out = Row::new(
-                next_row_id,
-                inner.iter().map(|v| v.into_owned()).collect(),
-            );
+            self.insert_one(&mut btree, inner, next_row_id.into_sqlite_value(), false)?;
+            let out = Row::new(next_row_id, inner.iter().map(|v| v.into_owned()).collect());
             self.pos += 1;
             Ok(Some(out))
         } else {
@@ -103,8 +92,7 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
         }
         header.extend_from_slice(&payload);
         if !is_index {
-            let cell_payload =
-                Encode::encode_table_leaf_cell(header, key.get_int()? as _);
+            let cell_payload = Encode::encode_table_leaf_cell(header, key.get_int()? as _);
             btree.insert(&key, cell_payload)?;
         } else {
             btree.insert(&key, Encode::encode_index_leaf_cell(header))?;
