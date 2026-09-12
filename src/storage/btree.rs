@@ -19,6 +19,8 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
+use crate::storage::cell::IndexInteriorCell;
+use crate::storage::cell::IndexLeafCell;
 use crate::storage::cell::TableInteriorCell;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
@@ -673,7 +675,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             } else {
                 Encode::encode_table_interior_cell(
                     left_page.page_no,
-                    split_metadata.boundary.get_int()? as _,
+                    split_metadata.boundary.cast_int()? as _,
                 )
             };
             let right_page_payload = if is_index {
@@ -684,7 +686,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             } else {
                 Encode::encode_table_interior_cell(
                     right_page.page_no,
-                    split_metadata.right_max.get_int()? as _,
+                    split_metadata.right_max.cast_int()? as _,
                 )
             };
 
@@ -773,7 +775,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             root.update_bytes([RightMostPointer]);
 
             let left_child_payload = if !is_index {
-                Encode::encode_table_interior_cell(new_left_page_no, key.get_int()? as _)
+                Encode::encode_table_interior_cell(new_left_page_no, key.cast_int()? as _)
             } else {
                 Encode::encode_index_interior_cell(
                     new_left_page_no,
@@ -1465,10 +1467,14 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // dbg!(beta_cell);
 
             let new_bytes = if is_index {
-                Encode::encode_index_interior_cell(
-                    child_page_no,
-                    current_page.cell_bytes_as_ref(separator_index as _)?,
-                )
+                // Interior payload is the RECORD only: strip the leaf
+                // cell's length prefix first (encode appends verbatim).
+                let sep_off = current_page
+                    .as_ref()?
+                    .get_cell_offset(separator_index as _)?;
+                let sep_cell = current_page.parse_cell_at(sep_off)?;
+                let range = *sep_cell.payload_range();
+                Encode::encode_index_interior_cell(child_page_no, &current_page.bytes[range])
             } else {
                 Encode::encode_table_interior_cell(
                     child_page_no,
@@ -1491,12 +1497,26 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     "cannot redistribute interior: split leaves no promotable cell".into(),
                 ));
             }
-            let separator_cell = TableInteriorCell::parse(
-                &new_right_page_cells[0],
-                0,
-                self.pager.metadata.usable_size,
-            )
-            .map(BTreeCell::TableInterior)?;
+
+            // let beta =
+            //     current_page.cell_key(&current_page.cell((split_at - 1) as _)?, self.pager)?;
+
+            let first_cell_of_right_sibling = if !is_index {
+                TableInteriorCell::parse(
+                    &new_right_page_cells[0],
+                    0,
+                    self.pager.metadata.usable_size,
+                )
+                .map(BTreeCell::TableInterior)
+            } else {
+                IndexInteriorCell::parse(
+                    &new_right_page_cells[0],
+                    0,
+                    self.pager.metadata.usable_size,
+                )
+                .map(BTreeCell::IndexInterior)
+            }?;
+
             debug_assert_eq!(
                 current_page.header.page_kind, sibling_page.header.page_kind,
                 "Current page kind ({:?}) does not match sibling page kind ({:?})",
@@ -1504,13 +1524,22 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             );
 
             let parent_separator_cell = parent_page.cell(parent_path.cell_idx)?;
-            let parent_separator_cell_row_id_boundery = parent_separator_cell.row_id();
             // Sibling keeps its rightmost subtree; save before reset wipes it.
             let sibling_rmp = sibling_page.header.right_most_ptr;
-            let new_cell_for_curr_page = Encode::encode_table_interior_cell(
-                current_page.right_most_ptr().unwrap(),
-                parent_separator_cell_row_id_boundery,
-            );
+
+            // Right most pointer will be a normal Cell and its key == Parent Key
+            let new_cell_for_curr_page = if !is_index {
+                Encode::encode_table_interior_cell(
+                    current_page.right_most_ptr().unwrap(),
+                    parent_separator_cell.row_id(),
+                )
+            } else {
+                Encode::encode_index_interior_cell(
+                    current_page.right_most_ptr().unwrap(),
+                    &new_right_page_cells[0][*first_cell_of_right_sibling.payload_range()],
+                )
+            };
+
             debug_assert!(
                 current_page_len < new_left_page_cell.len(),
                 "Redistributing Cells has no offect on the underflowed page"
@@ -1540,9 +1569,17 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 temp_offset, 1,
                 "Separator key was not moved down as expected"
             );
-            current_page.header.right_most_ptr = Some(separator_cell.left_child());
-            let new_parent_cell =
-                Encode::encode_table_interior_cell(child_page_no, separator_cell.row_id());
+            current_page.header.right_most_ptr = Some(first_cell_of_right_sibling.left_child());
+            let new_parent_cell = if !is_index {
+                Encode::encode_table_interior_cell(
+                    child_page_no,
+                    first_cell_of_right_sibling.row_id(),
+                )
+            } else {
+                // Since we lost the current page due do the reset above.
+                // we can use the new inserted cell payload as key, they are the same
+                Encode::encode_index_interior_cell(child_page_no, &new_cell_for_curr_page[4..])
+            };
             parent_page.remove_cell(parent_path.cell_idx)?;
             if parent_page.insert_cell(&new_parent_cell, parent_path.cell_idx)?
                 == InsertionState::None
@@ -1576,6 +1613,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     ) -> SqliteResult<()> {
         let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
         let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        let is_index = parent_page.as_ref()?.is_index();
         debug_assert!(
             parent_path.cell_idx > 0 && parent_path.cell_idx <= parent_page.no_of_cells(),
             "Left most pointer has no left sibling"
@@ -1651,15 +1689,27 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 sib_page_no
             );
             let separator_index = split_at - 1;
-            let sibling_len = sibling_page.no_of_cells() as usize;
-            let separator_key = if separator_index < sibling_len {
-                // it's still one of sibling_page's original cells
-                sibling_page.cell(separator_index as _)?.row_id()
+            // Divider = last cell of the sibling's new (left) share.
+            // Table: boundary rowid. Index: full record payload bytes.
+            let divider_bytes = &new_sibling_cells[separator_index]; // last one on the left
+            let new_bytes = if is_index {
+                let parsed =
+                    IndexLeafCell::parse(divider_bytes, 0, self.pager.metadata.usable_size)
+                        .map(BTreeCell::IndexLeaf)?;
+                let range = parsed.payload_range();
+                Encode::encode_index_interior_cell(sib_page_no, &divider_bytes[*range])
             } else {
-                // it's one of current_page's original cells
-                current_page
-                    .cell((separator_index - sibling_len) as _)?
-                    .row_id()
+                let sibling_len = sibling_page.no_of_cells() as usize;
+                let separator_key = if separator_index < sibling_len {
+                    // it's still one of sibling_page's original cells
+                    sibling_page.cell(separator_index as _)?.row_id()
+                } else {
+                    // it's one of current_page's original cells
+                    current_page
+                        .cell((separator_index - sibling_len) as _)?
+                        .row_id()
+                };
+                Encode::encode_table_interior_cell(sib_page_no, separator_key)
             };
 
             sibling_page.reset_for_rebuild();
@@ -1693,7 +1743,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             );
 
             // separator key = last key of sibling's new share, points to sibling (left child)
-            let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
             parent_page.remove_cell(parent_path.cell_idx - 1)?;
             if parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?
                 == InsertionState::None
@@ -1727,23 +1776,36 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             ));
         }
         // Promoted cell = last of left share. Parse before rebuilds overwrite.
-        let promoted_cell = TableInteriorCell::parse(
-            &new_sibling_cells[new_sibling_cells.len() - 1],
-            0,
-            self.pager.metadata.usable_size,
-        )
-        .map(BTreeCell::TableInterior)?;
+        // Table: boundary rowid moves up. Index: the full entry moves up.
+        let promoted_bytes = &new_sibling_cells[new_sibling_cells.len() - 1];
+        let promoted_cell = if !is_index {
+            TableInteriorCell::parse(promoted_bytes, 0, self.pager.metadata.usable_size)
+                .map(BTreeCell::TableInterior)?
+        } else {
+            IndexInteriorCell::parse(promoted_bytes, 0, self.pager.metadata.usable_size)
+                .map(BTreeCell::IndexInterior)?
+        };
         let parent_separator_cell = parent_page.cell(sibling_idx)?;
-        let parent_boundary = parent_separator_cell.row_id();
         // Current keeps its rightmost subtree; save before reset wipes it.
         // (Sibling's new RMP is set to the promoted cell's left child below.)
         let current_rmp = current_page.header.right_most_ptr;
         // Parent separator moves down front of right page; its left child is
-        // the sibling's old right-most pointer.
-        let new_cell_for_right = Encode::encode_table_interior_cell(
-            sibling_page.right_most_ptr().unwrap(),
-            parent_boundary,
-        );
+        // the sibling's old right-most pointer. Index: move the full parent
+        // record down (parsed for its payload range first).
+        let new_cell_for_right = if !is_index {
+            Encode::encode_table_interior_cell(
+                sibling_page.right_most_ptr().unwrap(),
+                parent_separator_cell.row_id(),
+            )
+        } else {
+            let sep_off = parent_page.as_ref()?.get_cell_offset(sibling_idx)?;
+            let sep_cell = parent_page.parse_cell_at(sep_off)?;
+            let range = sep_cell.payload_range();
+            Encode::encode_index_interior_cell(
+                sibling_page.right_most_ptr().unwrap(),
+                &parent_page.bytes[*range],
+            )
+        };
 
         sibling_page.reset_for_rebuild();
         for (i, bytes) in new_sibling_cells[..new_sibling_cells.len() - 1]
@@ -1757,8 +1819,13 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             }
         }
         sibling_page.header.right_most_ptr = Some(promoted_cell.left_child());
-        let new_parent_cell =
-            Encode::encode_table_interior_cell(sib_page_no, promoted_cell.row_id());
+        let new_parent_cell = if !is_index {
+            Encode::encode_table_interior_cell(sib_page_no, promoted_cell.row_id())
+        } else {
+            // Promoted record bytes, already parsed above for the move-down.
+            let range = promoted_cell.payload_range();
+            Encode::encode_index_interior_cell(sib_page_no, &promoted_bytes[*range])
+        };
         parent_page.remove_cell(sibling_idx)?;
         if parent_page.insert_cell(&new_parent_cell, sibling_idx)? == InsertionState::None {
             return Err(SqliteError::Internal(
