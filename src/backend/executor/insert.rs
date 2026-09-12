@@ -35,11 +35,10 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
 
     pub fn next(&'_ self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         let mut btree = BTree::new(self.root_page, pager);
-        dbg!(self.root_page);
         if !self.is_index {
             btree.seek_into_last()?;
         } else {
-            btree.seek(Value::Tuple(self.values[0].clone()))?;
+            btree.seek(&Value::Tuple(self.values[0].clone()))?;
         }
 
         let is_empty = btree.current_page_header_unchecked()?.no_of_cells == 0;
@@ -91,9 +90,10 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
                 let cell_payload =
                     Encode::encode_table_leaf_cell(header.clone(), key.get_int()? as _);
                 key = Value::Integer(key.get_int()? + 1i64);
-                btree.insert(key.clone(), cell_payload)?;
+                btree.insert(&key, cell_payload)?;
             } else {
-                btree.insert(key.clone(), Encode::encode_index_leaf_cell(header.clone()))?;
+                btree.insert(&key, Encode::encode_index_leaf_cell(header))?;
+                break;
             }
             header.clear();
             payload.clear();

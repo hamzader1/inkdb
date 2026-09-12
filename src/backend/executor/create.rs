@@ -1,5 +1,5 @@
 use crate::backend::analyze::{ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
-use crate::backend::planner::plan::Plan;
+use crate::backend::planner::plan::{Plan, Terminate};
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::{SqlType, Value};
@@ -45,7 +45,12 @@ impl<F: SqliteFile> CreateIndex<F> {
             Value::text(&meta.query),
         ];
 
-        let insert = Insert::new(1, vec![row.to_vec()], None);
+        let insert = Insert::new(
+            // Box::new(Plan::Terminate(Terminate::new())),
+            1,
+            vec![row.to_vec()],
+            None,
+        );
         insert.next(pager)?;
         Ok(Self {
             child,
@@ -53,11 +58,17 @@ impl<F: SqliteFile> CreateIndex<F> {
             col_idx: meta.column_index,
         })
     }
+    // todo: remove allocte per insert.
+    // use batch instead
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         while let Some(row) = self.child.next(pager, None)? {
             let record = [row[self.col_idx].clone(), row.key.into_sqlite_value()];
-            let mut insert_plan: Insert<'static, F> =
-                Insert::new(self.index_root_page, vec![record.to_vec()], None);
+            let mut insert_plan = Insert::new(
+                // Box::new(Plan::Terminate(Terminate::new())),
+                self.index_root_page,
+                vec![record.to_vec()],
+                None,
+            );
             insert_plan.is_index = true;
             insert_plan.next(pager)?;
         }
@@ -92,7 +103,12 @@ impl CreateTable {
             Value::text(self.meta.meta.query.as_ref()), // original query
         ];
 
-        let insert = Insert::new(1, vec![row.to_vec()], None);
+        let insert = Insert::new(
+            // Box::new(Plan::Terminate(Terminate::new())),
+            1,
+            vec![row.to_vec()],
+            None,
+        );
         insert.next(pager)?;
         if is_new_txn {
             pager.commit()?;
