@@ -45,7 +45,7 @@ impl<F: SqliteFile> CreateIndex<F> {
             Value::text(&meta.query),
         ];
 
-        let insert = Insert::new(
+        let mut insert = Insert::new(
             // Box::new(Plan::Terminate(Terminate::new())),
             1,
             vec![row.to_vec()],
@@ -103,7 +103,7 @@ impl CreateTable {
             Value::text(self.meta.meta.query.as_ref()), // original query
         ];
 
-        let insert = Insert::new(
+        let mut insert = Insert::new(
             // Box::new(Plan::Terminate(Terminate::new())),
             1,
             vec![row.to_vec()],

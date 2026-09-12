@@ -33,18 +33,20 @@ impl<F: SqliteFile> BuildIndex<F> {
     }
 
     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
-        while let Some(row) = self.child.next(pager, None)? {
-            let record = [row[self.col_idx].clone(), Value::Integer(row.key as _)];
-            let mut insert_plan = Insert::new(
-                // Box::new(Plan::Terminate(Terminate::new())),
-                self.index_root_page,
-                vec![record.to_vec()],
-                None,
-            );
-            insert_plan.is_index = true;
-            insert_plan.next(pager)?;
-        }
-        Ok(None)
+        let Some(row) = self.child.next(pager, None)? else {
+            return Ok(None);
+        };
+        // Unique enforcement comes later; for now every row gets an entry.
+        let record = [row[self.col_idx].clone(), Value::Integer(row.key as _)];
+        let mut insert_plan = Insert::new(
+            // Box::new(Plan::Terminate(Terminate::new())),
+            self.index_root_page,
+            vec![record.to_vec()],
+            None,
+        );
+        insert_plan.is_index = true;
+        insert_plan.next(pager)?;
+        Ok(Some(row))
     }
 }
 

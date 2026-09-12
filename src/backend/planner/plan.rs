@@ -144,7 +144,6 @@ impl<F: SqliteFile> Plan<F> {
     pub fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
     ) -> Result<PreparedPlan<F>, SqliteError> {
-        let plan = Terminate::<F>::new();
         // Insert Table Row and return it to Insert Index
         let mut plan = Plan::Insert(Insert::new(
             resolved_query.root_page,

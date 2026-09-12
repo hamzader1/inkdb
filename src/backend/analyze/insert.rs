@@ -55,7 +55,7 @@ impl Analyze {
                                 "
                             Column {} does not exist in table {}
                             ",
-                                &index.columns[0], table_name
+                                index.columns[0], table_name
                             )))?;
                     indexes.push(IndexMetadata {
                         index_root_page: index.root_page,
