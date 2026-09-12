@@ -19,6 +19,40 @@ pub struct Table {
     pub root_page: u32,
     pub columns: Vec<Column>,
 }
+
+use std::sync::LazyLock;
+
+pub static SQLITE_MASTER: LazyLock<Table> = LazyLock::new(|| Table {
+    name: "sqlite_master".to_string(),
+    root_page: 1,
+    columns: vec![
+        Column {
+            name: "type".to_string(),
+            affinity: Affinity::Text,
+            constraints: None,
+        },
+        Column {
+            name: "name".to_string(),
+            affinity: Affinity::Text,
+            constraints: None,
+        },
+        Column {
+            name: "tbl_name".to_string(),
+            affinity: Affinity::Text,
+            constraints: None,
+        },
+        Column {
+            name: "rootpage".to_string(),
+            affinity: Affinity::Int,
+            constraints: None,
+        },
+        Column {
+            name: "sql".to_string(),
+            affinity: Affinity::Text,
+            constraints: None,
+        },
+    ],
+});
 impl Table {
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
         for (i, col) in self.columns.iter().enumerate() {
