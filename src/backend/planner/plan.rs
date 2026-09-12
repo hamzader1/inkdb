@@ -150,8 +150,10 @@ impl<F: SqliteFile> Plan<F> {
             resolved_query.values,
             resolved_query.entry_hint,
         ));
+        // dbg!(&resolved_query.indexes);
         if let Some(indexes) = resolved_query.indexes {
             for index in indexes {
+                println!("INDEX ON {}", index.col_idx);
                 plan = Plan::BuildIndex(BuildIndex::new(
                     index.index_root_page,
                     index.col_idx,
@@ -160,6 +162,10 @@ impl<F: SqliteFile> Plan<F> {
                 ));
             }
         }
+
+        let plan = Plan::Terminate(Terminate {
+            child: Box::new(plan),
+        });
         Ok(PreparedPlan {
             parent: plan,
             arena: None,
@@ -209,25 +215,25 @@ impl<F: SqliteFile> Plan<F> {
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
             Self::CreateIndex(ci) => ci.next(pager),
             Self::BuildIndex(bi) => bi.next(pager),
+            Self::Terminate(t) => t.next(pager),
             _ => todo!(),
         }
     }
 }
 
-// the job of this is only to terminate
-#[derive(Default, Debug)]
+// he job of this is only to not yeild any row
+#[derive(Debug)]
 pub struct Terminate<F: SqliteFile> {
-    _marker: std::marker::PhantomData<F>,
+    child: Box<Plan<F>>,
 }
 
 impl<F: SqliteFile> Terminate<F> {
-    pub fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
+    pub fn new(child: Box<Plan<F>>) -> Self {
+        Self { child }
     }
 
-    pub fn next(&mut self) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
+        while self.child.next(pager, None)?.is_some() {}
         Ok(None)
     }
 }
