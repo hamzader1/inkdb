@@ -1,5 +1,7 @@
-use crate::SqliteMaster;
 use crate::errors::SqliteError;
+use crate::schema::{SQLITE_MASTER, Table};
+use crate::util::sqlite_assert_with_runtime_err;
+use crate::{SqliteMaster, SqliteResult};
 
 use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;
@@ -14,11 +16,21 @@ impl Analyze {
         let SelectStmt {
             table_name,
             mut arena,
-            columns,
+            mut columns,
             mut where_clause,
             mut limit,
-        } = select_stmt;
-        let table = Self::get_table(sqlite_master, &table_name)?;
+        } = select_stmt.clone();
+
+        let table = {
+            if table_name == "sqlite_master" {
+                &*SQLITE_MASTER
+            } else {
+                Self::get_table(sqlite_master, &table_name)?
+            }
+        };
+        // if table.name == "sqlite_master" {
+        //     return Self::handle_sqlite_master_query(select_stmt, sqlite_master);
+        // }
 
         let has_star = arena
             .nodes
@@ -111,4 +123,18 @@ impl Analyze {
 
         Ok(ResolvedQuery::SelectQuery(stmt))
     }
+
+    // fn handle_sqlite_master_query(
+    //     select_stmt: SelectStmt,
+    //     sqlite_master: &SqliteMaster,
+    // ) -> SqliteResult<ResolvedQuery> {
+    //     sqlite_assert_with_runtime_err(
+    //         select_stmt.table_name == "sqlite_master",
+    //         &format!(
+    //             "sqlite_master_hanlder called with table {}",
+    //             select_stmt.table_name
+    //         ),
+    //     );
+    //     todo!()
+    // }
 }

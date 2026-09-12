@@ -407,9 +407,25 @@ impl<'p> BTreePageRef<'p> {
         Ok(all)
     }
 
-    pub fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
-        let cell = self.cell(cell_idx)?;
-        Ok(cell.row_id())
+    pub fn cell_key<F: SqliteFile>(
+        &self,
+        cell: &BTreeCell,
+        pager: &mut Pager<F>,
+    ) -> SqliteResult<Value<'static>> {
+        match cell {
+            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
+            BTreeCell::TableInterior(table_interior) => {
+                Ok(table_interior.rowid_boundary.into_sqlite_value())
+            }
+            BTreeCell::IndexInterior(index_interior) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+            BTreeCell::IndexLeaf(index_leaf) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+        }
     }
 }
 
@@ -1337,7 +1353,6 @@ pub trait BTreePageOps<'g> {
     fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
     fn freespace(&self) -> SqliteResult<usize>;
     fn is_underflow(&self) -> SqliteResult<bool>;
-    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64>;
 }
 
 impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
@@ -1413,9 +1428,6 @@ impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
     fn is_underflow(&self) -> SqliteResult<bool> {
         self.as_ref()?.is_underflow()
     }
-    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
-        self.as_ref()?.cell_key(cell_idx)
-    }
 }
 
 impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
@@ -1480,9 +1492,6 @@ impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
     }
     fn is_underflow(&self) -> SqliteResult<bool> {
         self.is_underflow()
-    }
-    fn cell_key(&self, cell_idx: CellIndex) -> SqliteResult<u64> {
-        self.cell_key(cell_idx)
     }
 }
 

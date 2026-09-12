@@ -60,6 +60,7 @@ pub struct ResolvedDeleteQuery {
 #[derive(Debug)]
 pub struct ResolvedTruncateTableQuery {
     pub root_page: u32,
+    pub indexes: Option<Vec<u32>>,
 }
 
 use std::rc::Rc;
@@ -108,6 +109,7 @@ impl Analyze {
                 let root_page = table.root_page;
                 Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
                     root_page,
+                    indexes: None, // temp for now
                 }))
             }
             Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, sqlite_master),

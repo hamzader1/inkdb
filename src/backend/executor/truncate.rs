@@ -13,11 +13,12 @@ use crate::{
 #[derive(Debug)]
 pub struct TruncateTable {
     root_page: u32,
+    indexes: Option<Vec<u32>>,
 }
 
 impl TruncateTable {
-    pub fn new(root_page: u32) -> Self {
-        Self { root_page }
+    pub fn new(root_page: u32, indexes: Option<Vec<u32>>) -> Self {
+        Self { root_page, indexes }
     }
 
     pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
@@ -30,6 +31,11 @@ impl TruncateTable {
             pager.metadata.page_size,
             pager.metadata.usable_size,
         );
+        if let Some(ref indexes) = self.indexes {
+            for index in indexes {
+                TruncateTable::new(*index, None).next(pager);
+            }
+        }
         Ok(None)
     }
     /*
@@ -48,7 +54,6 @@ impl TruncateTable {
         page_no: u32,
         pager: &mut Pager<F>,
     ) -> Result<(), SqliteError> {
-        println!("Page to be requested: {}", page_no);
         let mut guard = pager.get_mut(page_no)?;
         let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;
         if page.is_leaf() {

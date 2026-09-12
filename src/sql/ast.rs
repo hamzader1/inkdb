@@ -87,7 +87,7 @@ pub enum BinaryOperator {
     Lt,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SelectStmt {
     pub table_name: String,
     pub arena: ExprArena,
