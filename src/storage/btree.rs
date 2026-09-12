@@ -1121,6 +1121,21 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let mut p = self.page_as_mut(page_no, &mut guard)?;
         f(&mut p)
     }
+    pub fn with_page_cell_mut<Func, R>(
+        &mut self,
+        page_no: u32,
+        cell_index: u16,
+        f: Func,
+    ) -> Result<R, SqliteError>
+    where
+        Func: FnOnce(&mut BTreePageMut, &BTreeCell) -> Result<R, SqliteError>,
+    {
+        // self.with_page_mut(page_no, |page|)
+        let mut guard = self.pager.get_mut(page_no)?;
+        let mut page = self.page_as_mut(page_no, &mut guard)?;
+        let cell = page.cell(cell_index)?;
+        f(&mut page, &cell)
+    }
 
     // TODO:
     //     USE FREE LIST AS PRIMARY SOURCE, THEN ALLOCATE IF NONE
@@ -1153,13 +1168,16 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
         self.cursor.seek(self.pager, &key)?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        let found_key = self
-            .with_page_ref(page_no, |page| {
-                let key = page.cell_key(cell_idx)?;
-                Ok(Some(key))
-            })?
-            .unwrap();
-        if !(found_key.into_sqlite_value() == key) {
+
+        /*
+         * WE DO NEED A SHORTCUT FOR THIS MESS
+         */
+
+        let mut guard = self.pager.get_mut(page_no)?;
+        let current_page = self.page_as_mut(page_no, &mut guard)?;
+        let cell = current_page.cell(cell_idx)?;
+        let found_key = current_page.cell_key(&cell, self.pager)?;
+        if !(found_key == key) {
             // key not found
             return Ok(());
         }
@@ -1310,6 +1328,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     ) -> SqliteResult<()> {
         let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
         let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
+        let is_index = parent_page.as_ref()?.is_index();
         debug_assert!(
             parent_path.cell_idx < parent_page.no_of_cells(),
             "Right most pointer has no right sibling"
@@ -1444,10 +1463,18 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             //     self.pager.metadata.usable_size as _,
             // );
             // dbg!(beta_cell);
-            let new_bytes = Encode::encode_table_interior_cell(
-                child_page_no,
-                current_page.cell(separator_index as _)?.row_id(),
-            );
+
+            let new_bytes = if is_index {
+                Encode::encode_index_interior_cell(
+                    child_page_no,
+                    current_page.cell_bytes_as_ref(separator_index as _)?,
+                )
+            } else {
+                Encode::encode_table_interior_cell(
+                    child_page_no,
+                    current_page.cell(separator_index as _)?.row_id(),
+                )
+            };
 
             parent_page.remove_cell(parent_path.cell_idx)?;
             if parent_page.insert_cell(&new_bytes, parent_path.cell_idx)? == InsertionState::None {
