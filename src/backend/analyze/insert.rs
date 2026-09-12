@@ -44,34 +44,34 @@ impl Analyze {
             }
         }
 
-        let mut indexes: Option<Vec<IndexMetadata>> = None;
+        // todo: Remove the allocation
+        let mut indexes = Vec::new();
         for index in sqlite_master.indexes.values() {
             if index.table == table.name {
-                if let Some(ref mut indexes) = indexes {
-                    let col_idx =
-                        table
-                            .get_col_idx(&index.columns[0])
-                            .ok_or(SqliteError::Runtime(format!(
-                                "
+                let col_idx = table
+                    .get_col_idx(&index.columns[0])
+                    .ok_or(SqliteError::Runtime(format!(
+                        "
                             Column {} does not exist in table {}
                             ",
-                                index.columns[0], table_name
-                            )))?;
-                    indexes.push(IndexMetadata {
-                        index_root_page: index.root_page,
-                        col_idx,
-                        is_unique: index.unique,
-                    });
-                    continue;
-                }
-                indexes = Some(Vec::new());
+                        index.columns[0], table_name
+                    )))?;
+                indexes.push(IndexMetadata {
+                    index_root_page: index.root_page,
+                    col_idx,
+                    is_unique: index.unique,
+                });
             }
         }
 
         Ok(ResolvedQuery::InsertQuery(ResolvedInsertQuery {
             root_page: table.root_page,
             values,
-            indexes,
+            indexes: if indexes.is_empty() {
+                None
+            } else {
+                Some(indexes)
+            },
             entry_hint: None,
         }))
     }
