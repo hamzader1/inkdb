@@ -103,7 +103,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
                 .map(|v| v.into_owned())
                 .collect();
 
-            let row = Row::new(row_id.get_int()? as _, relation_record);
+            let row = Row::new(row_id.cast_int()? as _, relation_record);
             self.cursor.next(pager)?;
             return Ok(Some(row));
         }

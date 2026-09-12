@@ -144,7 +144,7 @@ impl<'a> Value<'a> {
             }),
         }
     }
-    pub fn get_int(&self) -> Result<i64, SqliteError> {
+    pub fn cast_int(&self) -> Result<i64, SqliteError> {
         match self {
             Value::Integer(n) => Ok(*n),
             other => Err(SqliteError::TypeConversionMismatch {
@@ -307,7 +307,7 @@ pub enum CompressedNumeric {
 impl<'a> From<&Value<'a>> for CompressedNumeric {
     fn from(value: &Value<'a>) -> Self {
         // let value = value.get_int().unwrap();
-        match value.get_int() {
+        match value.cast_int() {
             Ok(value) => {
                 if value & I8_MASK == value {
                     Self::I8(value as _)

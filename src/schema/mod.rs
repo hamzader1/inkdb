@@ -153,7 +153,7 @@ impl SqliteMaster {
             CreateTableAst(ast) => {
                 let table = Table {
                     name: ast.name,
-                    root_page: record[3].get_int()? as _,
+                    root_page: record[3].cast_int()? as _,
                     columns: ast.columns,
                 };
                 self.tables.insert(table.name.clone(), table);
@@ -162,7 +162,7 @@ impl SqliteMaster {
                 let index = Index {
                     name: ast.name,
                     table: ast.table,
-                    root_page: record[3].get_int()? as _,
+                    root_page: record[3].cast_int()? as _,
                     columns: ast.columns,
                     unique: ast.unique,
                 };

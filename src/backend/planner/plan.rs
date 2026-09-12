@@ -103,7 +103,7 @@ impl<F: SqliteFile> Plan<F> {
                 Plan::RollbackTransaction(RollBackTransaction),
             )),
             ResolvedQuery::TruncateTable(stmt) => Ok(PlanContext::Resolved(PreparedPlan::new(
-                Plan::TruncateTable(TruncateTable::new(stmt.root_page)),
+                Plan::TruncateTable(TruncateTable::new(stmt.root_page, stmt.indexes)),
                 None,
             ))),
             ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Resolved(
@@ -123,7 +123,7 @@ impl<F: SqliteFile> Plan<F> {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
         if let Some(limit) = resolved_query.limit {
-            let limit = Eval::eval(&resolved_query.arena, limit, None)?.get_int()? as usize;
+            let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;
             child = Self::Limit(Limit::new(Box::new(child), limit));
         }
         let mut parent = Self::Project(Project::new(

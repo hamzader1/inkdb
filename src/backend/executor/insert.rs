@@ -92,7 +92,7 @@ impl<'a, F: SqliteFile> Insert<'a, F> {
         }
         header.extend_from_slice(&payload);
         if !is_index {
-            let cell_payload = Encode::encode_table_leaf_cell(header, key.get_int()? as _);
+            let cell_payload = Encode::encode_table_leaf_cell(header, key.cast_int()? as _);
             btree.insert(&key, cell_payload)?;
         } else {
             btree.insert(&key, Encode::encode_index_leaf_cell(header))?;
