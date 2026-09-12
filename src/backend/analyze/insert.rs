@@ -1,4 +1,5 @@
 use crate::SqliteMaster;
+use crate::backend::analyze::IndexMetadata;
 use crate::errors::SqliteError;
 use crate::sql::ast::{Affinity, InsertStmt};
 use crate::util::sqlite_assert_with_runtime_err;
@@ -43,9 +44,34 @@ impl Analyze {
             }
         }
 
+        let mut indexes: Option<Vec<IndexMetadata>> = None;
+        for index in sqlite_master.indexes.values() {
+            if index.table == table.name {
+                if let Some(ref mut indexes) = indexes {
+                    let col_idx =
+                        table
+                            .get_col_idx(&index.columns[0])
+                            .ok_or(SqliteError::Runtime(format!(
+                                "
+                            Column {} does not exist in table {}
+                            ",
+                                index.columns[0], table_name
+                            )))?;
+                    indexes.push(IndexMetadata {
+                        index_root_page: index.root_page,
+                        col_idx,
+                        is_unique: index.unique,
+                    });
+                    continue;
+                }
+                indexes = Some(Vec::new());
+            }
+        }
+
         Ok(ResolvedQuery::InsertQuery(ResolvedInsertQuery {
             root_page: table.root_page,
             values,
+            indexes,
             entry_hint: None,
         }))
     }

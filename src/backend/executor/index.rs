@@ -2,7 +2,7 @@ use crate::{
     SqliteResult,
     backend::{
         executor::{Row, eval::Eval},
-        planner::plan::Plan,
+        planner::plan::{Plan, Terminate},
     },
     errors::SqliteError,
     pager::pager::Pager,
@@ -11,6 +11,44 @@ use crate::{
     storage::btree::{BTree, BTreeCursor, SeekResult},
     vfs::file::SqliteFile,
 };
+
+use super::insert::Insert;
+
+#[derive(Debug)]
+pub struct BuildIndex<F: SqliteFile> {
+    index_root_page: u32,
+    col_idx: usize,
+    is_unique: bool,
+    child: Box<Plan<F>>,
+}
+
+impl<F: SqliteFile> BuildIndex<F> {
+    pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool, child: Box<Plan<F>>) -> Self {
+        Self {
+            index_root_page,
+            col_idx,
+            is_unique,
+            child,
+        }
+    }
+
+    pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
+        let Some(row) = self.child.next(pager, None)? else {
+            return Ok(None);
+        };
+        // Unique enforcement comes later; for now every row gets an entry.
+        let record = [row[self.col_idx].clone(), Value::Integer(row.key as _)];
+        let mut insert_plan = Insert::new(
+            // Box::new(Plan::Terminate(Terminate::new())),
+            self.index_root_page,
+            vec![record.to_vec()],
+            None,
+        );
+        insert_plan.is_index = true;
+        insert_plan.next(pager)?;
+        Ok(Some(row))
+    }
+}
 
 #[derive(Debug)]
 pub struct IndexExactMatch<F: SqliteFile> {
@@ -30,7 +68,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         target: Value<'static>,
     ) -> Result<Self, SqliteError> {
         let mut cursor = BTreeCursor::new(index_root_page);
-        let seek_res = cursor.seek(pager, Value::Tuple(vec![target.clone()]))?;
+        let seek_res = cursor.seek(pager, &Value::Tuple(vec![target.clone()]))?;
         if seek_res == SeekResult::Exact
             && let Some(p) = cursor.stack.last_mut()
         {
@@ -56,7 +94,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
                 return Ok(None);
             }
             let mut relation_btree = BTree::new(self.relation_root_page, pager);
-            relation_btree.seek(row_id.clone());
+            relation_btree.seek(&row_id.clone());
             let relation_record = relation_btree
                 .cursor
                 .current_record(pager)?

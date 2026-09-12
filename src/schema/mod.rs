@@ -50,13 +50,13 @@ impl Table {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Index {
-    name: String,  // name of the index
-    table: String, // name of the table
+    pub name: String,  // name of the index
+    pub table: String, // name of the table
     pub root_page: u32,
-    columns: Vec<String>, // single/multi col index
-    unique: bool,         // is unique
+    pub columns: Vec<String>, // single/multi col index
+    pub unique: bool,         // is unique
 }
 
 impl Index {

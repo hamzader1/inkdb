@@ -9,7 +9,7 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
-use crate::backend::executor::index::IndexExactMatch;
+use crate::backend::executor::index::{BuildIndex, IndexExactMatch};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::transaction::{
@@ -34,11 +34,13 @@ pub enum Plan<F: SqliteFile> {
     Delete(Delete<F>),
     CreateTable(CreateTable),
     CreateIndex(CreateIndex<F>),
+    BuildIndex(BuildIndex<F>),
     IndexExactMatch(IndexExactMatch<F>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
+    Terminate(Terminate<F>),
 }
 
 impl<F: SqliteFile> Plan<F> {
@@ -142,11 +144,22 @@ impl<F: SqliteFile> Plan<F> {
     pub fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
     ) -> Result<PreparedPlan<F>, SqliteError> {
-        let plan = Plan::Insert(Insert::new(
+        // Insert Table Row and return it to Insert Index
+        let mut plan = Plan::Insert(Insert::new(
             resolved_query.root_page,
             resolved_query.values,
             resolved_query.entry_hint,
         ));
+        if let Some(indexes) = resolved_query.indexes {
+            for index in indexes {
+                plan = Plan::BuildIndex(BuildIndex::new(
+                    index.index_root_page,
+                    index.col_idx,
+                    index.is_unique,
+                    Box::new(plan),
+                ));
+            }
+        }
         Ok(PreparedPlan {
             parent: plan,
             arena: None,
@@ -195,7 +208,26 @@ impl<F: SqliteFile> Plan<F> {
             Self::TruncateTable(tb) => tb.next(pager),
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
             Self::CreateIndex(ci) => ci.next(pager),
+            Self::BuildIndex(bi) => bi.next(pager),
             _ => todo!(),
         }
+    }
+}
+
+// the job of this is only to terminate
+#[derive(Default, Debug)]
+pub struct Terminate<F: SqliteFile> {
+    _marker: std::marker::PhantomData<F>,
+}
+
+impl<F: SqliteFile> Terminate<F> {
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn next(&mut self) -> SqliteResult<Option<Row>> {
+        Ok(None)
     }
 }

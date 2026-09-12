@@ -26,7 +26,24 @@ pub struct ResolvedSelectQuery {
 pub struct ResolvedInsertQuery {
     pub root_page: PageNo,
     pub values: Vec<Vec<Value<'static>>>,
+    pub indexes: Option<Vec<IndexMetadata>>,
     pub entry_hint: Option<Value<'static>>, // row id hint
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct IndexMetadata {
+    pub index_root_page: u32,
+    pub col_idx: usize,
+    pub is_unique: bool,
+}
+impl IndexMetadata {
+    pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool) -> Self {
+        Self {
+            index_root_page,
+            col_idx,
+            is_unique,
+        }
+    }
 }
 #[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
