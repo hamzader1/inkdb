@@ -24,7 +24,7 @@ impl Analyze {
         else {
             let mut indexes = Vec::new();
             for index in sqlite_master.indexes.values() {
-                if index.table == stmt.table_name {
+                if index.name == stmt.table_name {
                     indexes.push(index.root_page)
                 }
             }
