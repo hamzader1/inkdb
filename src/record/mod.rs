@@ -80,6 +80,7 @@ pub enum Value<'a> {
     Blob(Cow<'a, [u8]>),
     Tuple(Vec<Value<'a>>),
 }
+
 impl<'a> Value<'a> {
     pub fn into_owned(&self) -> Value<'static> {
         match self {
