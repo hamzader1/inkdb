@@ -22,8 +22,19 @@ impl Analyze {
         }
         // BASIC, Sql ( "DELETE FROM t" )
         else {
+            let mut indexes = Vec::new();
+            for index in sqlite_master.indexes.values() {
+                if index.table == stmt.table_name {
+                    indexes.push(index.root_page)
+                }
+            }
             return Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
                 root_page: table.root_page,
+                indexes: if indexes.is_empty() {
+                    None
+                } else {
+                    Some(indexes)
+                },
             }));
         }
         Ok(ResolvedQuery::DeleteQuery(ResolvedDeleteQuery {
