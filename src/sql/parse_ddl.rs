@@ -52,13 +52,13 @@ impl Parser {
             self.expect(Not)?;
             self.expect(Exists)?;
         }
-        let name = self.expect_ident()?;
+        let name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(On)?;
-        let table = self.expect_ident()?;
+        let table = self.expect_ident()?.to_ascii_lowercase();
         self.expect(LeftParen)?;
         let mut columns = Vec::new();
         while !self.at(RightParen) {
-            columns.push(self.expect_ident()?);
+            columns.push(self.expect_ident()?.to_ascii_lowercase());
             if !self.eat(Comma) {
                 break;
             }
