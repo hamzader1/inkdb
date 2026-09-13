@@ -44,9 +44,12 @@ impl<F: SqliteFile> PrepareIndex<F> {
         let Some(row) = self.child.next(pager, None)? else {
             return Ok(None);
         };
-        // Unique enforcement comes later; for now every row gets an entry.
         let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
         let mut btree = BTree::new(self.index_root_page, pager);
+
+        /*
+         * Insert path
+         */
         btree.seek(&Value::Tuple(vec![row[self.col_idx].clone()]))?;
         if self.is_unique
             && let Some(record) = btree.current_record()?
@@ -57,8 +60,6 @@ impl<F: SqliteFile> PrepareIndex<F> {
                 row[self.col_idx]
             )));
         }
-        btree.seek(&Value::Tuple(key.clone()))?;
-        let new_row = key.clone();
         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
         Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
         Ok(Some(row))
