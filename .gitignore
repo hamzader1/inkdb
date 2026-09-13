@@ -4,4 +4,8 @@ src/main.rs
 /db/
 .zed/
 .idea/
+bench/
 docs/
+profile.*
+*.db
+
