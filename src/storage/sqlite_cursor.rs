@@ -21,14 +21,13 @@ impl<'a> SqliteCursor<'a> {
         bytes: &'a S,
         offset: u64,
     ) -> Result<Self, SqliteError> {
-        sqlite_assert_with_corrupt_err(
-            offset as usize <= bytes.as_ref().len(),
-            &format!(
+        sqlite_assert_with_corrupt_err(offset as usize <= bytes.as_ref().len(), || {
+            format!(
                 "The given offset ({}) is bigger than the bytes length ({})",
                 offset,
                 bytes.as_ref().len()
-            ),
-        )?;
+            )
+        })?;
         Ok(Self {
             bytes: bytes.as_ref(),
             offset,
@@ -74,12 +73,14 @@ impl<'a> SqliteCursor<'a> {
         let buf = buf.as_mut();
         sqlite_assert_with_runtime_err(
             self.offset as usize + buf.len() <= self.bytes.len(),
-            &format!(
-                "Reading this buffer will cause an overflow\noffset:{} buffer len: {}, bytes len: {}",
-                self.offset,
-                buf.len(),
-                self.bytes.len()
-            ),
+            || {
+                format!(
+                    "Reading this buffer will cause an overflow\noffset:{} buffer len: {}, bytes len: {}",
+                    self.offset,
+                    buf.len(),
+                    self.bytes.len()
+                )
+            },
         )?;
         let offset = self.offset as usize;
         let slice = &self.bytes[offset..offset + buf.len()];
@@ -113,40 +114,30 @@ impl<'a> SqliteCursor<'a> {
 
     pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], SqliteError> {
         let ahead_by = ahead_by as usize;
-        let offset = self.offset as usize;
-        let end = offset.checked_add(ahead_by).ok_or(SqliteError::Corrupt(
-            "cursor offset overflow while reading ahead".into(),
-        ))?;
-        sqlite_assert_with_corrupt_err(
-            end <= self.bytes.len(),
-            &format!(
-                "Cursor advanced past the end of the buffer: attempted range {}..{} exceeds buffer length {}",
-                offset,
-                end,
+        sqlite_assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
+            format!(
+                "Cursor advanced past the end of the buffer: attempted offset {} exceeds buffer length {}",
+                ahead_by,
                 self.bytes.len()
-            ),
-        )?;
-        let buf = &self.bytes[offset..end];
+            )
+        })?;
+        let offset = self.offset as usize;
+        let buf = &self.bytes[offset..offset + ahead_by];
         self.offset += ahead_by as u64;
         Ok(buf)
     }
 
     pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], SqliteError> {
         let ahead_by = ahead_by as usize;
-        let offset = self.offset as usize;
-        let end = offset.checked_add(ahead_by).ok_or(SqliteError::Corrupt(
-            "cursor offset overflow while peeking ahead".into(),
-        ))?;
-        sqlite_assert_with_corrupt_err(
-            end <= self.bytes.len(),
-            &format!(
-                "Cursor peeked past the end of the buffer: attempted range {}..{} exceeds buffer length {}",
-                offset,
-                end,
+        sqlite_assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
+            format!(
+                "Cursor peeked past the end of the buffer: attempted offset {} exceeds buffer length {}",
+                ahead_by,
                 self.bytes.len()
-            ),
-        )?;
-        let buf = &self.bytes[offset..end];
+            )
+        })?;
+        let offset = self.offset as usize;
+        let buf = &self.bytes[offset..offset + ahead_by];
         Ok(buf)
     }
 
@@ -159,12 +150,14 @@ impl<'a> SqliteCursor<'a> {
         let buf = buf.as_mut();
         sqlite_assert_with_runtime_err(
             self.offset as usize + buf.len() <= self.bytes.len(),
-            &format!(
-                "Reading this buffer will cause an overflow\noffset:{} buffer len: {}, bytes len: {}",
-                self.offset,
-                buf.len(),
-                self.bytes.len()
-            ),
+            || {
+                format!(
+                    "Reading this buffer will cause an overflow\noffset:{} buffer len: {}, bytes len: {}",
+                    self.offset,
+                    buf.len(),
+                    self.bytes.len()
+                )
+            },
         )?;
         let offset = offset as usize;
         let slice = &self.bytes[offset..offset + buf.len()];

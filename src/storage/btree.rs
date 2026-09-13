@@ -362,10 +362,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     where
         P: BTreePageOps<'g>,
     {
-        sqlite_assert_with_corrupt_err(
-            page.is_interior(),
-            "Navigation path of this works only with interior pages",
-        )?;
+        sqlite_assert_with_corrupt_err(page.is_interior(), || {
+            "Navigation path of this works only with interior pages".into()
+        })?;
 
         let cell_count = page.no_of_cells();
         let is_table = page.page_type() == BTreePageType::InteriorTable;
@@ -437,10 +436,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     where
         P: BTreePageOps<'a> + Debug,
     {
-        sqlite_assert_with_corrupt_err(
-            page.is_leaf(),
-            "This navigation path works only for leaves",
-        )?;
+        sqlite_assert_with_corrupt_err(page.is_leaf(), || {
+            "This navigation path works only for leaves".into()
+        })?;
 
         let cell_cnt = page.no_of_cells();
         let mut l = 0;

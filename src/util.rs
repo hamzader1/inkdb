@@ -7,15 +7,21 @@ pub fn sqlite_assert_one(condition: bool, err: SqliteError) -> Result<(), Sqlite
     Ok(())
 }
 
-pub fn sqlite_assert_with_corrupt_err(condition: bool, err: &str) -> Result<(), SqliteError> {
+pub fn sqlite_assert_with_corrupt_err<Fn>(condition: bool, err: Fn) -> Result<(), SqliteError>
+where
+    Fn: FnOnce() -> String,
+{
     if !condition {
-        return Err(SqliteError::Corrupt(err.into()));
+        return Err(SqliteError::Corrupt(err()));
     }
     Ok(())
 }
-pub fn sqlite_assert_with_runtime_err(condition: bool, err: &str) -> Result<(), SqliteError> {
+pub fn sqlite_assert_with_runtime_err<Fn>(condition: bool, err: Fn) -> Result<(), SqliteError>
+where
+    Fn: FnOnce() -> String,
+{
     if !condition {
-        return Err(SqliteError::Runtime(err.into()));
+        return Err(SqliteError::Runtime(err()));
     }
     Ok(())
 }

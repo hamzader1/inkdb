@@ -22,23 +22,23 @@ impl Analyze {
 
         if columns.is_empty() {
             for inner_values in values.iter() {
-                sqlite_assert_with_runtime_err(
-                    inner_values.len() == table.columns.len(),
-                    &format!(
+                sqlite_assert_with_runtime_err(inner_values.len() == table.columns.len(), || {
+                    format!(
                         "Column count mismatch: table has {} columns, but {} columns were provided",
                         table.columns.len(),
                         inner_values.len(),
-                    ),
-                )?;
+                    )
+                })?;
                 for (i, value) in inner_values.iter().enumerate() {
                     let sqlite_value_type = Affinity::from(value);
                     sqlite_assert_with_runtime_err(
                         sqlite_value_type == table.columns[i].affinity,
-                        format!(
-                            "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
-                            table.columns[i].name, table.columns[i].affinity, sqlite_value_type
-                        )
-                        .as_str(),
+                        || {
+                            format!(
+                                "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
+                                table.columns[i].name, table.columns[i].affinity, sqlite_value_type
+                            )
+                        },
                     )?;
                 }
             }

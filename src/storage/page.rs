@@ -189,10 +189,12 @@ impl<'p> BTreePageRef<'p> {
         let cell_offset = (cell_idx * 2) + self.header_size() as u16;
         sqlite_assert_with_corrupt_err(
             cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
-            &format!(
-                "Cell Index Out of Bounds: Start: {}, End: {}, CellOffset: {}",
-                start, end, cell_offset
-            ),
+            || {
+                format!(
+                    "Cell Index Out of Bounds: Start: {}, End: {}, CellOffset: {}",
+                    start, end, cell_offset
+                )
+            },
         )?;
         let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
         let cell_ptr = cursor.read_next_u16()?;
@@ -1140,10 +1142,9 @@ impl<'a> OverflowPageRef<'a> {
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
         let data = bytes.as_ref();
-        sqlite_assert_with_corrupt_err(
-            data.len() >= usable_size,
-            "not enough bytes in overflow page",
-        )?;
+        sqlite_assert_with_corrupt_err(data.len() >= usable_size, || {
+            "not enough bytes in overflow page".into()
+        })?;
 
         let next_page_buffer = match data[0..4].as_array::<4>() {
             Some(buf) => buf,
