@@ -9,6 +9,7 @@ pub mod filter;
 pub mod index;
 pub mod insert;
 pub mod limit;
+pub mod prepare;
 pub mod project;
 pub mod tablescan;
 pub mod transaction;

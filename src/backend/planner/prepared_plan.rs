@@ -25,7 +25,13 @@ impl<F: SqliteFile> PreparedPlan<F> {
                 }
                 parent_res
             }
-            false => self.parent.next(pager, self.arena.as_ref()),
+            false => match self.parent.next(pager, self.arena.as_ref()) {
+                Err(e) => {
+                    let _ = pager.rollback();
+                    Err(e)
+                }
+                ok => ok,
+            },
         }
     }
 }

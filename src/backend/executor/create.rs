@@ -9,6 +9,9 @@ use crate::vfs::file::SqliteFile;
 
 use super::Row;
 use super::insert::Insert;
+use super::prepare::PrepareRow;
+use crate::record::tuple::Tuple;
+use crate::storage::cell::Encode;
 
 #[derive(Debug)]
 pub struct CreateTable {
@@ -45,13 +48,13 @@ impl<F: SqliteFile> CreateIndex<F> {
             Value::text(&meta.query),
         ];
 
-        let mut insert = Insert::new(
-            // Box::new(Plan::Terminate(Terminate::new())),
+        let mut prepare = PrepareRow::new(
+            None,
             1,
-            vec![row.to_vec()],
+            vec![row.iter().map(|v| v.into_owned()).collect()],
             None,
         );
-        insert.next(pager)?;
+        while prepare.next(pager)?.is_some() {}
         Ok(Self {
             child,
             index_root_page: new_page,
@@ -63,14 +66,9 @@ impl<F: SqliteFile> CreateIndex<F> {
     pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
         while let Some(row) = self.child.next(pager, None)? {
             let record = [row[self.col_idx].clone(), row.key.into_sqlite_value()];
-            let mut insert_plan = Insert::new(
-                // Box::new(Plan::Terminate(Terminate::new())),
-                self.index_root_page,
-                vec![record.to_vec()],
-                None,
-            );
-            insert_plan.is_index = true;
-            insert_plan.next(pager)?;
+            let key = Value::Tuple(record.to_vec());
+            let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&record));
+            Insert::new(self.index_root_page, key, &mut bytes).next(pager)?;
         }
         Ok(None)
     }
@@ -103,13 +101,13 @@ impl CreateTable {
             Value::text(self.meta.meta.query.as_ref()), // original query
         ];
 
-        let mut insert = Insert::new(
-            // Box::new(Plan::Terminate(Terminate::new())),
+        let mut prepare = PrepareRow::new(
+            None,
             1,
-            vec![row.to_vec()],
+            vec![row.iter().map(|v| v.into_owned()).collect()],
             None,
         );
-        insert.next(pager)?;
+        while prepare.next(pager)?.is_some() {}
         if is_new_txn {
             pager.commit()?;
         }

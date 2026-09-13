@@ -9,9 +9,10 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
-use crate::backend::executor::index::{BuildIndex, IndexExactMatch};
+use crate::backend::executor::index::{IndexExactMatch, PrepareIndex};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
+use crate::backend::executor::prepare::PrepareRow;
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
@@ -31,10 +32,11 @@ pub enum Plan<F: SqliteFile> {
     Limit(Limit<F>),
     Project(Project<F>),
     Insert(Insert<'static, F>),
+    PrepareRow(PrepareRow<F>),
     Delete(Delete<F>),
     CreateTable(CreateTable),
     CreateIndex(CreateIndex<F>),
-    BuildIndex(BuildIndex<F>),
+    PrepareIndex(PrepareIndex<F>),
     IndexExactMatch(IndexExactMatch<F>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
@@ -55,6 +57,7 @@ impl<F: SqliteFile> Plan<F> {
             Plan::Limit(l) => Some(l.child_mut()),
             Plan::Project(p) => Some(&mut p.child),
             Plan::Delete(d) => Some(d.child_mut()),
+            Plan::PrepareIndex(pi) => Some(pi.child_mut()),
             _ => None,
         }
     }
@@ -144,17 +147,17 @@ impl<F: SqliteFile> Plan<F> {
     pub fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
     ) -> Result<PreparedPlan<F>, SqliteError> {
-        // Insert Table Row and return it to Insert Index
-        let mut plan = Plan::Insert(Insert::new(
+        // Rows flow upward: PrepareRow yields table rows, each PrepareIndex
+        // writes one index entry per row and passes it along.
+        let mut plan = Plan::PrepareRow(PrepareRow::new(
+            None,
             resolved_query.root_page,
             resolved_query.values,
-            resolved_query.entry_hint,
+            None, // table constraints hook
         ));
-        // dbg!(&resolved_query.indexes);
         if let Some(indexes) = resolved_query.indexes {
             for index in indexes {
-                println!("INDEX ON {}", index.col_idx);
-                plan = Plan::BuildIndex(BuildIndex::new(
+                plan = Plan::PrepareIndex(PrepareIndex::new(
                     index.index_root_page,
                     index.col_idx,
                     index.is_unique,
@@ -214,14 +217,14 @@ impl<F: SqliteFile> Plan<F> {
             Self::TruncateTable(tb) => tb.next(pager),
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
             Self::CreateIndex(ci) => ci.next(pager),
-            Self::BuildIndex(bi) => bi.next(pager),
+            Self::PrepareIndex(pi) => pi.next(pager),
             Self::Terminate(t) => t.next(pager),
+            Self::PrepareRow(pr) => pr.next(pager),
             _ => todo!(),
         }
     }
 }
 
-// he job of this is only to not yeild any row
 #[derive(Debug)]
 pub struct Terminate<F: SqliteFile> {
     child: Box<Plan<F>>,

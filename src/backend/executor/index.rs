@@ -6,23 +6,26 @@ use crate::{
     },
     errors::SqliteError,
     pager::pager::Pager,
-    record::Value,
+    record::{Value, tuple::Tuple},
     sql::parser::ExprArena,
-    storage::btree::{BTree, BTreeCursor, SeekResult},
+    storage::{
+        btree::{BTree, BTreeCursor, SeekResult},
+        cell::Encode,
+    },
     vfs::file::SqliteFile,
 };
 
 use super::insert::Insert;
 
 #[derive(Debug)]
-pub struct BuildIndex<F: SqliteFile> {
+pub struct PrepareIndex<F: SqliteFile> {
     index_root_page: u32,
     col_idx: usize,
     is_unique: bool,
     child: Box<Plan<F>>,
 }
 
-impl<F: SqliteFile> BuildIndex<F> {
+impl<F: SqliteFile> PrepareIndex<F> {
     pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool, child: Box<Plan<F>>) -> Self {
         Self {
             index_root_page,
@@ -32,20 +35,32 @@ impl<F: SqliteFile> BuildIndex<F> {
         }
     }
 
+    /// Child subtree for optimizer traversal.
+    pub fn child_mut(&mut self) -> &mut Plan<F> {
+        &mut self.child
+    }
+
     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
         let Some(row) = self.child.next(pager, None)? else {
             return Ok(None);
         };
         // Unique enforcement comes later; for now every row gets an entry.
-        let record = [row[self.col_idx].clone(), Value::Integer(row.key as _)];
-        let mut insert_plan = Insert::new(
-            // Box::new(Plan::Terminate(Terminate::new())),
-            self.index_root_page,
-            vec![record.to_vec()],
-            None,
-        );
-        insert_plan.is_index = true;
-        insert_plan.next(pager)?;
+        let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
+        let mut btree = BTree::new(self.index_root_page, pager);
+        btree.seek(&Value::Tuple(vec![row[self.col_idx].clone()]))?;
+        if self.is_unique
+            && let Some(record) = btree.current_record()?
+            && record[0] == key[0]
+        {
+            return Err(SqliteError::Runtime(format!(
+                "violates unique index constraint for value: {}",
+                row[self.col_idx]
+            )));
+        }
+        btree.seek(&Value::Tuple(key.clone()))?;
+        let new_row = key.clone();
+        let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
+        Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
         Ok(Some(row))
     }
 }
