@@ -98,7 +98,7 @@ impl Index {
         // LIMITED: for single col index
         // TODO: HANDLE MULTIPLE INDEXES
         let (indexed_col, indexed_table) = (&self.columns[0], &self.table);
-        indexed_table == table_name && indexed_col == col_name
+        indexed_table.eq_ignore_ascii_case(table_name) && indexed_col.eq_ignore_ascii_case(col_name)
     }
 }
 
