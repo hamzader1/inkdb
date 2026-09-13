@@ -17,29 +17,35 @@ use crate::{
 
 use super::insert::Insert;
 
+// #[derive(Debug)]
+// pub struct PrepareIndex<F: SqliteFile> {
+//     index_root_page: u32,
+//     col_idx: usize,
+//     is_unique: bool,
+//     child: Box<Plan<F>>,
+// }
 #[derive(Debug)]
 pub struct PrepareIndex<F: SqliteFile> {
     index_root_page: u32,
     col_idx: usize,
-    is_unique: bool,
+    action: Box<dyn IndexMutation<F>>,
     child: Box<Plan<F>>,
 }
 
 impl<F: SqliteFile> PrepareIndex<F> {
-    pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool, child: Box<Plan<F>>) -> Self {
+    pub fn new(
+        index_root_page: u32,
+        col_idx: usize,
+        action: Box<dyn IndexMutation<F>>,
+        child: Box<Plan<F>>,
+    ) -> Self {
         Self {
             index_root_page,
             col_idx,
-            is_unique,
+            action,
             child,
         }
     }
-
-    /// Child subtree for optimizer traversal.
-    pub fn child_mut(&mut self) -> &mut Plan<F> {
-        &mut self.child
-    }
-
     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
         let Some(row) = self.child.next(pager, None)? else {
             return Ok(None);
@@ -47,28 +53,82 @@ impl<F: SqliteFile> PrepareIndex<F> {
         let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
         let mut btree = BTree::new(self.index_root_page, pager);
 
+        self.action.next(&mut btree, key)?;
         /*
          * Insert path
          */
-        btree.seek(&Value::Tuple(vec![row[self.col_idx].clone()]))?;
-        if self.is_unique
-            && let Some(record) = btree.current_record()?
-            && record[0] == key[0]
-        {
-            return Err(SqliteError::Runtime(format!(
-                "violates unique index constraint for value: {}",
-                row[self.col_idx]
-            )));
-        }
-        let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
-        Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
+        // let alpha = vec![key[0].clone()];
+        // btree.seek(&Value::Tuple(alpha))?;
+        // if self.is_unique
+        //     && let Some(record) = btree.current_record()?
+        //     && record[0] == key[0]
+        // {
+        //     return Err(SqliteError::Runtime(format!(
+        //         "violates unique index constraint for value: {}",
+        //         row[self.col_idx]
+        //     )));
+        // }
+        // let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
+        // Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
+        /*
+         *
+         */
         Ok(Some(row))
+    }
+
+    /// Child subtree for optimizer traversal.
+    pub fn child_mut(&mut self) -> &mut Plan<F> {
+        &mut self.child
     }
 }
 
+// impl<F: SqliteFile> PrepareIndex<F> {
+//     pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool, child: Box<Plan<F>>) -> Self {
+//         Self {
+//             index_root_page,
+//             col_idx,
+//             is_unique,
+//             child,
+//         }
+//     }
+
+//     /// Child subtree for optimizer traversal.
+//     pub fn child_mut(&mut self) -> &mut Plan<F> {
+//         &mut self.child
+//     }
+
+//     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
+//         let Some(row) = self.child.next(pager, None)? else {
+//             return Ok(None);
+//         };
+//         let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
+//         let mut btree = BTree::new(self.index_root_page, pager);
+
+//         /*
+//          * Insert path
+//          */
+//         let alpha = vec![key[0].clone()];
+//         btree.seek(&Value::Tuple(alpha))?;
+//         if self.is_unique
+//             && let Some(record) = btree.current_record()?
+//             && record[0] == key[0]
+//         {
+//             return Err(SqliteError::Runtime(format!(
+//                 "violates unique index constraint for value: {}",
+//                 row[self.col_idx]
+//             )));
+//         }
+//         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
+//         Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
+//         /*
+//          *
+//          */
+//         Ok(Some(row))
+//     }
+// }
+
 #[derive(Debug)]
 pub struct IndexExactMatch<F: SqliteFile> {
-    // child: Box<Plan<F>>,
     index_root_page: u32,
     relation_root_page: u32,
     target: Value<'static>,
@@ -125,5 +185,43 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         }
         self.is_done = true;
         Ok(None)
+    }
+}
+
+// mod p {
+//     pub trait Z {}
+// }
+pub trait IndexMutation<F: SqliteFile>: std::fmt::Debug {
+    fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()>;
+}
+
+// #[derive(Debug)]
+// struct IndexDelete;
+// impl<F: SqliteFile> IndexMutation<F> for IndexDelete {
+//     fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
+//         btree.delete(Value::Tuple(key))?;
+//         Ok(())
+//     }
+// }
+#[derive(Debug)]
+pub struct IndexInsert {
+    pub is_unique: bool,
+}
+impl<F: SqliteFile> IndexMutation<F> for IndexInsert {
+    fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
+        btree.seek(&Value::Tuple(key.clone()))?;
+        if self.is_unique
+            && let Some(record) = btree.current_record()?
+            && record[0] == key[0]
+        {
+            return Err(SqliteError::Runtime(format!(
+                "violates unique index constraint for value: {}",
+                key[0]
+            )));
+        }
+
+        let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
+        Insert::<'_, F>::new(btree.root_page, Value::Tuple(key), &mut bytes).next(btree.pager)?;
+        Ok(())
     }
 }

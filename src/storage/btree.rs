@@ -543,7 +543,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
 
 pub struct BTree<'a, F: crate::vfs::file::SqliteFile> {
     pub root_page: PageNo,
-    pager: &'a mut Pager<F>,
+    pub pager: &'a mut Pager<F>,
     pub cursor: BTreeCursor<F>,
 }
 

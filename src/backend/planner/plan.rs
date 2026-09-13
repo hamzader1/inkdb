@@ -9,7 +9,7 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
-use crate::backend::executor::index::{IndexExactMatch, PrepareIndex};
+use crate::backend::executor::index::{IndexExactMatch, IndexInsert, PrepareIndex};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
@@ -44,6 +44,7 @@ pub enum Plan<F: SqliteFile> {
     RollbackTransaction(RollBackTransaction),
     Terminate(Terminate<F>),
 }
+fn foo() {}
 
 impl<F: SqliteFile> Plan<F> {
     pub fn is_filter(&self) -> bool {
@@ -157,12 +158,15 @@ impl<F: SqliteFile> Plan<F> {
         ));
         if let Some(indexes) = resolved_query.indexes {
             for index in indexes {
-                plan = Plan::PrepareIndex(PrepareIndex::new(
+                let prepare = PrepareIndex::new(
                     index.index_root_page,
                     index.col_idx,
-                    index.is_unique,
+                    Box::new(IndexInsert {
+                        is_unique: index.is_unique,
+                    }),
                     Box::new(plan),
-                ));
+                );
+                plan = Plan::PrepareIndex(prepare);
             }
         }
 
@@ -217,8 +221,8 @@ impl<F: SqliteFile> Plan<F> {
             Self::TruncateTable(tb) => tb.next(pager),
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
             Self::CreateIndex(ci) => ci.next(pager),
-            Self::PrepareIndex(pi) => pi.next(pager),
             Self::Terminate(t) => t.next(pager),
+            Self::PrepareIndex(pi) => pi.next(pager),
             Self::PrepareRow(pr) => pr.next(pager),
             _ => todo!(),
         }

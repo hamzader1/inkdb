@@ -10,7 +10,6 @@ use crate::{backend::planner::plan::Plan, record::Value, vfs::file::SqliteFile};
  * Taking a Pre validated Row and seeking into the right position
  * where it should be, as well as validating *table constraits
  *
- *
  */
 #[derive(Debug)]
 pub struct PrepareRow<F: SqliteFile> {
@@ -67,4 +66,3 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 
 use super::insert::Insert;
-// fn foo() {}
