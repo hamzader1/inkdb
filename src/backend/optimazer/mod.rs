@@ -51,7 +51,7 @@ impl Optimazer {
         };
         match arena.nodes[filter_expr_index] {
             Expr::BinaryOp { left, op, right } => {
-                match Self::try_index_exact_match(
+                let Some(x) = Self::try_index_exact_match(
                     left,
                     right,
                     op,
@@ -59,27 +59,24 @@ impl Optimazer {
                     sqlite_master,
                     table_name,
                     relation_root_page,
-                )? {
-                    Some(x) => return Ok(Some(x)),
-                    None => {
-                        match Self::try_index_exact_match(
-                            right,
-                            left,
-                            op,
-                            arena,
-                            sqlite_master,
-                            table_name,
-                            relation_root_page,
-                        )? {
-                            Some(x) => return Ok(Some(x)),
-                            None => return Ok(None),
-                        }
-                    }
-                }
+                )?
+                else {
+                    // swapping left with right
+                    return Self::try_index_exact_match(
+                        right,
+                        left,
+                        op,
+                        arena,
+                        sqlite_master,
+                        table_name,
+                        relation_root_page,
+                    );
+                };
+                Ok(Some(x))
             }
-            _ => return Ok(None),
+
+            _ => Ok(None),
         }
-        todo!()
     }
     fn try_index_exact_match(
         left: usize,
