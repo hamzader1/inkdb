@@ -602,7 +602,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         self.cursor.prev(self.pager)
     }
 
-    pub fn insert(&mut self, key: &Value, mut content: Vec<u8>) -> Result<(), SqliteError> {
+    pub fn current_record(&mut self) -> SqliteResult<Option<Vec<Value<'_>>>> {
+        self.cursor.current_record(self.pager)
+    }
+    pub fn insert(&mut self, key: &Value, content: &mut Vec<u8>) -> Result<(), SqliteError> {
         self.cursor.seek(self.pager, key)?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
         let mut page_guard = self.pager.get_mut(page_no)?;
