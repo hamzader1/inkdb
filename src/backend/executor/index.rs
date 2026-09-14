@@ -9,7 +9,7 @@ use crate::{
     record::{Value, tuple::Tuple},
     sql::parser::ExprArena,
     storage::{
-        btree::{BTree, BTreeCursor, SeekResult},
+        btree::{BTree, BTreeCursor, RestorePosition, SeekResult},
         cell::Encode,
     },
     vfs::file::SqliteFile,
@@ -138,6 +138,7 @@ pub struct IndexExactMatch<F: SqliteFile> {
     relation_root_page: u32,
     target: Value<'static>,
     cursor: BTreeCursor<F>,
+    cnt: usize,
     is_done: bool,
 }
 
@@ -160,36 +161,64 @@ impl<F: SqliteFile> IndexExactMatch<F> {
             relation_root_page,
             target,
             cursor,
+            cnt: 0,
             is_done: seek_res == SeekResult::NotFound,
         })
     }
     pub fn next(&mut self, pager: &mut Pager<F>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
+        self.cnt += 1;
+
+        match self.cursor.restore_position(pager)? {
+            RestorePosition::Exact => {
+                self.cursor.next(pager)?;
+            }
+            RestorePosition::Next => {}
+            RestorePosition::Empty => {}
+        }
+
         if self.is_done {
             return Ok(None);
         }
-        let current_index_record = self.cursor.current_record(pager)?;
-        if let Some(mut index_record) = current_index_record {
-            let row_id = index_record.pop().expect("Index record is empty");
-            if index_record != vec![self.target.clone()] {
-                self.is_done = true;
-                return Ok(None);
-            }
-            let mut relation_btree = BTree::new(self.relation_root_page, pager);
-            relation_btree.seek(&row_id.clone());
-            let relation_record = relation_btree
-                .cursor
-                .current_record(pager)?
-                .expect("Row id not associated with any record")
-                .iter()
-                .map(|v| v.into_owned())
-                .collect();
 
-            let row = Row::new(row_id.cast_int()? as _, relation_record);
-            self.cursor.next(pager)?;
-            return Ok(Some(row));
+        let current_index_record = self.cursor.current_record(pager)?;
+        let Some(mut index_record) = current_index_record else {
+            eprintln!(
+                "IndexExactMatch DONE current_record None stack {:?}",
+                self.cursor.stack
+            );
+            self.is_done = true;
+            return Ok(None);
+        };
+
+        let row_id = index_record
+            .pop()
+            .expect("Index record is empty")
+            .into_owned();
+
+        if index_record[0] != self.target {
+            eprintln!(
+                "IndexExactMatch DONE mismatch: got {:?} target {:?}",
+                index_record[0], self.target
+            );
+            eprintln!("stack {:?}", self.cursor.stack);
+            self.is_done = true;
+            return Ok(None);
         }
-        self.is_done = true;
-        Ok(None)
+
+        let mut relation_btree = BTree::new(self.relation_root_page, pager);
+        relation_btree.seek(&row_id);
+        let relation_record = relation_btree
+            .cursor
+            .current_record(pager)?
+            .expect("Row id not associated with any record")
+            .iter()
+            .map(|v| v.into_owned())
+            .collect();
+
+        let row = Row::new(row_id.cast_int()? as _, relation_record);
+        self.cursor.save_position(pager)?;
+
+        Ok(Some(row))
     }
 }
 pub trait IndexMutation<F: SqliteFile>: std::fmt::Debug {
