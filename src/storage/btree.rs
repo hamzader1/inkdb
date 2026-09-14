@@ -427,6 +427,9 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             } = path;
 
             let page = page_as_ref_with_pager(*page_no, guard, pager)?;
+            if *cell_idx >= page.no_of_cells() {
+                return Ok(None);
+            }
             let cell = page.cell(*cell_idx)?;
             return Ok(Some(cell));
         }
