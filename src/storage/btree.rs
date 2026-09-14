@@ -204,6 +204,15 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         pager: &mut Pager<F>,
         target: &Value<'_>,
     ) -> Result<SeekResult, SqliteError> {
+        self.seek_internal(pager, target, false)
+    }
+
+    fn seek_internal(
+        &mut self,
+        pager: &mut Pager<F>,
+        target: &Value<'_>,
+        stop_at_interior: bool,
+    ) -> Result<SeekResult, SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         // Exactness seen anywhere (interior divider or leaf). Interior
@@ -233,6 +242,14 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                     cell_index,
                     exact: saw_eq,
                 } => {
+                    if stop_at_interior && saw_eq && cell_index < page.no_of_cells() {
+                        let cell = page.cell(cell_index)?;
+                        let key = page.cell_key(&cell, pager)?;
+                        if key == *target {
+                            self.stack.push(Path::new(page_no, cell_index, guard));
+                            return Ok(SeekResult::Exact);
+                        }
+                    }
                     // Parked unyielded: forward iteration yields this divider
                     // itself when the left subtree is exhausted.
                     self.stack.push(Path::new(page_no, cell_index, guard));
