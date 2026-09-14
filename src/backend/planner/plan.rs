@@ -9,7 +9,7 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
-use crate::backend::executor::index::{IndexExactMatch, IndexInsert, PrepareIndex};
+use crate::backend::executor::index::{IndexDelete, IndexExactMatch, IndexInsert, PrepareIndex};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
@@ -44,7 +44,6 @@ pub enum Plan<F: SqliteFile> {
     RollbackTransaction(RollBackTransaction),
     Terminate(Terminate<F>),
 }
-fn foo() {}
 
 impl<F: SqliteFile> Plan<F> {
     pub fn is_filter(&self) -> bool {
@@ -91,9 +90,11 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::InsertQuery(stmt) => {
                 Ok(PlanContext::Resolved(Self::init_insert_plan(stmt)?))
             }
-            ResolvedQuery::DeleteQuery(stmt) => {
-                Ok(PlanContext::Resolved(Self::init_delete_plan(stmt, pager)?))
-            }
+            ResolvedQuery::DeleteQuery(stmt) => Ok(PlanContext::Resolved(Self::init_delete_plan(
+                stmt,
+                pager,
+                sqlite_master,
+            )?)),
             ResolvedQuery::CreateTableQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateTable(
                 CreateTable::new(stmt),
             ))),
@@ -134,13 +135,13 @@ impl<F: SqliteFile> Plan<F> {
             Box::new(child),
             resolved_query.columns.clone(),
         ));
-        Optimazer::optimaze_select(
+        Optimazer::optimaze_plan(
             &mut parent,
             pager,
             sqlite_master,
             &resolved_query.table_name,
             resolved_query.root_page,
-            &resolved_query.arena,
+            Some(&resolved_query.arena),
         )?;
         Ok(PreparedPlan::new(parent, Some(resolved_query.arena)))
     }
@@ -149,7 +150,7 @@ impl<F: SqliteFile> Plan<F> {
         resolved_query: ResolvedInsertQuery,
     ) -> Result<PreparedPlan<F>, SqliteError> {
         // Rows flow upward: PrepareRow yields table rows, each PrepareIndex
-        // writes one index entry per row and passes it along.
+        // writes one index entry per row and passes it along
         let mut plan = Plan::PrepareRow(PrepareRow::new(
             None,
             resolved_query.root_page,
@@ -182,12 +183,33 @@ impl<F: SqliteFile> Plan<F> {
     pub fn init_delete_plan(
         resolved_query: ResolvedDeleteQuery,
         pager: &mut Pager<F>,
+        sqlite_master: &SqliteMaster,
     ) -> SqliteResult<PreparedPlan<F>> {
-        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        let mut parent = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
         if let Some(predict) = resolved_query.where_clause {
-            child = Self::Filter(Filter::new(Box::new(child), predict));
+            parent = Self::Filter(Filter::new(Box::new(parent), predict));
         }
-        let parent = Self::Delete(Delete::new(Box::new(child), resolved_query.root_page));
+        Optimazer::optimaze_plan(
+            &mut parent,
+            pager,
+            sqlite_master,
+            &resolved_query.table_name,
+            resolved_query.root_page,
+            resolved_query.arena.as_ref(),
+        )?;
+
+        // if let Some(indexes) = resolved_query.indexes {
+        //     for index in indexes {
+        //         let prepare = PrepareIndex::new(
+        //             index.index_root_page,
+        //             index.col_idx,
+        //             Box::new(IndexDelete),
+        //             Box::new(parent),
+        //         );
+        //         parent = Plan::PrepareIndex(prepare);
+        //     }
+        // }
+        let mut parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
@@ -222,7 +244,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
             Self::CreateIndex(ci) => ci.next(pager),
             Self::Terminate(t) => t.next(pager),
-            Self::PrepareIndex(pi) => pi.next(pager),
+            Self::PrepareIndex(pi) => pi.next(pager, arena),
             Self::PrepareRow(pr) => pr.next(pager),
             _ => todo!(),
         }

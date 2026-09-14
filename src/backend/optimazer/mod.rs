@@ -12,18 +12,33 @@ use crate::{SqliteMaster, SqliteResult};
 pub struct Optimazer;
 
 impl Optimazer {
-    pub fn optimaze_select<F: SqliteFile>(
+    pub fn optimaze_plan<F: SqliteFile>(
         plan: &mut Plan<F>,
         pager: &mut Pager<F>,
         sqlite_master: &SqliteMaster,
         table_name: &str,
         root_page: u32,
-        arena: &ExprArena,
+        arena: Option<&ExprArena>,
     ) -> Result<(), SqliteError> {
         let mut plan = plan;
+        if plan.is_filter() {
+            if let Some(x) =
+                Self::optimaze_where(plan, arena.unwrap(), sqlite_master, table_name, root_page)?
+            {
+                let new_child = Plan::IndexExactMatch(IndexExactMatch::new(pager, x.0, x.1, x.2)?);
+                *plan = new_child;
+            }
+            return Ok(());
+        }
         while let Some(child) = plan.child_mut() {
             if child.is_filter() {
-                match Self::optimaze_where(child, arena, sqlite_master, table_name, root_page)? {
+                match Self::optimaze_where(
+                    child,
+                    arena.unwrap(),
+                    sqlite_master,
+                    table_name,
+                    root_page,
+                )? {
                     Some(x) => {
                         let new_child =
                             Plan::IndexExactMatch(IndexExactMatch::new(pager, x.0, x.1, x.2)?);
@@ -44,7 +59,10 @@ impl Optimazer {
         table_name: &str,
         relation_root_page: u32,
     ) -> SqliteResult<Option<(u32, u32, Value<'static>)>> {
-        assert!(matches!(plan, Plan::Filter(_)));
+        assert!(
+            matches!(plan, Plan::Filter(_)),
+            "Optimaze where calle with non filter node"
+        );
         let filter_expr_index = match plan {
             Plan::Filter(p) => p.predicate(),
             _ => unreachable!(),

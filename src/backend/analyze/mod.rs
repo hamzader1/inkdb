@@ -52,8 +52,10 @@ pub struct ResolvedCreateTableQuery {
 
 #[derive(Debug)]
 pub struct ResolvedDeleteQuery {
+    pub table_name: String,
     pub root_page: PageNo,
     pub arena: Option<ExprArena>,
+    pub indexes: Option<Vec<IndexMetadata>>,
     pub where_clause: Option<usize>,
 }
 

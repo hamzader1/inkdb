@@ -46,12 +46,17 @@ impl<F: SqliteFile> PrepareIndex<F> {
             child,
         }
     }
-    pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
-        let Some(row) = self.child.next(pager, None)? else {
+    pub fn next(
+        &mut self,
+        pager: &mut Pager<F>,
+        arena: Option<&ExprArena>,
+    ) -> SqliteResult<Option<Row>> {
+        let Some(row) = self.child.next(pager, arena)? else {
             return Ok(None);
         };
         let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
         let mut btree = BTree::new(self.index_root_page, pager);
+        // println!("KEY TO BE DELETED {:?} ", key);
 
         self.action.next(&mut btree, key)?;
         /*
@@ -187,22 +192,18 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         Ok(None)
     }
 }
-
-// mod p {
-//     pub trait Z {}
-// }
 pub trait IndexMutation<F: SqliteFile>: std::fmt::Debug {
     fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()>;
 }
 
-// #[derive(Debug)]
-// struct IndexDelete;
-// impl<F: SqliteFile> IndexMutation<F> for IndexDelete {
-//     fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
-//         btree.delete(Value::Tuple(key))?;
-//         Ok(())
-//     }
-// }
+#[derive(Debug)]
+pub struct IndexDelete;
+impl<F: SqliteFile> IndexMutation<F> for IndexDelete {
+    fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
+        btree.delete(Value::Tuple(key))?;
+        Ok(())
+    }
+}
 #[derive(Debug)]
 pub struct IndexInsert {
     pub is_unique: bool,
