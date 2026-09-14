@@ -198,17 +198,18 @@ impl<F: SqliteFile> Plan<F> {
             resolved_query.arena.as_ref(),
         )?;
 
-        // if let Some(indexes) = resolved_query.indexes {
-        //     for index in indexes {
-        //         let prepare = PrepareIndex::new(
-        //             index.index_root_page,
-        //             index.col_idx,
-        //             Box::new(IndexDelete),
-        //             Box::new(parent),
-        //         );
-        //         parent = Plan::PrepareIndex(prepare);
-        //     }
-        // }
+        // Temporary
+        if let Some(indexes) = resolved_query.indexes {
+            for index in indexes {
+                let prepare = PrepareIndex::new(
+                    index.index_root_page,
+                    index.col_idx,
+                    Box::new(IndexDelete),
+                    Box::new(parent),
+                );
+                parent = Plan::PrepareIndex(prepare);
+            }
+        }
         let mut parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
