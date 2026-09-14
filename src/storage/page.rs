@@ -1324,7 +1324,7 @@ impl<'p> std::fmt::Debug for BTreePageRef<'p> {
     }
 }
 
-pub trait BTreePageOps<'g> {
+pub trait BTreePageOps<'g>: std::fmt::Debug {
     fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError>;
     fn record_of_cell<F: crate::vfs::file::SqliteFile>(
         &'g self,
