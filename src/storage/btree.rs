@@ -1256,7 +1256,26 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     // delete
     //
     pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
-        self.cursor.seek(self.pager, &key)?;
+        let seek_res = self.cursor.seek(self.pager, &key)?;
+        // seek lands on the lower bound leaf position; for NotFound the
+        // cell_idx may be past the last cell (insertion point). Treat
+        // that as "not found" without touching the page.
+        if seek_res == SeekResult::NotFound {
+            let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+            let guard = self.pager.get(page_no)?;
+            let page = page_as_ref_with_pager(page_no, &guard, self.pager)?;
+            if cell_idx >= page.no_of_cells() {
+                return Ok(());
+            }
+            // fell inside the page but keys differ
+            // still not found
+            let cell = page.cell(cell_idx)?;
+            if page.cell_key(&cell, self.pager)? != key {
+                return Ok(());
+            }
+            // exact key exists but seek reported NotFound only for index
+            // prefix cases; fall through to the mut path below
+        }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
 
         /*
@@ -1265,6 +1284,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         let mut guard = self.pager.get_mut(page_no)?;
         let current_page = self.page_as_mut(page_no, &mut guard)?;
+        if cell_idx >= current_page.as_ref()?.no_of_cells() {
+            return Ok(());
+        }
         let cell = current_page.cell(cell_idx)?;
         let found_key = current_page.cell_key(&cell, self.pager)?;
         if !(found_key == key) {
@@ -1272,15 +1294,74 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        // println!("###\nDelete initiale path:");
-        // println!("PageN: {}:", page_no);
-        // println!("CellId: {}\n###", cell_idx);
+
+        // Capture parent divider position before we mutate leaf, so we can
+        // keep the separator in sync when we delete the leaf's max. For
+        // BTree (index) and B+Tree (table) the divider is the max of the
+        // left child.
+        let parent_info = if self.cursor.stack.len() >= 2 {
+            let parent_path = &self.cursor.stack[self.cursor.stack.len() - 2];
+            Some((parent_path.page_no, parent_path.cell_idx))
+        } else {
+            None
+        };
+        let old_no = self.with_page_ref(page_no, |p| Ok(p.no_of_cells()))?;
+        let deleted_was_last = cell_idx + 1 == old_no;
 
         let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
             page.remove_cell(cell_idx)?;
             let is_undeflow = page.is_underflow()?;
             Ok(is_undeflow)
         })?;
+
+        if !is_underflow
+            && deleted_was_last
+            && page_no != self.root_page
+            && let Some((parent_page_no, parent_cell_idx)) = parent_info
+        {
+            // RMP leaf has no divider (parent_cell_idx == parent_n)
+            let parent_n = self.with_page_ref(parent_page_no, |p| Ok(p.no_of_cells()))?;
+            if parent_cell_idx < parent_n {
+                // Not RMP
+                let new_max_is_some = self.with_page_ref(page_no, |p| Ok(p.no_of_cells() > 0))?;
+                if new_max_is_some {
+                    let parent_is_index =
+                        self.with_page_ref(parent_page_no, |p| Ok(p.is_index()))?;
+                    if parent_is_index {
+                        let new_cell_bytes = self.with_page_mut(page_no, |leaf| {
+                            let last = leaf.no_of_cells() - 1;
+                            leaf.cell_bytes_as_ref(last).map(|b| b.to_vec())
+                        })?;
+                        // leaf cell is varint+payload; interior expects varint+payload
+                        let new_divider = Encode::encode_index_interior_cell(
+                            // left child stays the same (this leaf)
+                            self.with_page_ref(parent_page_no, |parent| {
+                                Ok(parent.cell(parent_cell_idx)?.left_child())
+                            })?,
+                            &new_cell_bytes,
+                        );
+                        self.with_page_mut(parent_page_no, |parent| {
+                            parent.replace_cell(parent_cell_idx, &new_divider)?;
+                            Ok::<(), SqliteError>(())
+                        })?;
+                    } else {
+                        let new_rowid = self.with_page_mut(page_no, |leaf| {
+                            let last = leaf.no_of_cells() - 1;
+                            Ok(leaf.cell(last)?.row_id())
+                        })?;
+                        let left_child = self.with_page_ref(parent_page_no, |parent| {
+                            Ok(parent.cell(parent_cell_idx)?.left_child())
+                        })?;
+                        let new_divider = Encode::encode_table_interior_cell(left_child, new_rowid);
+                        self.with_page_mut(parent_page_no, |parent| {
+                            parent.replace_cell(parent_cell_idx, &new_divider)?;
+                            Ok::<(), SqliteError>(())
+                        })?;
+                    }
+                }
+            }
+        }
+
         if page_no == self.root_page {
             return Ok(());
         }
