@@ -17,6 +17,9 @@ impl Analyze {
             values,
         } = stmt;
 
+        sqlite_assert_with_runtime_err(!table_name.eq_ignore_ascii_case("sqlite_master"), || {
+            "table sqlite_master may not be modified".into()
+        })?;
         let table = Self::get_table(sqlite_master, &table_name)?;
         // case1: no columns (default for now)
 
