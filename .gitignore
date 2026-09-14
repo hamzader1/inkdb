@@ -8,4 +8,4 @@ bench/
 docs/
 profile.*
 *.db
-
+*.trace

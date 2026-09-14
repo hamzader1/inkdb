@@ -10,10 +10,10 @@ const CACHE_SIZE: usize = 4096;
 // TODO: after getting things done, change pub to pub(super)
 pub struct BufferPool {
     pub page_table    : HashMap<PageNo, FrameId>,
-    pub page_buffer : Box<[u8]>,
-    pub frame_buffer: Box<[Frame]>, // Frame Id used to index
-    pub free_frames : Vec<FrameId>, // Frame Id to Index frame_buffer
-    pub clock_hand  : FrameIndex
+    pub page_buffer   : Box<[u8]>,
+    pub frame_buffer  : Box<[Frame]>, // Frame Id used to index
+    pub free_frames   : Vec<FrameId>, // Frame Id to Index frame_buffer
+    pub clock_hand    : FrameIndex
 }
 
 impl BufferPool {

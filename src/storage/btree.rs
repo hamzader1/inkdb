@@ -118,11 +118,18 @@ impl SearchResult {
     }
 }
 
+pub enum RestorePosition {
+    Exact,
+    Next,
+    Empty,
+}
 #[derive(Debug)]
 pub struct BTreeCursor<F: crate::vfs::file::SqliteFile> {
     root: PageNo,
     pub stack: Vec<Path>,
     pub state: CursorState,
+    pub saved_key: Option<Value<'static>>,
+    saved_yielded: bool,
     _phantom: std::marker::PhantomData<F>,
 }
 impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
@@ -131,9 +138,67 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             root,
             stack: Vec::new(),
             state: CursorState::Invalid,
+            saved_key: None,
+            saved_yielded: false,
             _phantom: std::marker::PhantomData,
         }
     }
+
+    /*
+     * Optimaze these two functions below
+     */
+    pub fn save_position(&mut self, pager: &mut Pager<F>) -> SqliteResult<()> {
+        if let Some(last_entry) = self.stack.last() {
+            let guard = pager.get(last_entry.page_no)?;
+            let page = page_as_ref_with_pager(last_entry.page_no, &guard, pager)?;
+            if last_entry.cell_idx >= page.no_of_cells() {
+                // Past the end
+                // No key to save
+                self.saved_key = None;
+                self.saved_yielded = false;
+                self.stack.clear();
+                return Ok(());
+            }
+            self.saved_yielded = last_entry.yeilded;
+            let cell = page.cell(last_entry.cell_idx)?;
+            let key = page.cell_key(&cell, pager)?;
+            self.saved_key = Some(key);
+            self.stack.clear();
+        }
+        Ok(())
+    }
+
+    pub fn restore_position(&mut self, pager: &mut Pager<F>) -> SqliteResult<RestorePosition> {
+        let Some(key) = self.saved_key.take() else {
+            return Ok(RestorePosition::Empty);
+        };
+        let saved_yielded = self.saved_yielded;
+        self.saved_yielded = false;
+        self.seek_internal(pager, &key, true)?;
+        let Some(path) = self.stack.last_mut() else {
+            return Ok(RestorePosition::Next);
+        };
+        if saved_yielded {
+            // If we saved a yielded interior divider, restore its yielded
+            // state so a subsequent Exact -> next() does not reyield it.
+            let guard = pager.get(path.page_no)?;
+            let page = page_as_ref_with_pager(path.page_no, &guard, pager)?;
+            if !page.is_leaf() {
+                path.yeilded = true;
+            }
+        }
+        let (page_no, cell_idx) = (path.page_no, path.cell_idx);
+        let guard = pager.get(page_no)?;
+        let page = page_as_ref_with_pager(page_no, &guard, pager)?;
+        if cell_idx < page.no_of_cells() {
+            let cell = page.cell(cell_idx)?;
+            if page.cell_key(&cell, pager)? == key {
+                return Ok(RestorePosition::Exact);
+            }
+        }
+        Ok(RestorePosition::Next)
+    }
+
     pub fn seek(
         &mut self,
         pager: &mut Pager<F>,
@@ -501,6 +566,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current(pager)?
         {
+            dbg!(&page);
             let cell = page.record_of(&cell, pager)?;
             return Ok(Some(cell));
         }
@@ -1147,6 +1213,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         self.pager.allocate_new_page()
     }
     pub fn deallocate_page(&mut self, page_no: PageNo) -> SqliteResult<()> {
+        println!("PAGE TO BE DEALLOCATED {page_no}");
         self.pager.dealloc(page_no)
     }
 

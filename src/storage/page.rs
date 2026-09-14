@@ -101,6 +101,9 @@ impl BTreePageHeader {
     pub fn parse(bytes: &[u8], header_offsert: u8) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, header_offsert as _)?;
         let page_kind_byte = cursor.read_next_u8()?;
+        // use std::backtrace::Backtrace;
+        // let bt = Backtrace::force_capture();
+        // eprintln!("BACKTRACE:\n{bt}");
         let p_kind = match BTreePageType::get(page_kind_byte) {
             Some(x) => x,
             _ => return Err(SqliteError::InvalidPageType(page_kind_byte)),
@@ -458,7 +461,7 @@ impl<'p> BTreePageMut<'p> {
             bytes,
             page_size,
             usable_size,
-            cell_pointers: Vec::new(),
+            cell_pointers: Vec::new(), // todo: This shows significant performance cost in analysis
             _marker: PhantomData,
         };
         page.parse_cell_array_into_page()?;
