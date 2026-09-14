@@ -215,10 +215,6 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     ) -> Result<SeekResult, SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
-        // Exactness seen anywhere (interior divider or leaf). Interior
-        // matches must NOT stop the descent: duplicates live in leaves
-        // below, so we park the divider unyielded, descend left, and let
-        // forward iteration visit the whole run in order.
         let mut exact = false;
         loop {
             let guard = pager.get(page_no)?;
@@ -456,9 +452,6 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
 
         let mut l = 0;
         let mut r = cell_count;
-        // Lower bound: equality keeps going left so the descent lands at
-        // the FIRST position holding the target. Stopping at the first ==
-        // inside the page would abandon earlier duplicates on this page.
         let mut saw_eq = false;
 
         while l < r {
@@ -586,7 +579,6 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current(pager)?
         {
-            dbg!(&page);
             let cell = page.record_of(&cell, pager)?;
             return Ok(Some(cell));
         }
@@ -1371,7 +1363,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
         Ok(())
     }
-    /// Collapse an empty interior root: move its single (right-most) child
+    /// Collapse an empty interior root: move its single (rightmost) child
     /// into the root page, keeping the root page_no stable so the catalog
     /// stays valid. Leaf roots and roots with >=1 key are left alone.
     /// The orphaned child page is leaked for now (TODO: freelist).
@@ -1636,14 +1628,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // dbg!(beta_cell);
 
             let new_bytes = if is_index {
-                // Interior payload is the RECORD only: strip the leaf
-                // cell's length prefix first (encode appends verbatim).
-                let sep_off = current_page
-                    .as_ref()?
-                    .get_cell_offset(separator_index as _)?;
-                let sep_cell = current_page.parse_cell_at(sep_off)?;
-                let range = *sep_cell.payload_range();
-                Encode::encode_index_interior_cell(child_page_no, &current_page.bytes[range])
+                Encode::encode_index_interior_cell(
+                    child_page_no,
+                    &new_left_page_cell[separator_index],
+                )
             } else {
                 Encode::encode_table_interior_cell(
                     child_page_no,
@@ -1703,9 +1691,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     parent_separator_cell.row_id(),
                 )
             } else {
+                // Interior cell is left_child + varint+payload; strip left_child
+                // to get varint+payload for the new cell.
                 Encode::encode_index_interior_cell(
                     current_page.right_most_ptr().unwrap(),
-                    &new_right_page_cells[0][*first_cell_of_right_sibling.payload_range()],
+                    &new_right_page_cells[0][4..],
                 )
             };
 
@@ -1862,11 +1852,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // Table: boundary rowid. Index: full record payload bytes.
             let divider_bytes = &new_sibling_cells[separator_index]; // last one on the left
             let new_bytes = if is_index {
-                let parsed =
-                    IndexLeafCell::parse(divider_bytes, 0, self.pager.metadata.usable_size)
-                        .map(BTreeCell::IndexLeaf)?;
-                let range = parsed.payload_range();
-                Encode::encode_index_interior_cell(sib_page_no, &divider_bytes[*range])
+                // divider_bytes already is varint+payload for leaf; pass verbatim
+                Encode::encode_index_interior_cell(sib_page_no, divider_bytes)
             } else {
                 let sibling_len = sibling_page.no_of_cells() as usize;
                 let separator_key = if separator_index < sibling_len {
@@ -1967,12 +1954,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 parent_separator_cell.row_id(),
             )
         } else {
-            let sep_off = parent_page.as_ref()?.get_cell_offset(sibling_idx)?;
-            let sep_cell = parent_page.parse_cell_at(sep_off)?;
-            let range = sep_cell.payload_range();
+            // parent cell is left_child + varint+payload; strip left_child
+            let parent_cell_bytes = parent_page.cell_bytes_as_ref(sibling_idx)?.to_vec();
             Encode::encode_index_interior_cell(
                 sibling_page.right_most_ptr().unwrap(),
-                &parent_page.bytes[*range],
+                &parent_cell_bytes[4..],
             )
         };
 
@@ -1991,9 +1977,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let new_parent_cell = if !is_index {
             Encode::encode_table_interior_cell(sib_page_no, promoted_cell.row_id())
         } else {
-            // Promoted record bytes, already parsed above for the move-down.
-            let range = promoted_cell.payload_range();
-            Encode::encode_index_interior_cell(sib_page_no, &promoted_bytes[*range])
+            // promoted_bytes is left_child + varint+payload; strip left_child
+            Encode::encode_index_interior_cell(sib_page_no, &promoted_bytes[4..])
         };
         parent_page.remove_cell(sibling_idx)?;
         if parent_page.insert_cell(&new_parent_cell, sibling_idx)? == InsertionState::None {
