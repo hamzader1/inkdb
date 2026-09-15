@@ -59,8 +59,8 @@ pub trait Scan<F: SqliteFile>: std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub struct TableUnsafeScan;
-impl<F: SqliteFile> Scan<F> for TableUnsafeScan {
+pub struct UnsafeTableScan;
+impl<F: SqliteFile> Scan<F> for UnsafeTableScan {
     fn next(
         &mut self,
         pager: &mut Pager<F>,
@@ -84,13 +84,13 @@ impl<F: SqliteFile> Scan<F> for TableUnsafeScan {
         let v = record.iter().map(|v| v.into_owned()).collect();
         let row = Row::new(row_id, v);
         cursor.save_position(pager)?;
-        return Ok(Some(row));
+        Ok(Some(row))
     }
 }
 
 #[derive(Debug)]
-pub struct TableSafeScan;
-impl<F: SqliteFile> Scan<F> for TableSafeScan {
+pub struct SafeTableScan;
+impl<F: SqliteFile> Scan<F> for SafeTableScan {
     fn next(
         &mut self,
         pager: &mut Pager<F>,

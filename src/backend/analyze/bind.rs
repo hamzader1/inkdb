@@ -109,7 +109,7 @@ impl BindSink for SlowBind<'_> {
     fn ident(
         &mut self,
         table: &Table,
-        arena: &mut ExprArena,
+        _arena: &mut ExprArena,
         idx: usize,
         name: &str,
     ) -> Result<usize, SqliteError> {
@@ -200,9 +200,9 @@ impl BindSink for FastBind {
     }
     fn star(
         &mut self,
-        table: &Table,
-        arena: &mut ExprArena,
-        idx: usize,
+        _table: &Table,
+        _arena: &mut ExprArena,
+        _idx: usize,
     ) -> Result<usize, SqliteError> {
         Err(SqliteError::Runtime(
             "Expression * cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported".into(),

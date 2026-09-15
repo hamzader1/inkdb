@@ -8,7 +8,6 @@ use crate::db::header::{
 };
 use crate::errors::SqliteError;
 use crate::storage::freelist::FreeList;
-use crate::storage::page::{FIRST_FREEBLOCK_OFFSET, FIRST_FREEBLOCK_SIZE};
 
 use super::buffer_pool::BufferPool;
 use super::frame::FrameId;
@@ -311,15 +310,13 @@ impl<F: SqliteFile> Pager<F> {
         self.dp_ll = Some(frame_id);
     }
     pub fn dp_ll_remove(&mut self, frame_id: FrameId) {
-        let mut next = None;
-        let mut prev = None;
         // safe to unwrap since we want to remove a Node,
         // so logically we at lease have one node
         let is_tail = frame_id == self.dp_ll.unwrap(); // if this panics, we have a bug
 
         let frame = &mut self.buffer_pool.frame_buffer[frame_id];
-        next = frame.next;
-        prev = frame.prev;
+        let next = frame.next;
+        let prev = frame.prev;
         // in case this returned the buffer pool,
         // should not handle its old pointers so it breaks the list
         frame.prev = None;

@@ -3,7 +3,7 @@ use crate::backend::planner::plan::Plan;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::SqlType;
 use crate::sql::parser::ExprArena;
-use crate::storage::btree::{BTree, BTreeCursor};
+use crate::storage::btree::BTree;
 use crate::vfs::file::SqliteFile;
 
 use super::Row;

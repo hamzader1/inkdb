@@ -1,6 +1,5 @@
 use super::cell::BTreeCell;
 use super::cell::Encode;
-use super::freelist::FreeList;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
@@ -20,7 +19,6 @@ use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
 use crate::storage::cell::IndexInteriorCell;
-use crate::storage::cell::IndexLeafCell;
 use crate::storage::cell::TableInteriorCell;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
@@ -401,7 +399,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 page_no,
                 cell_idx,
                 guard,
-                yeilded,
+                ..
             } = path;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
             if page.is_leaf() {
@@ -474,7 +472,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 page_no,
                 cell_idx,
                 guard,
-                yeilded,
+                ..
             } = path;
 
             let page = page_as_ref_with_pager(*page_no, guard, pager)?;
@@ -879,8 +877,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     InsertionState::Inserted => Ok(split_metadata),
                     InsertionState::None => {
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
-                        let key = split_metadata.right_max.into_owned();
-                        self.insert_key_to_interior(&key, right_page_payload, meta)?;
+                        self.insert_key_to_interior(&right_divider_key, right_page_payload, meta)?;
                         Ok(split_metadata)
                     }
                 }
@@ -913,11 +910,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
             let mut root = BTreePageMut::new_from_raw_bytes(
                 left_page.page_no,
-                (if is_index {
+                if is_index {
                     BTreePageType::InteriorIndex
                 } else {
                     BTreePageType::InteriorTable
-                }),
+                },
                 left_page_guard.bytes_as_mut_unchecked(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
@@ -1038,7 +1035,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
             // remove the cell
             debug_assert_eq!(left_page.cell_pointers.last(), Some(&left_last_ptr));
-            left_page.remove_cell(left_page.no_of_cells() - 1);
+            left_page.remove_cell(left_page.no_of_cells() - 1)?;
         }
 
         Ok(metadata)
@@ -1339,11 +1336,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let found_key = {
             let guard = self.pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, self.pager)?;
-            if cell_idx >= page.no_of_cells() {
-                return Ok(());
-            }
-            // fell inside the page but keys differ
-            // still not found
             let cell = page.cell(cell_idx)?;
             page.cell_key(&cell, self.pager)?
         };
@@ -1912,6 +1904,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
         }
+        let sibling_len = sibling_page.no_of_cells() as usize;
 
         for i in 0..current_page.no_of_cells() {
             let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();

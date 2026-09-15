@@ -1,9 +1,9 @@
 use crate::backend::analyze::{ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
-use crate::backend::planner::plan::{Plan, Terminate};
+use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::{SqlType, Value};
-use crate::storage::btree::{BTree, page_as_mut_with_pager};
+use crate::storage::btree::BTree;
 use crate::storage::page::{BTreePageMut, BTreePageType};
 use crate::vfs::file::SqliteFile;
 

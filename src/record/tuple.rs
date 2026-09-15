@@ -32,7 +32,7 @@ impl Tuple {
 
     pub fn encode_sqltype(value: &Value, output: &mut Vec<u8>) -> usize {
         match value {
-            Value::Integer(n) => {
+            Value::Integer(_) => {
                 let compressed_int = CompressedNumeric::from(value);
                 match compressed_int {
                     CompressedNumeric::I8(n) => {
@@ -54,7 +54,7 @@ impl Tuple {
                     _ => unreachable!(),
                 }
             }
-            Value::Float(f) => {
+            Value::Float(_) => {
                 let compressed_float = CompressedNumeric::from(value);
                 match compressed_float {
                     CompressedNumeric::F32(f) => {

@@ -4,7 +4,7 @@ use crate::{
     errors::SqliteError,
     pager::pager::Pager,
     storage::{
-        btree::{page_as_mut_with_pager, page_as_ref_with_pager},
+        btree::page_as_mut_with_pager,
         page::{BTreePageMut, BTreePageOps, BTreePageType},
     },
     vfs::file::SqliteFile,
@@ -14,11 +14,24 @@ use crate::{
 pub struct TruncateTable {
     root_page: u32,
     indexes: Option<Vec<u32>>,
+    page_kind: BTreePageType,
 }
 
 impl TruncateTable {
     pub fn new(root_page: u32, indexes: Option<Vec<u32>>) -> Self {
-        Self { root_page, indexes }
+        Self {
+            root_page,
+            indexes,
+            page_kind: BTreePageType::LeafTable,
+        }
+    }
+
+    fn new_index(root_page: u32) -> Self {
+        Self {
+            root_page,
+            indexes: None,
+            page_kind: BTreePageType::LeafIndex,
+        }
     }
 
     pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
@@ -26,14 +39,14 @@ impl TruncateTable {
         let mut guard = pager.get_mut(self.root_page)?;
         BTreePageMut::new_from_raw_bytes(
             self.root_page,
-            BTreePageType::LeafTable,
+            self.page_kind,
             guard.bytes_as_mut_unchecked(),
             pager.metadata.page_size,
             pager.metadata.usable_size,
         );
         if let Some(ref indexes) = self.indexes {
             for index in indexes {
-                TruncateTable::new(*index, None).next(pager);
+                Self::new_index(*index).next(pager)?;
             }
         }
         Ok(None)
