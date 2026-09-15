@@ -852,10 +852,28 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     }
                 }
             } else {
-                // the old cell already points at the left page; only its key
-                // becomes the boundary, then a divider for the right page follows
-                //
-                // TODO: optimaze left cell insertion from rebuild to in place insert
+                // The split page was not the rightmost child, so an old
+                // divider already points at it. For tables the divider is a
+                // routing copy and the right page gets its own max. For
+                // indexes the old divider is a real entry, so it stays as
+                // the divider for the new right page and only the left
+                // divider becomes the fresh boundary.
+                let (right_page_payload, right_divider_key) = if is_index {
+                    let old_cell = parent_page_as_mut.cell(index)?;
+                    let old_key = parent_page_as_mut
+                        .cell_key(&old_cell, self.pager)?
+                        .into_owned();
+                    let old_cell_bytes = parent_page_as_mut.cell_bytes_as_ref(index)?.to_vec();
+                    (
+                        Encode::encode_index_interior_cell(
+                            split_metadata.right_page,
+                            &old_cell_bytes[4..],
+                        ),
+                        old_key,
+                    )
+                } else {
+                    (right_page_payload, split_metadata.right_max.clone())
+                };
                 parent_page_as_mut.replace_cell(index, &left_page_payload)?;
                 match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
                     InsertionState::Inserted => Ok(split_metadata),
