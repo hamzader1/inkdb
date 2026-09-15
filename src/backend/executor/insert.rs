@@ -1,11 +1,8 @@
 use crate::SqliteResult;
 use crate::backend::executor::Row;
-use crate::errors::SqliteError;
-use crate::pager::pager::{PageNo, Pager};
-use crate::record::{SqlType, Value, tuple::Tuple};
+use crate::pager::pager::Pager;
+use crate::record::Value;
 use crate::storage::btree::BTree;
-use crate::storage::cell::Encode;
-use crate::varint::encode_varint;
 use crate::vfs::file::SqliteFile;
 
 #[derive(Debug)]

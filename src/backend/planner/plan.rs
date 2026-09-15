@@ -13,6 +13,7 @@ use crate::backend::executor::index::{IndexDelete, IndexExactMatch, IndexInsert,
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
+use crate::backend::executor::tablescan::{SafeTableScan, UnsafeTableScan};
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
@@ -21,7 +22,6 @@ use crate::backend::optimazer::Optimazer;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
-use crate::vfs::disk::DiskFile;
 use crate::vfs::file::SqliteFile;
 use crate::{SqliteMaster, SqliteResult};
 
@@ -114,7 +114,6 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Resolved(
                 Self::init_create_index_plan(stmt, pager)?,
             )),
-            _ => todo!(),
         }
     }
 
@@ -123,7 +122,11 @@ impl<F: SqliteFile> Plan<F> {
         pager: &mut Pager<F>,
         sqlite_master: &SqliteMaster,
     ) -> Result<PreparedPlan<F>, SqliteError> {
-        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        let mut child = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            pager,
+            Box::new(SafeTableScan),
+        )?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
@@ -185,7 +188,11 @@ impl<F: SqliteFile> Plan<F> {
         pager: &mut Pager<F>,
         sqlite_master: &SqliteMaster,
     ) -> SqliteResult<PreparedPlan<F>> {
-        let mut parent = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        let mut parent = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            pager,
+            Box::new(UnsafeTableScan),
+        )?);
         if let Some(predict) = resolved_query.where_clause {
             parent = Self::Filter(Filter::new(Box::new(parent), predict));
         }
@@ -210,7 +217,7 @@ impl<F: SqliteFile> Plan<F> {
                 parent = Plan::PrepareIndex(prepare);
             }
         }
-        let mut parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
+        parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
@@ -218,7 +225,11 @@ impl<F: SqliteFile> Plan<F> {
         resolved_query: ResolvedCreateIndexQuery,
         pager: &mut Pager<F>,
     ) -> SqliteResult<PreparedPlan<F>> {
-        let child = Self::TableScan(TableScan::new(resolved_query.relation_root_page, pager)?);
+        let child = Self::TableScan(TableScan::new(
+            resolved_query.relation_root_page,
+            pager,
+            Box::new(SafeTableScan),
+        )?);
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query, pager)?);
         Ok(PreparedPlan::new(parent, None))
     }
@@ -247,7 +258,6 @@ impl<F: SqliteFile> Plan<F> {
             Self::Terminate(t) => t.next(pager),
             Self::PrepareIndex(pi) => pi.next(pager, arena),
             Self::PrepareRow(pr) => pr.next(pager),
-            _ => todo!(),
         }
     }
 }

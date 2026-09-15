@@ -1,4 +1,4 @@
-use super::planner::plan::{self, Plan};
+use super::planner::plan::Plan;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::index::IndexExactMatch;
 use crate::errors::SqliteError;

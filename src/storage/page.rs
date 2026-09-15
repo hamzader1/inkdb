@@ -7,14 +7,13 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::tuple::Tuple;
-use crate::record::tuple::{self, DecodedValue, decode_sqltype, into_borrowed, into_owned};
+use crate::record::tuple::{decode_sqltype, into_borrowed, into_owned};
 use crate::record::{SqlType, Value};
 use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
 use crate::varint::encode_varint;
 use crate::vfs::file::SqliteFile;
 use PageField::*;
 use std::marker::PhantomData;
-use std::range::Range;
 
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;

@@ -16,14 +16,6 @@ use crate::{
 };
 
 use super::insert::Insert;
-
-// #[derive(Debug)]
-// pub struct PrepareIndex<F: SqliteFile> {
-//     index_root_page: u32,
-//     col_idx: usize,
-//     is_unique: bool,
-//     child: Box<Plan<F>>,
-// }
 #[derive(Debug)]
 pub struct PrepareIndex<F: SqliteFile> {
     index_root_page: u32,
@@ -56,28 +48,8 @@ impl<F: SqliteFile> PrepareIndex<F> {
         };
         let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
         let mut btree = BTree::new(self.index_root_page, pager);
-        // println!("KEY TO BE DELETED {:?} ", key);
 
         self.action.next(&mut btree, key)?;
-        /*
-         * Insert path
-         */
-        // let alpha = vec![key[0].clone()];
-        // btree.seek(&Value::Tuple(alpha))?;
-        // if self.is_unique
-        //     && let Some(record) = btree.current_record()?
-        //     && record[0] == key[0]
-        // {
-        //     return Err(SqliteError::Runtime(format!(
-        //         "violates unique index constraint for value: {}",
-        //         row[self.col_idx]
-        //     )));
-        // }
-        // let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
-        // Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
-        /*
-         *
-         */
         Ok(Some(row))
     }
 
@@ -86,51 +58,6 @@ impl<F: SqliteFile> PrepareIndex<F> {
         &mut self.child
     }
 }
-
-// impl<F: SqliteFile> PrepareIndex<F> {
-//     pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool, child: Box<Plan<F>>) -> Self {
-//         Self {
-//             index_root_page,
-//             col_idx,
-//             is_unique,
-//             child,
-//         }
-//     }
-
-//     /// Child subtree for optimizer traversal.
-//     pub fn child_mut(&mut self) -> &mut Plan<F> {
-//         &mut self.child
-//     }
-
-//     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
-//         let Some(row) = self.child.next(pager, None)? else {
-//             return Ok(None);
-//         };
-//         let key = vec![row[self.col_idx].clone(), Value::Integer(row.key as _)];
-//         let mut btree = BTree::new(self.index_root_page, pager);
-
-//         /*
-//          * Insert path
-//          */
-//         let alpha = vec![key[0].clone()];
-//         btree.seek(&Value::Tuple(alpha))?;
-//         if self.is_unique
-//             && let Some(record) = btree.current_record()?
-//             && record[0] == key[0]
-//         {
-//             return Err(SqliteError::Runtime(format!(
-//                 "violates unique index constraint for value: {}",
-//                 row[self.col_idx]
-//             )));
-//         }
-//         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
-//         Insert::<'_, F>::new(self.index_root_page, Value::Tuple(key), &mut bytes).next(pager)?;
-//         /*
-//          *
-//          */
-//         Ok(Some(row))
-//     }
-// }
 
 #[derive(Debug)]
 pub struct IndexExactMatch<F: SqliteFile> {
@@ -148,36 +75,31 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         relation_root_page: u32,
         target: Value<'static>,
     ) -> Result<Self, SqliteError> {
+        // Park on the first entry at or after the wanted key. Matches may
+        // live in a later leaf than the raw landing, so done stays false
+        // here and the key check in next decides when the run ends.
         let mut cursor = BTreeCursor::new(index_root_page);
-        let seek_res = cursor.seek(pager, &Value::Tuple(vec![target.clone()]))?;
-        if seek_res == SeekResult::Exact
-            && let Some(p) = cursor.stack.last_mut()
-        {
-            p.yeilded = true;
-        }
+        cursor.seek_lower_bound(pager, &Value::Tuple(vec![target.clone()]))?;
         Ok(Self {
             index_root_page,
             relation_root_page,
             target,
             cursor,
-            is_done: seek_res == SeekResult::NotFound,
+            is_done: false,
         })
     }
     pub fn next(&mut self, pager: &mut Pager<F>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
-        match self.cursor.restore_position(pager)? {
-            RestorePosition::Exact => {
-                self.cursor.next(pager)?;
-            }
-            RestorePosition::Next => {}
-            RestorePosition::Empty => {}
+        // If the previous row survived, step over it. If it was deleted,
+        // restore already sits on its successor.
+        if let RestorePosition::Exact = self.cursor.restore_position(pager)? {
+            self.cursor.next(pager)?;
         }
 
         if self.is_done {
             return Ok(None);
         }
 
-        let current_index_record = self.cursor.current_record(pager)?;
-        let Some(mut index_record) = current_index_record else {
+        let Some(mut index_record) = self.cursor.current_record(pager)? else {
             self.is_done = true;
             return Ok(None);
         };
@@ -192,12 +114,22 @@ impl<F: SqliteFile> IndexExactMatch<F> {
             return Ok(None);
         }
 
+        // Every index entry must point at a live table row. A missing row
+        // means the table delete and the index delete disagreed, so speak
+        // up instead of returning a wrong row.
         let mut relation_btree = BTree::new(self.relation_root_page, pager);
-        relation_btree.seek(&row_id);
+        if relation_btree.seek(&row_id)? != SeekResult::Exact {
+            return Err(SqliteError::Corrupt(format!(
+                "index {} holds rowid {row_id} but table {} has no such row",
+                self.index_root_page, self.relation_root_page
+            )));
+        }
         let relation_record = relation_btree
             .cursor
             .current_record(pager)?
-            .expect("Row id not associated with any record")
+            .ok_or_else(|| {
+                SqliteError::Corrupt("row vanished between exact seek and read".into())
+            })?
             .iter()
             .map(|v| v.into_owned())
             .collect();
@@ -216,7 +148,15 @@ pub trait IndexMutation<F: SqliteFile>: std::fmt::Debug {
 pub struct IndexDelete;
 impl<F: SqliteFile> IndexMutation<F> for IndexDelete {
     fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
-        btree.delete(Value::Tuple(key))?;
+        // A missing entry for a row being deleted is corruption. Silently
+        // ignoring it is how rows survived DELETE while the index lost
+        // track of them.
+        if !btree.delete(Value::Tuple(key))? {
+            return Err(SqliteError::Corrupt(format!(
+                "index root {}: entry missing for a row being deleted",
+                btree.root_page
+            )));
+        }
         Ok(())
     }
 }

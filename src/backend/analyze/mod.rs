@@ -115,7 +115,6 @@ impl Analyze {
                 }))
             }
             Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, sqlite_master),
-            _ => todo!(),
         }
     }
 

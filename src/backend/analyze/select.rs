@@ -1,7 +1,6 @@
+use crate::SqliteMaster;
 use crate::errors::SqliteError;
-use crate::schema::{SQLITE_MASTER, Table};
-use crate::util::sqlite_assert_with_runtime_err;
-use crate::{SqliteMaster, SqliteResult};
+use crate::schema::SQLITE_MASTER;
 
 use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;
@@ -16,7 +15,7 @@ impl Analyze {
         let SelectStmt {
             table_name,
             mut arena,
-            mut columns,
+            columns,
             mut where_clause,
             mut limit,
         } = select_stmt.clone();

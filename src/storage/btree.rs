@@ -1,6 +1,5 @@
 use super::cell::BTreeCell;
 use super::cell::Encode;
-use super::freelist::FreeList;
 use super::page::BTreePageMut;
 use super::page::BTreePageOps;
 use super::page::BTreePageRef;
@@ -20,7 +19,6 @@ use crate::pager::pager::Pager;
 use crate::record::SqlType;
 use crate::record::Value;
 use crate::storage::cell::IndexInteriorCell;
-use crate::storage::cell::IndexLeafCell;
 use crate::storage::cell::TableInteriorCell;
 use crate::storage::page::BTreePageType;
 use crate::storage::page::compute_table_local_payload_size;
@@ -179,8 +177,8 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             return Ok(RestorePosition::Next);
         };
         if saved_yielded {
-            // If we saved a yielded interior divider, restore its yielded
-            // state so a subsequent Exact -> next() does not reyield it.
+            // A saved interior divider was already yielded once, so park it
+            // as yielded again. Otherwise the caller would visit it twice.
             let guard = pager.get(path.page_no)?;
             let page = page_as_ref_with_pager(path.page_no, &guard, pager)?;
             if !page.is_leaf() {
@@ -196,7 +194,51 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 return Ok(RestorePosition::Exact);
             }
         }
+        // The saved key is gone (it was just deleted). The seek above may
+        // have parked past the end of a leaf. Step forward so the cursor
+        // sits on the real successor instead of dead space.
+        self.skip_past_end(pager)?;
         Ok(RestorePosition::Next)
+    }
+
+    /// Move past a past the end leaf position onto the next real entry.
+    /// A seek for a deleted key lands where the key would go, which is
+    /// often cell_idx == no_of_cells. Calling next from there climbs and
+    /// descends into the following leaf, or parks AfterLast when done.
+    /// Insert never uses this since it needs the raw landing spot.
+    pub fn skip_past_end(&mut self, pager: &mut Pager<F>) -> SqliteResult<()> {
+        loop {
+            let Some(path) = self.stack.last() else {
+                self.state = CursorState::AfterLast;
+                return Ok(());
+            };
+            let page = page_as_ref_with_pager(path.page_no, &path.guard, pager)?;
+            if path.cell_idx < page.no_of_cells() {
+                self.state = CursorState::At;
+                return Ok(());
+            }
+            self.next(pager)?;
+            if self.state == CursorState::AfterLast {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Seek to the first entry at or after target. Same as seek but a
+    /// past the end landing is advanced to the next leaf for callers
+    /// that iterate forward.
+    pub fn seek_lower_bound(
+        &mut self,
+        pager: &mut Pager<F>,
+        target: &Value<'_>,
+    ) -> SqliteResult<SeekResult> {
+        let res = self.seek_internal(pager, target, true)?;
+        self.skip_past_end(pager)?;
+        Ok(res)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.state == CursorState::At && !self.stack.is_empty()
     }
 
     pub fn seek(
@@ -205,6 +247,17 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         target: &Value<'_>,
     ) -> Result<SeekResult, SqliteError> {
         self.seek_internal(pager, target, false)
+    }
+
+    /// Seek that stops on an interior divider when the full key matches.
+    /// Delete needs this because an index entry may live only in the
+    /// parent. Insert and prefix scans keep using plain seek.
+    pub fn seek_for_delete(
+        &mut self,
+        pager: &mut Pager<F>,
+        target: &Value<'_>,
+    ) -> Result<SeekResult, SqliteError> {
+        self.seek_internal(pager, target, true)
     }
 
     fn seek_internal(
@@ -346,7 +399,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 page_no,
                 cell_idx,
                 guard,
-                yeilded,
+                ..
             } = path;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
             if page.is_leaf() {
@@ -419,7 +472,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 page_no,
                 cell_idx,
                 guard,
-                yeilded,
+                ..
             } = path;
 
             let page = page_as_ref_with_pager(*page_no, guard, pager)?;
@@ -797,17 +850,34 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     }
                 }
             } else {
-                // the old cell already points at the left page; only its key
-                // becomes the boundary, then a divider for the right page follows
-                //
-                // TODO: optimaze left cell insertion from rebuild to in place insert
+                // The split page was not the rightmost child, so an old
+                // divider already points at it. For tables the divider is a
+                // routing copy and the right page gets its own max. For
+                // indexes the old divider is a real entry, so it stays as
+                // the divider for the new right page and only the left
+                // divider becomes the fresh boundary.
+                let (right_page_payload, right_divider_key) = if is_index {
+                    let old_cell = parent_page_as_mut.cell(index)?;
+                    let old_key = parent_page_as_mut
+                        .cell_key(&old_cell, self.pager)?
+                        .into_owned();
+                    let old_cell_bytes = parent_page_as_mut.cell_bytes_as_ref(index)?.to_vec();
+                    (
+                        Encode::encode_index_interior_cell(
+                            split_metadata.right_page,
+                            &old_cell_bytes[4..],
+                        ),
+                        old_key,
+                    )
+                } else {
+                    (right_page_payload, split_metadata.right_max.clone())
+                };
                 parent_page_as_mut.replace_cell(index, &left_page_payload)?;
                 match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
                     InsertionState::Inserted => Ok(split_metadata),
                     InsertionState::None => {
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
-                        let key = split_metadata.right_max.into_owned();
-                        self.insert_key_to_interior(&key, right_page_payload, meta)?;
+                        self.insert_key_to_interior(&right_divider_key, right_page_payload, meta)?;
                         Ok(split_metadata)
                     }
                 }
@@ -840,11 +910,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
             let mut root = BTreePageMut::new_from_raw_bytes(
                 left_page.page_no,
-                (if is_index {
+                if is_index {
                     BTreePageType::InteriorIndex
                 } else {
                     BTreePageType::InteriorTable
-                }),
+                },
                 left_page_guard.bytes_as_mut_unchecked(),
                 self.pager.metadata.page_size,
                 self.pager.metadata.usable_size,
@@ -965,7 +1035,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
 
             // remove the cell
             debug_assert_eq!(left_page.cell_pointers.last(), Some(&left_last_ptr));
-            left_page.remove_cell(left_page.no_of_cells() - 1);
+            left_page.remove_cell(left_page.no_of_cells() - 1)?;
         }
 
         Ok(metadata)
@@ -1245,123 +1315,98 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         Ok(header)
     }
 
-    // delete
-    //
-    pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
-        let seek_res = self.cursor.seek(self.pager, &key)?;
-        // seek lands on the lower bound leaf position; for NotFound the
-        // cell_idx may be past the last cell (insertion point). Treat
-        // that as "not found" without touching the page.
-        if seek_res == SeekResult::NotFound {
-            let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+    // Delete one entry by its full key. Tables hold every row in a leaf
+    // so the hit is always a leaf. Indexes are a real B tree, the hit may
+    // be a divider living only in an interior page. A stale high divider
+    // is harmless for routing, so dividers are never rewritten here, they
+    // are only removed or swapped. Returns true when something was gone.
+    pub fn delete(&mut self, key: Value) -> SqliteResult<bool> {
+        let seek_res = self.cursor.seek_for_delete(self.pager, &key)?;
+        let Some((page_no, cell_idx)) = self.cursor.last_visited_entry() else {
+            return Ok(false);
+        };
+        let (is_leaf, n_cells, is_index) = self.with_page_ref(page_no, |p| {
+            Ok((p.is_leaf(), p.no_of_cells(), p.is_index()))
+        })?;
+        if cell_idx >= n_cells {
+            return Ok(false);
+        }
+        // Confirm the landed cell really is the wanted key. A lower bound
+        // landing on a neighbour must not delete anything.
+        let found_key = {
             let guard = self.pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, self.pager)?;
-            if cell_idx >= page.no_of_cells() {
-                return Ok(());
-            }
-            // fell inside the page but keys differ
-            // still not found
             let cell = page.cell(cell_idx)?;
-            if page.cell_key(&cell, self.pager)? != key {
-                return Ok(());
-            }
-            // exact key exists but seek reported NotFound only for index
-            // prefix cases; fall through to the mut path below
-        }
-        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-
-        /*
-         * WE DO NEED A SHORTCUT FOR THIS MESS
-         */
-
-        let mut guard = self.pager.get_mut(page_no)?;
-        let current_page = self.page_as_mut(page_no, &mut guard)?;
-        if cell_idx >= current_page.as_ref()?.no_of_cells() {
-            return Ok(());
-        }
-        let cell = current_page.cell(cell_idx)?;
-        let found_key = current_page.cell_key(&cell, self.pager)?;
-        if !(found_key == key) {
-            // key not found
-            return Ok(());
-        }
-        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-
-        // Capture parent divider position before we mutate leaf, so we can
-        // keep the separator in sync when we delete the leaf's max. For
-        // BTree (index) and B+Tree (table) the divider is the max of the
-        // left child.
-        let parent_info = if self.cursor.stack.len() >= 2 {
-            let parent_path = &self.cursor.stack[self.cursor.stack.len() - 2];
-            Some((parent_path.page_no, parent_path.cell_idx))
-        } else {
-            None
+            page.cell_key(&cell, self.pager)?
         };
-        let old_no = self.with_page_ref(page_no, |p| Ok(p.no_of_cells()))?;
-        let deleted_was_last = cell_idx + 1 == old_no;
-
-        let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
-            page.remove_cell(cell_idx)?;
-            let is_undeflow = page.is_underflow()?;
-            Ok(is_undeflow)
-        })?;
-
-        if !is_underflow
-            && deleted_was_last
-            && page_no != self.root_page
-            && let Some((parent_page_no, parent_cell_idx)) = parent_info
-        {
-            // RMP leaf has no divider (parent_cell_idx == parent_n)
-            let parent_n = self.with_page_ref(parent_page_no, |p| Ok(p.no_of_cells()))?;
-            if parent_cell_idx < parent_n {
-                // Not RMP
-                let new_max_is_some = self.with_page_ref(page_no, |p| Ok(p.no_of_cells() > 0))?;
-                if new_max_is_some {
-                    let parent_is_index =
-                        self.with_page_ref(parent_page_no, |p| Ok(p.is_index()))?;
-                    if parent_is_index {
-                        let new_cell_bytes = self.with_page_mut(page_no, |leaf| {
-                            let last = leaf.no_of_cells() - 1;
-                            leaf.cell_bytes_as_ref(last).map(|b| b.to_vec())
-                        })?;
-                        // leaf cell is varint+payload; interior expects varint+payload
-                        let new_divider = Encode::encode_index_interior_cell(
-                            // left child stays the same (this leaf)
-                            self.with_page_ref(parent_page_no, |parent| {
-                                Ok(parent.cell(parent_cell_idx)?.left_child())
-                            })?,
-                            &new_cell_bytes,
-                        );
-                        self.with_page_mut(parent_page_no, |parent| {
-                            parent.replace_cell(parent_cell_idx, &new_divider)?;
-                            Ok::<(), SqliteError>(())
-                        })?;
-                    } else {
-                        let new_rowid = self.with_page_mut(page_no, |leaf| {
-                            let last = leaf.no_of_cells() - 1;
-                            Ok(leaf.cell(last)?.row_id())
-                        })?;
-                        let left_child = self.with_page_ref(parent_page_no, |parent| {
-                            Ok(parent.cell(parent_cell_idx)?.left_child())
-                        })?;
-                        let new_divider = Encode::encode_table_interior_cell(left_child, new_rowid);
-                        self.with_page_mut(parent_page_no, |parent| {
-                            parent.replace_cell(parent_cell_idx, &new_divider)?;
-                            Ok::<(), SqliteError>(())
-                        })?;
-                    }
-                }
+        if found_key != key {
+            let _ = seek_res;
+            return Ok(false);
+        }
+        if is_leaf {
+            let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
+                page.remove_cell(cell_idx)?;
+                page.is_underflow()
+            })?;
+            if page_no != self.root_page && is_underflow {
+                self.fix_page_underflow(page_no)?;
             }
+            return Ok(true);
         }
-
-        if page_no == self.root_page {
-            return Ok(());
+        // Interior hit. Only index dividers are real entries. Table
+        // interiors are routing copies and are never stopped on, so
+        // reaching here for a table means corruption, report not found.
+        if !is_index {
+            return Ok(false);
         }
-        if is_underflow {
-            self.fix_page_underflow(page_no)?;
+        let left_child = self.with_page_ref(page_no, |p| Ok(p.cell(cell_idx)?.left_child()))?;
+        // Walk to the predecessor, the last cell of the rightmost leaf
+        // under the divider left child. The cursor stack already ends at
+        // the interior page, so extend it down the right edge. Each
+        // interior level parks at its right most slot, the leaf parks at
+        // its last cell. That layout is exactly what fix underflow wants.
+        let mut pred_no = left_child;
+        loop {
+            let guard = self.pager.get(pred_no)?;
+            let page = page_as_ref_with_pager(pred_no, &guard, self.pager)?;
+            if page.is_leaf() {
+                let n = page.no_of_cells();
+                if n == 0 {
+                    return Err(SqliteError::Corrupt(
+                        "index predecessor leaf is empty".into(),
+                    ));
+                }
+                self.cursor.stack.push(Path::new(pred_no, n - 1, guard));
+                break;
+            }
+            let rmp = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                "index interior has no right child".into(),
+            ))?;
+            let n = page.no_of_cells();
+            self.cursor.stack.push(Path::new(pred_no, n, guard));
+            pred_no = rmp;
         }
-
-        Ok(())
+        let (pred_page_no, pred_cell_idx) = self.cursor.last_visited_entry_unchecked();
+        // Copy the predecessor leaf bytes, then repaint the divider with
+        // them. The divider keeps its left child, only the payload moves.
+        // A leaf cell is varint plus payload which is exactly what an
+        // interior cell carries after its child pointer.
+        let pred_bytes = self.with_page_mut(pred_page_no, |leaf| {
+            leaf.cell_bytes_as_ref(pred_cell_idx).map(|b| b.to_vec())
+        })?;
+        let new_divider = Encode::encode_index_interior_cell(left_child, &pred_bytes);
+        self.with_page_mut(page_no, |parent| {
+            parent.replace_cell(cell_idx, &new_divider)?;
+            Ok::<(), SqliteError>(())
+        })?;
+        let pred_underflow = self.with_page_mut(pred_page_no, |leaf| {
+            leaf.remove_cell(pred_cell_idx)?;
+            leaf.is_underflow()
+        })?;
+        if pred_page_no != self.root_page && pred_underflow {
+            self.fix_page_underflow(pred_page_no)?;
+        }
+        Ok(true)
     }
     /// Collapse an empty interior root: move its single (rightmost) child
     /// into the root page, keeping the root page_no stable so the catalog
@@ -1526,6 +1571,43 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
         }
+        // An index divider is a real entry that lives only in the parent.
+        // Pool it with the leaves so merge and redistribute cannot lose it.
+        // Table dividers are routing copies, they stay out of the pool.
+        // Interior merges pull the separator down with the left right most
+        // child so routing for that subtree survives.
+        let is_leaf_page = current_page.is_leaf();
+        if is_index {
+            let sep_bytes = parent_page
+                .cell_bytes_as_ref(parent_path.cell_idx)?
+                .to_vec();
+            if is_leaf_page {
+                let leaf_sep = sep_bytes[4..].to_vec();
+                total_size_in_bytes += leaf_sep.len();
+                all_cells_as_bytes.insert(current_page_len, leaf_sep);
+            } else {
+                let left_rmp = current_page
+                    .header
+                    .right_most_ptr
+                    .ok_or(SqliteError::Corrupt(
+                        "left interior has no right child".into(),
+                    ))?;
+                let pulled = Encode::encode_index_interior_cell(left_rmp, &sep_bytes[4..]);
+                total_size_in_bytes += pulled.len();
+                all_cells_as_bytes.insert(current_page_len, pulled);
+            }
+        } else if !is_leaf_page {
+            let left_rmp = current_page
+                .header
+                .right_most_ptr
+                .ok_or(SqliteError::Corrupt(
+                    "left interior has no right child".into(),
+                ))?;
+            let rowid = parent_page.cell(parent_path.cell_idx)?.row_id();
+            let pulled = Encode::encode_table_interior_cell(left_rmp, rowid);
+            total_size_in_bytes += pulled.len();
+            all_cells_as_bytes.insert(current_page_len, pulled);
+        }
 
         // Check if they can fit in one page (cells + pointers + header)
         let total_cells = all_cells_as_bytes.len();
@@ -1582,6 +1664,48 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 current_page.page_no,
                 sib_page_no
             );
+            if is_index {
+                // Pool already holds left plus separator plus right. Split
+                // it, promote the last cell of the left share, keep every
+                // other cell in a leaf. Nothing is copied, nothing is lost.
+                if total_cells < 3 {
+                    return Err(SqliteError::Internal(
+                        "cannot redistribute index leaf: not enough cells".into(),
+                    ));
+                }
+                split_at = split_at.clamp(2, total_cells - 1);
+                let (left_share, right_share) = all_cells_as_bytes.split_at(split_at);
+                let promoted = left_share.last().cloned().ok_or(SqliteError::Internal(
+                    "index redistribute left share is empty".into(),
+                ))?;
+                let left_cells = &left_share[..left_share.len() - 1];
+                current_page.reset_for_rebuild();
+                for (i, bytes) in left_cells.iter().enumerate() {
+                    if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Internal(
+                            "redistribute leaf: left share does not fit".into(),
+                        ));
+                    }
+                }
+                sibling_page.reset_for_rebuild();
+                for (i, bytes) in right_share.iter().enumerate() {
+                    if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Internal(
+                            "redistribute leaf: right share does not fit".into(),
+                        ));
+                    }
+                }
+                let new_bytes = Encode::encode_index_interior_cell(child_page_no, &promoted);
+                parent_page.remove_cell(parent_path.cell_idx)?;
+                if parent_page.insert_cell(&new_bytes, parent_path.cell_idx)?
+                    == InsertionState::None
+                {
+                    return Err(SqliteError::Internal(
+                        "redistribute leaf: parent separator does not fit".into(),
+                    ));
+                }
+                return Ok(());
+            }
             current_page.reset_for_rebuild();
             for (i, bytes) in new_left_page_cell.iter().enumerate() {
                 if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
@@ -1614,30 +1738,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 sibling_page.freespace()?
             );
 
-            // dbg!(current_page.cell(separator_index as _)?);
-            // dbg!(separator_cell.row_id());
-
-            // let new_bytes =
-            //     Encode::encode_table_interior_cell(child_page_no, separator_cell.row_id());
-
-            // let beta_cell = TableLeafCell::parse(
-            //     &new_left_page_cell[separator_index],
-            //     0,
-            //     self.pager.metadata.usable_size as _,
-            // );
-            // dbg!(beta_cell);
-
-            let new_bytes = if is_index {
-                Encode::encode_index_interior_cell(
-                    child_page_no,
-                    &new_left_page_cell[separator_index],
-                )
-            } else {
-                Encode::encode_table_interior_cell(
-                    child_page_no,
-                    current_page.cell(separator_index as _)?.row_id(),
-                )
-            };
+            let new_bytes = Encode::encode_table_interior_cell(
+                child_page_no,
+                current_page.cell(separator_index as _)?.row_id(),
+            );
 
             parent_page.remove_cell(parent_path.cell_idx)?;
             if parent_page.insert_cell(&new_bytes, parent_path.cell_idx)? == InsertionState::None {
@@ -1800,11 +1904,46 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
         }
+        let sibling_len = sibling_page.no_of_cells() as usize;
 
         for i in 0..current_page.no_of_cells() {
             let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
+        }
+        // Same pooling rule as the right side. The divider between the two
+        // leaves is a real index entry, so it joins the pool instead of
+        // being dropped. Interior separators are pulled down with the left
+        // right most child for the same reason.
+        let is_leaf_page = current_page.is_leaf();
+        if is_index {
+            let sep_bytes = parent_page.cell_bytes_as_ref(sibling_idx)?.to_vec();
+            if is_leaf_page {
+                let leaf_sep = sep_bytes[4..].to_vec();
+                total_size_in_bytes += leaf_sep.len();
+                all_cells_as_bytes.insert(sibling_len, leaf_sep);
+            } else {
+                let left_rmp = sibling_page
+                    .header
+                    .right_most_ptr
+                    .ok_or(SqliteError::Corrupt(
+                        "left interior has no right child".into(),
+                    ))?;
+                let pulled = Encode::encode_index_interior_cell(left_rmp, &sep_bytes[4..]);
+                total_size_in_bytes += pulled.len();
+                all_cells_as_bytes.insert(sibling_len, pulled);
+            }
+        } else if !is_leaf_page {
+            let left_rmp = sibling_page
+                .header
+                .right_most_ptr
+                .ok_or(SqliteError::Corrupt(
+                    "left interior has no right child".into(),
+                ))?;
+            let rowid = parent_page.cell(sibling_idx)?.row_id();
+            let pulled = Encode::encode_table_interior_cell(left_rmp, rowid);
+            total_size_in_bytes += pulled.len();
+            all_cells_as_bytes.insert(sibling_len, pulled);
         }
 
         let total_cells = all_cells_as_bytes.len();
@@ -1847,26 +1986,57 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 current_page.page_no,
                 sib_page_no
             );
+            if is_index {
+                // Pool holds sibling plus separator plus current. Promote the
+                // last cell of the left share so every entry stays single.
+                if total_cells < 3 {
+                    return Err(SqliteError::Internal(
+                        "cannot redistribute index leaf: not enough cells".into(),
+                    ));
+                }
+                split_at = split_at.clamp(2, total_cells - 1);
+                let (left_share, right_share) = all_cells_as_bytes.split_at(split_at);
+                let promoted = left_share.last().cloned().ok_or(SqliteError::Internal(
+                    "index redistribute left share is empty".into(),
+                ))?;
+                let left_cells = &left_share[..left_share.len() - 1];
+                sibling_page.reset_for_rebuild();
+                for (i, bytes) in left_cells.iter().enumerate() {
+                    if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Internal(
+                            "redistribute leaf: left share does not fit".into(),
+                        ));
+                    }
+                }
+                current_page.reset_for_rebuild();
+                for (i, bytes) in right_share.iter().enumerate() {
+                    if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Internal(
+                            "redistribute leaf: right share does not fit".into(),
+                        ));
+                    }
+                }
+                let new_bytes = Encode::encode_index_interior_cell(sib_page_no, &promoted);
+                parent_page.remove_cell(parent_path.cell_idx - 1)?;
+                if parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?
+                    == InsertionState::None
+                {
+                    return Err(SqliteError::Internal(
+                        "redistribute leaf: parent separator does not fit".into(),
+                    ));
+                }
+                return Ok(());
+            }
             let separator_index = split_at - 1;
-            // Divider = last cell of the sibling's new (left) share.
-            // Table: boundary rowid. Index: full record payload bytes.
-            let divider_bytes = &new_sibling_cells[separator_index]; // last one on the left
-            let new_bytes = if is_index {
-                // divider_bytes already is varint+payload for leaf; pass verbatim
-                Encode::encode_index_interior_cell(sib_page_no, divider_bytes)
+            let sibling_len = sibling_page.no_of_cells() as usize;
+            let separator_key = if separator_index < sibling_len {
+                sibling_page.cell(separator_index as _)?.row_id()
             } else {
-                let sibling_len = sibling_page.no_of_cells() as usize;
-                let separator_key = if separator_index < sibling_len {
-                    // it's still one of sibling_page's original cells
-                    sibling_page.cell(separator_index as _)?.row_id()
-                } else {
-                    // it's one of current_page's original cells
-                    current_page
-                        .cell((separator_index - sibling_len) as _)?
-                        .row_id()
-                };
-                Encode::encode_table_interior_cell(sib_page_no, separator_key)
+                current_page
+                    .cell((separator_index - sibling_len) as _)?
+                    .row_id()
             };
+            let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
 
             sibling_page.reset_for_rebuild();
             for (i, bytes) in new_sibling_cells.iter().enumerate() {
@@ -2015,10 +2185,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         parent_page: &mut BTreePageMut,
         abandoned: PageNo,
     ) -> SqliteResult<()> {
-        // Interior merge drops the parent separator; the merged page keeps
-        // the RIGHT page's right-most pointer (its subtree is the rightmost).
-        // Without this the page keeps the transient 0 written by reset and
-        // the next seek follows RMP 0 -> "page number cannot be zero".
+        // Callers pool the parent separator into all_cells for index trees
+        // and for interior pages, so the entry moves down instead of being
+        // dropped. Table leaf callers keep the old copy semantics and pass
+        // only leaf cells. The merged page keeps the right page right most
+        // pointer, otherwise the next seek follows a zeroed pointer.
         let merged_rmp = right_page.header.right_most_ptr;
         right_page.reset_for_rebuild();
         for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
