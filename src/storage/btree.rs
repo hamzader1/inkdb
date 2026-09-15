@@ -1918,6 +1918,40 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
         }
+        // Same pooling rule as the right side. The divider between the two
+        // leaves is a real index entry, so it joins the pool instead of
+        // being dropped. Interior separators are pulled down with the left
+        // right most child for the same reason.
+        let is_leaf_page = current_page.is_leaf();
+        if is_index {
+            let sep_bytes = parent_page.cell_bytes_as_ref(sibling_idx)?.to_vec();
+            if is_leaf_page {
+                let leaf_sep = sep_bytes[4..].to_vec();
+                total_size_in_bytes += leaf_sep.len();
+                all_cells_as_bytes.insert(sibling_len, leaf_sep);
+            } else {
+                let left_rmp = sibling_page
+                    .header
+                    .right_most_ptr
+                    .ok_or(SqliteError::Corrupt(
+                        "left interior has no right child".into(),
+                    ))?;
+                let pulled = Encode::encode_index_interior_cell(left_rmp, &sep_bytes[4..]);
+                total_size_in_bytes += pulled.len();
+                all_cells_as_bytes.insert(sibling_len, pulled);
+            }
+        } else if !is_leaf_page {
+            let left_rmp = sibling_page
+                .header
+                .right_most_ptr
+                .ok_or(SqliteError::Corrupt(
+                    "left interior has no right child".into(),
+                ))?;
+            let rowid = parent_page.cell(sibling_idx)?.row_id();
+            let pulled = Encode::encode_table_interior_cell(left_rmp, rowid);
+            total_size_in_bytes += pulled.len();
+            all_cells_as_bytes.insert(sibling_len, pulled);
+        }
 
         let total_cells = all_cells_as_bytes.len();
         let header_sz = current_page.header_size() as usize;
@@ -1959,26 +1993,57 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 current_page.page_no,
                 sib_page_no
             );
+            if is_index {
+                // Pool holds sibling plus separator plus current. Promote the
+                // last cell of the left share so every entry stays single.
+                if total_cells < 3 {
+                    return Err(SqliteError::Internal(
+                        "cannot redistribute index leaf: not enough cells".into(),
+                    ));
+                }
+                split_at = split_at.clamp(2, total_cells - 1);
+                let (left_share, right_share) = all_cells_as_bytes.split_at(split_at);
+                let promoted = left_share.last().cloned().ok_or(SqliteError::Internal(
+                    "index redistribute left share is empty".into(),
+                ))?;
+                let left_cells = &left_share[..left_share.len() - 1];
+                sibling_page.reset_for_rebuild();
+                for (i, bytes) in left_cells.iter().enumerate() {
+                    if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Internal(
+                            "redistribute leaf: left share does not fit".into(),
+                        ));
+                    }
+                }
+                current_page.reset_for_rebuild();
+                for (i, bytes) in right_share.iter().enumerate() {
+                    if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
+                        return Err(SqliteError::Internal(
+                            "redistribute leaf: right share does not fit".into(),
+                        ));
+                    }
+                }
+                let new_bytes = Encode::encode_index_interior_cell(sib_page_no, &promoted);
+                parent_page.remove_cell(parent_path.cell_idx - 1)?;
+                if parent_page.insert_cell(&new_bytes, parent_path.cell_idx - 1)?
+                    == InsertionState::None
+                {
+                    return Err(SqliteError::Internal(
+                        "redistribute leaf: parent separator does not fit".into(),
+                    ));
+                }
+                return Ok(());
+            }
             let separator_index = split_at - 1;
-            // Divider = last cell of the sibling's new (left) share.
-            // Table: boundary rowid. Index: full record payload bytes.
-            let divider_bytes = &new_sibling_cells[separator_index]; // last one on the left
-            let new_bytes = if is_index {
-                // divider_bytes already is varint+payload for leaf; pass verbatim
-                Encode::encode_index_interior_cell(sib_page_no, divider_bytes)
+            let sibling_len = sibling_page.no_of_cells() as usize;
+            let separator_key = if separator_index < sibling_len {
+                sibling_page.cell(separator_index as _)?.row_id()
             } else {
-                let sibling_len = sibling_page.no_of_cells() as usize;
-                let separator_key = if separator_index < sibling_len {
-                    // it's still one of sibling_page's original cells
-                    sibling_page.cell(separator_index as _)?.row_id()
-                } else {
-                    // it's one of current_page's original cells
-                    current_page
-                        .cell((separator_index - sibling_len) as _)?
-                        .row_id()
-                };
-                Encode::encode_table_interior_cell(sib_page_no, separator_key)
+                current_page
+                    .cell((separator_index - sibling_len) as _)?
+                    .row_id()
             };
+            let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
 
             sibling_page.reset_for_rebuild();
             for (i, bytes) in new_sibling_cells.iter().enumerate() {
