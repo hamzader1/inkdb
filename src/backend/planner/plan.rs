@@ -13,6 +13,7 @@ use crate::backend::executor::index::{IndexDelete, IndexExactMatch, IndexInsert,
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
+use crate::backend::executor::tablescan::{TableSafeScan, TableUnsafeScan};
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
@@ -123,7 +124,11 @@ impl<F: SqliteFile> Plan<F> {
         pager: &mut Pager<F>,
         sqlite_master: &SqliteMaster,
     ) -> Result<PreparedPlan<F>, SqliteError> {
-        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        let mut child = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            pager,
+            Box::new(TableSafeScan),
+        )?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
         }
@@ -185,7 +190,11 @@ impl<F: SqliteFile> Plan<F> {
         pager: &mut Pager<F>,
         sqlite_master: &SqliteMaster,
     ) -> SqliteResult<PreparedPlan<F>> {
-        let mut parent = Self::TableScan(TableScan::new(resolved_query.root_page, pager)?);
+        let mut parent = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            pager,
+            Box::new(TableUnsafeScan),
+        )?);
         if let Some(predict) = resolved_query.where_clause {
             parent = Self::Filter(Filter::new(Box::new(parent), predict));
         }
@@ -218,7 +227,11 @@ impl<F: SqliteFile> Plan<F> {
         resolved_query: ResolvedCreateIndexQuery,
         pager: &mut Pager<F>,
     ) -> SqliteResult<PreparedPlan<F>> {
-        let child = Self::TableScan(TableScan::new(resolved_query.relation_root_page, pager)?);
+        let child = Self::TableScan(TableScan::new(
+            resolved_query.relation_root_page,
+            pager,
+            Box::new(TableSafeScan),
+        )?);
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query, pager)?);
         Ok(PreparedPlan::new(parent, None))
     }
