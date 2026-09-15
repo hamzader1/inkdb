@@ -1318,15 +1318,25 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         Ok(header)
     }
 
-    // delete
-    //
-    pub fn delete(&mut self, key: Value) -> SqliteResult<()> {
-        let seek_res = self.cursor.seek(self.pager, &key)?;
-        // seek lands on the lower bound leaf position; for NotFound the
-        // cell_idx may be past the last cell (insertion point). Treat
-        // that as "not found" without touching the page.
-        if seek_res == SeekResult::NotFound {
-            let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
+    // Delete one entry by its full key. Tables hold every row in a leaf
+    // so the hit is always a leaf. Indexes are a real B tree, the hit may
+    // be a divider living only in an interior page. A stale high divider
+    // is harmless for routing, so dividers are never rewritten here, they
+    // are only removed or swapped. Returns true when something was gone.
+    pub fn delete(&mut self, key: Value) -> SqliteResult<bool> {
+        let seek_res = self.cursor.seek_for_delete(self.pager, &key)?;
+        let Some((page_no, cell_idx)) = self.cursor.last_visited_entry() else {
+            return Ok(false);
+        };
+        let (is_leaf, n_cells, is_index) = self.with_page_ref(page_no, |p| {
+            Ok((p.is_leaf(), p.no_of_cells(), p.is_index()))
+        })?;
+        if cell_idx >= n_cells {
+            return Ok(false);
+        }
+        // Confirm the landed cell really is the wanted key. A lower bound
+        // landing on a neighbour must not delete anything.
+        let found_key = {
             let guard = self.pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, self.pager)?;
             if cell_idx >= page.no_of_cells() {
@@ -1335,106 +1345,76 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // fell inside the page but keys differ
             // still not found
             let cell = page.cell(cell_idx)?;
-            if page.cell_key(&cell, self.pager)? != key {
-                return Ok(());
-            }
-            // exact key exists but seek reported NotFound only for index
-            // prefix cases; fall through to the mut path below
-        }
-        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-
-        /*
-         * WE DO NEED A SHORTCUT FOR THIS MESS
-         */
-
-        let mut guard = self.pager.get_mut(page_no)?;
-        let current_page = self.page_as_mut(page_no, &mut guard)?;
-        if cell_idx >= current_page.as_ref()?.no_of_cells() {
-            return Ok(());
-        }
-        let cell = current_page.cell(cell_idx)?;
-        let found_key = current_page.cell_key(&cell, self.pager)?;
-        if !(found_key == key) {
-            // key not found
-            return Ok(());
-        }
-        let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-
-        // Capture parent divider position before we mutate leaf, so we can
-        // keep the separator in sync when we delete the leaf's max. For
-        // BTree (index) and B+Tree (table) the divider is the max of the
-        // left child.
-        let parent_info = if self.cursor.stack.len() >= 2 {
-            let parent_path = &self.cursor.stack[self.cursor.stack.len() - 2];
-            Some((parent_path.page_no, parent_path.cell_idx))
-        } else {
-            None
+            page.cell_key(&cell, self.pager)?
         };
-        let old_no = self.with_page_ref(page_no, |p| Ok(p.no_of_cells()))?;
-        let deleted_was_last = cell_idx + 1 == old_no;
-
-        let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
-            page.remove_cell(cell_idx)?;
-            let is_undeflow = page.is_underflow()?;
-            Ok(is_undeflow)
-        })?;
-
-        if !is_underflow
-            && deleted_was_last
-            && page_no != self.root_page
-            && let Some((parent_page_no, parent_cell_idx)) = parent_info
-        {
-            // RMP leaf has no divider (parent_cell_idx == parent_n)
-            let parent_n = self.with_page_ref(parent_page_no, |p| Ok(p.no_of_cells()))?;
-            if parent_cell_idx < parent_n {
-                // Not RMP
-                let new_max_is_some = self.with_page_ref(page_no, |p| Ok(p.no_of_cells() > 0))?;
-                if new_max_is_some {
-                    let parent_is_index =
-                        self.with_page_ref(parent_page_no, |p| Ok(p.is_index()))?;
-                    if parent_is_index {
-                        let new_cell_bytes = self.with_page_mut(page_no, |leaf| {
-                            let last = leaf.no_of_cells() - 1;
-                            leaf.cell_bytes_as_ref(last).map(|b| b.to_vec())
-                        })?;
-                        // leaf cell is varint+payload; interior expects varint+payload
-                        let new_divider = Encode::encode_index_interior_cell(
-                            // left child stays the same (this leaf)
-                            self.with_page_ref(parent_page_no, |parent| {
-                                Ok(parent.cell(parent_cell_idx)?.left_child())
-                            })?,
-                            &new_cell_bytes,
-                        );
-                        self.with_page_mut(parent_page_no, |parent| {
-                            parent.replace_cell(parent_cell_idx, &new_divider)?;
-                            Ok::<(), SqliteError>(())
-                        })?;
-                    } else {
-                        let new_rowid = self.with_page_mut(page_no, |leaf| {
-                            let last = leaf.no_of_cells() - 1;
-                            Ok(leaf.cell(last)?.row_id())
-                        })?;
-                        let left_child = self.with_page_ref(parent_page_no, |parent| {
-                            Ok(parent.cell(parent_cell_idx)?.left_child())
-                        })?;
-                        let new_divider = Encode::encode_table_interior_cell(left_child, new_rowid);
-                        self.with_page_mut(parent_page_no, |parent| {
-                            parent.replace_cell(parent_cell_idx, &new_divider)?;
-                            Ok::<(), SqliteError>(())
-                        })?;
-                    }
-                }
+        if found_key != key {
+            let _ = seek_res;
+            return Ok(false);
+        }
+        if is_leaf {
+            let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
+                page.remove_cell(cell_idx)?;
+                page.is_underflow()
+            })?;
+            if page_no != self.root_page && is_underflow {
+                self.fix_page_underflow(page_no)?;
             }
+            return Ok(true);
         }
-
-        if page_no == self.root_page {
-            return Ok(());
+        // Interior hit. Only index dividers are real entries. Table
+        // interiors are routing copies and are never stopped on, so
+        // reaching here for a table means corruption, report not found.
+        if !is_index {
+            return Ok(false);
         }
-        if is_underflow {
-            self.fix_page_underflow(page_no)?;
+        let left_child = self.with_page_ref(page_no, |p| Ok(p.cell(cell_idx)?.left_child()))?;
+        // Walk to the predecessor, the last cell of the rightmost leaf
+        // under the divider left child. The cursor stack already ends at
+        // the interior page, so extend it down the right edge. Each
+        // interior level parks at its right most slot, the leaf parks at
+        // its last cell. That layout is exactly what fix underflow wants.
+        let mut pred_no = left_child;
+        loop {
+            let guard = self.pager.get(pred_no)?;
+            let page = page_as_ref_with_pager(pred_no, &guard, self.pager)?;
+            if page.is_leaf() {
+                let n = page.no_of_cells();
+                if n == 0 {
+                    return Err(SqliteError::Corrupt(
+                        "index predecessor leaf is empty".into(),
+                    ));
+                }
+                self.cursor.stack.push(Path::new(pred_no, n - 1, guard));
+                break;
+            }
+            let rmp = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                "index interior has no right child".into(),
+            ))?;
+            let n = page.no_of_cells();
+            self.cursor.stack.push(Path::new(pred_no, n, guard));
+            pred_no = rmp;
         }
-
-        Ok(())
+        let (pred_page_no, pred_cell_idx) = self.cursor.last_visited_entry_unchecked();
+        // Copy the predecessor leaf bytes, then repaint the divider with
+        // them. The divider keeps its left child, only the payload moves.
+        // A leaf cell is varint plus payload which is exactly what an
+        // interior cell carries after its child pointer.
+        let pred_bytes = self.with_page_mut(pred_page_no, |leaf| {
+            leaf.cell_bytes_as_ref(pred_cell_idx).map(|b| b.to_vec())
+        })?;
+        let new_divider = Encode::encode_index_interior_cell(left_child, &pred_bytes);
+        self.with_page_mut(page_no, |parent| {
+            parent.replace_cell(cell_idx, &new_divider)?;
+            Ok::<(), SqliteError>(())
+        })?;
+        let pred_underflow = self.with_page_mut(pred_page_no, |leaf| {
+            leaf.remove_cell(pred_cell_idx)?;
+            leaf.is_underflow()
+        })?;
+        if pred_page_no != self.root_page && pred_underflow {
+            self.fix_page_underflow(pred_page_no)?;
+        }
+        Ok(true)
     }
     /// Collapse an empty interior root: move its single (rightmost) child
     /// into the root page, keeping the root page_no stable so the catalog
