@@ -2192,10 +2192,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         parent_page: &mut BTreePageMut,
         abandoned: PageNo,
     ) -> SqliteResult<()> {
-        // Interior merge drops the parent separator; the merged page keeps
-        // the RIGHT page's right-most pointer (its subtree is the rightmost).
-        // Without this the page keeps the transient 0 written by reset and
-        // the next seek follows RMP 0 -> "page number cannot be zero".
+        // Callers pool the parent separator into all_cells for index trees
+        // and for interior pages, so the entry moves down instead of being
+        // dropped. Table leaf callers keep the old copy semantics and pass
+        // only leaf cells. The merged page keeps the right page right most
+        // pointer, otherwise the next seek follows a zeroed pointer.
         let merged_rmp = right_page.header.right_most_ptr;
         right_page.reset_for_rebuild();
         for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
