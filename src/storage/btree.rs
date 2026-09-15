@@ -179,8 +179,8 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             return Ok(RestorePosition::Next);
         };
         if saved_yielded {
-            // If we saved a yielded interior divider, restore its yielded
-            // state so a subsequent Exact -> next() does not reyield it.
+            // A saved interior divider was already yielded once, so park it
+            // as yielded again. Otherwise the caller would visit it twice.
             let guard = pager.get(path.page_no)?;
             let page = page_as_ref_with_pager(path.page_no, &guard, pager)?;
             if !page.is_leaf() {
@@ -196,6 +196,10 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                 return Ok(RestorePosition::Exact);
             }
         }
+        // The saved key is gone (it was just deleted). The seek above may
+        // have parked past the end of a leaf. Step forward so the cursor
+        // sits on the real successor instead of dead space.
+        self.skip_past_end(pager)?;
         Ok(RestorePosition::Next)
     }
 
