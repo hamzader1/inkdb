@@ -251,6 +251,17 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         self.seek_internal(pager, target, false)
     }
 
+    /// Seek that stops on an interior divider when the full key matches.
+    /// Delete needs this because an index entry may live only in the
+    /// parent. Insert and prefix scans keep using plain seek.
+    pub fn seek_for_delete(
+        &mut self,
+        pager: &mut Pager<F>,
+        target: &Value<'_>,
+    ) -> Result<SeekResult, SqliteError> {
+        self.seek_internal(pager, target, true)
+    }
+
     fn seek_internal(
         &mut self,
         pager: &mut Pager<F>,
