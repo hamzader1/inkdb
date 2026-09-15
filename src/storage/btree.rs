@@ -203,6 +203,46 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         Ok(RestorePosition::Next)
     }
 
+    /// Move past a past the end leaf position onto the next real entry.
+    /// A seek for a deleted key lands where the key would go, which is
+    /// often cell_idx == no_of_cells. Calling next from there climbs and
+    /// descends into the following leaf, or parks AfterLast when done.
+    /// Insert never uses this since it needs the raw landing spot.
+    pub fn skip_past_end(&mut self, pager: &mut Pager<F>) -> SqliteResult<()> {
+        loop {
+            let Some(path) = self.stack.last() else {
+                self.state = CursorState::AfterLast;
+                return Ok(());
+            };
+            let page = page_as_ref_with_pager(path.page_no, &path.guard, pager)?;
+            if path.cell_idx < page.no_of_cells() {
+                self.state = CursorState::At;
+                return Ok(());
+            }
+            self.next(pager)?;
+            if self.state == CursorState::AfterLast {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Seek to the first entry at or after target. Same as seek but a
+    /// past the end landing is advanced to the next leaf for callers
+    /// that iterate forward.
+    pub fn seek_lower_bound(
+        &mut self,
+        pager: &mut Pager<F>,
+        target: &Value<'_>,
+    ) -> SqliteResult<SeekResult> {
+        let res = self.seek_internal(pager, target, true)?;
+        self.skip_past_end(pager)?;
+        Ok(res)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.state == CursorState::At && !self.stack.is_empty()
+    }
+
     pub fn seek(
         &mut self,
         pager: &mut Pager<F>,
