@@ -78,7 +78,6 @@ pub enum SeekResult {
 enum UnderflowAction {
     BorrowLeft,
     BorrowRight,
-    Both,
 }
 
 #[derive(Debug)]
@@ -1539,15 +1538,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     ) -> SqliteResult<()> {
         // todo: why the fuck we use both?
         match underflow_action {
-            UnderflowAction::BorrowLeft => self.try_borrow_left(child_page_no, parent_path)?,
-            UnderflowAction::BorrowRight => self.try_borrow_right(child_page_no, parent_path)?,
-            UnderflowAction::Both => {
-                if self.try_borrow_right(child_page_no, parent_path).is_err() {
-                    self.try_borrow_left(child_page_no, parent_path)?;
-                }
-            }
-        };
-        Ok(())
+            UnderflowAction::BorrowLeft => self.try_borrow_left(child_page_no, parent_path),
+            UnderflowAction::BorrowRight => self.try_borrow_right(child_page_no, parent_path),
+        }
     }
 
     fn try_borrow_right(
