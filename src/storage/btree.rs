@@ -1818,18 +1818,25 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // Sibling keeps its rightmost subtree; save before reset wipes it.
             let sibling_rmp = sibling_page.header.right_most_ptr;
 
-            // Right most pointer will be a normal Cell and its key == Parent Key
+            // Rotation moves the parent separator down into the deficient
+            // page and promotes the sibling extreme up. Both entries are
+            // relocated, never copied, so the count is conserved. The old
+            // code moved the promoted payload down instead of the parent
+            // separator, losing one entry and duplicating the other.
             let new_cell_for_curr_page = if !is_index {
                 Encode::encode_table_interior_cell(
                     current_page.right_most_ptr().unwrap(),
                     parent_separator_cell.row_id(),
                 )
             } else {
-                // Interior cell is left_child + varint+payload; strip left_child
-                // to get varint+payload for the new cell.
+                // Parent cell is left_child plus varint plus payload.
+                // Strip the child, the payload moves down.
+                let parent_sep_bytes = parent_page
+                    .cell_bytes_as_ref(parent_path.cell_idx)?
+                    .to_vec();
                 Encode::encode_index_interior_cell(
                     current_page.right_most_ptr().unwrap(),
-                    &new_right_page_cells[0][4..],
+                    &parent_sep_bytes[4..],
                 )
             };
 
@@ -1870,9 +1877,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     first_cell_of_right_sibling.row_id(),
                 )
             } else {
-                // Since we lost the current page due do the reset above.
-                // we can use the new inserted cell payload as key, they are the same
-                Encode::encode_index_interior_cell(child_page_no, &new_cell_for_curr_page[4..])
+                // The promoted sibling extreme moves up. Its payload is
+                // the first right share cell, not the cell just moved down.
+                Encode::encode_index_interior_cell(
+                    child_page_no,
+                    &new_right_page_cells[0][4..],
+                )
             };
             parent_page.remove_cell(parent_path.cell_idx)?;
             if parent_page.insert_cell(&new_parent_cell, parent_path.cell_idx)?
