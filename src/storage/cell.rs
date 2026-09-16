@@ -163,7 +163,9 @@ impl IndexInteriorCell {
                 "invalid left child page number: 0".into(),
             ));
         }
-        let (payload_len, _) = cursor.read_next_varint(usable_size)?;
+        // Staged cell bytes can be shorter than a page. Size the varint
+        // window by what is actually here, like the table parsers do.
+        let (payload_len, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size = Range::from(current_pos..current_pos + payload_size);
@@ -198,7 +200,9 @@ impl IndexLeafCell {
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
-        let (payload_len, _) = cursor.read_next_varint(usable_size)?;
+        // Same short buffer rule as above. Exact cell bytes are often
+        // smaller than the page usable size during rebalancing.
+        let (payload_len, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size = Range::from(current_pos..current_pos + payload_size);
