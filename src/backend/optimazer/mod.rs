@@ -1,6 +1,7 @@
 use super::planner::plan::Plan;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::index::IndexExactMatch;
+use crate::backend::executor::scan_guard::{SafeScan, UnsafeScan};
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
@@ -19,17 +20,10 @@ impl Optimazer {
         table_name: &str,
         root_page: u32,
         arena: Option<&ExprArena>,
+        // Allows the optimizer to modify the source plans to be either SafeScan or Unsafe.
+        is_mut_plan: bool,
     ) -> Result<(), SqliteError> {
         let mut plan = plan;
-        if plan.is_filter() {
-            if let Some(x) =
-                Self::optimaze_where(plan, arena.unwrap(), sqlite_master, table_name, root_page)?
-            {
-                let new_child = Plan::IndexExactMatch(IndexExactMatch::new(pager, x.0, x.1, x.2)?);
-                *plan = new_child;
-            }
-            return Ok(());
-        }
         while let Some(child) = plan.child_mut() {
             if child.is_filter() {
                 match Self::optimaze_where(
