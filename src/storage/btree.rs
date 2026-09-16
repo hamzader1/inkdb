@@ -1645,6 +1645,18 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
 
+        // The pooled separator above belongs to the merge path, which
+        // already returned. The redistribute loops below move the parent
+        // separator down on their own, so keeping the pooled copy would
+        // insert the same divider twice, side by side. Drop it for
+        // interior pages and recount. Leaf pools stay as they are: table
+        // leaves never pooled one and index leaves promote theirs.
+        if !is_leaf_page {
+            let dropped = all_cells_as_bytes.remove(current_page_len);
+            total_size_in_bytes -= dropped.len();
+        }
+        let total_cells = all_cells_as_bytes.len();
+
         let target = total_size_in_bytes / 2;
         let mut split_at = 0;
         let mut running_size = 0;
