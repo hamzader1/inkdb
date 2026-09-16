@@ -40,8 +40,17 @@ impl Optimazer {
                     root_page,
                 )? {
                     Some(x) => {
-                        let new_child =
-                            Plan::IndexExactMatch(IndexExactMatch::new(pager, x.0, x.1, x.2)?);
+                        let new_child = Plan::IndexExactMatch(IndexExactMatch::new(
+                            pager,
+                            x.0,
+                            x.1,
+                            x.2,
+                            if is_mut_plan {
+                                Box::new(UnsafeScan)
+                            } else {
+                                Box::new(SafeScan)
+                            },
+                        )?);
                         *child = new_child;
                     }
                     _ => break,

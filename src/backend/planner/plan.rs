@@ -9,11 +9,11 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
-use crate::backend::executor::scan_guard::{SafeScan, UnsafeScan};
 use crate::backend::executor::index::{IndexDelete, IndexExactMatch, IndexInsert, PrepareIndex};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
+use crate::backend::executor::scan_guard::{SafeScan, UnsafeScan};
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
@@ -145,6 +145,7 @@ impl<F: SqliteFile> Plan<F> {
             &resolved_query.table_name,
             resolved_query.root_page,
             Some(&resolved_query.arena),
+            false,
         )?;
         Ok(PreparedPlan::new(parent, Some(resolved_query.arena)))
     }
@@ -196,16 +197,7 @@ impl<F: SqliteFile> Plan<F> {
         if let Some(predict) = resolved_query.where_clause {
             parent = Self::Filter(Filter::new(Box::new(parent), predict));
         }
-        Optimazer::optimaze_plan(
-            &mut parent,
-            pager,
-            sqlite_master,
-            &resolved_query.table_name,
-            resolved_query.root_page,
-            resolved_query.arena.as_ref(),
-        )?;
 
-        // Temporary
         if let Some(indexes) = resolved_query.indexes {
             for index in indexes {
                 let prepare = PrepareIndex::new(
@@ -218,6 +210,16 @@ impl<F: SqliteFile> Plan<F> {
             }
         }
         parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
+        Optimazer::optimaze_plan(
+            &mut parent,
+            pager,
+            sqlite_master,
+            &resolved_query.table_name,
+            resolved_query.root_page,
+            resolved_query.arena.as_ref(),
+            true,
+        )?;
+
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
