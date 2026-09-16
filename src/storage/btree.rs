@@ -26,12 +26,6 @@ use crate::util::sqlite_assert_with_corrupt_err;
 
 pub type CellIndex = u16;
 
-/// Prefix comparison of an index entry `[key…, rowid]` against a seek
-/// target (`Tuple(key…)`). Only the overlapping positions decide: extra
-/// trailing entry elements (the rowid) never participate unless the target
-/// covers them too.
-/// Returns the ordering plus whether the target covered the whole entry —
-/// a full hit is a unique entry, a prefix hit sits inside a duplicate run.
 fn compare_index_entry(entry: &[Value], target: &Value) -> Result<(Ordering, bool), SqliteError> {
     let keys = match target {
         Value::Tuple(cols) => cols,
@@ -1491,14 +1485,13 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             self.collapse_root(parent_page_no)?;
             return Ok(());
         }
-        let undeflow_action = self.underflow_planner(cell_idx, parent_n);
+        let undeflow_action = self.underflow_planner(parent_page_no, cell_idx, parent_n)?;
         let path = ActivePath::from(self.cursor.stack.as_ref());
         self.try_fix_underflow(undeflow_action, child_page_no, path)?;
         // println!("Underflow Fixed on pageno {}", child_page_no);
         Ok(())
     }
 
-    
     fn underflow_planner(
         &mut self,
         parent_page_no: PageNo,
@@ -1536,7 +1529,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         child_page_no: PageNo,
         parent_path: ActivePath,
     ) -> SqliteResult<()> {
-        // todo: why the fuck we use both?
         match underflow_action {
             UnderflowAction::BorrowLeft => self.try_borrow_left(child_page_no, parent_path),
             UnderflowAction::BorrowRight => self.try_borrow_right(child_page_no, parent_path),
@@ -1563,7 +1555,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 parent_page.right_most_ptr().unwrap()
             }
         };
- 
+
         if sib_page_no == child_page_no {
             return Err(SqliteError::Corrupt(
                 "borrow right from self, parent holds a duplicate pointer".into(),
@@ -1891,10 +1883,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             } else {
                 // The promoted sibling extreme moves up. Its payload is
                 // the first right share cell, not the cell just moved down.
-                Encode::encode_index_interior_cell(
-                    child_page_no,
-                    &new_right_page_cells[0][4..],
-                )
+                Encode::encode_index_interior_cell(child_page_no, &new_right_page_cells[0][4..])
             };
             parent_page.remove_cell(parent_path.cell_idx)?;
             if parent_page.insert_cell(&new_parent_cell, parent_path.cell_idx)?
@@ -2018,7 +2007,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
 
-    
         if !is_leaf_page {
             let dropped = all_cells_as_bytes.remove(sibling_len);
             total_size_in_bytes -= dropped.len();
@@ -2273,7 +2261,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             right_page.header.right_most_ptr = merged_rmp;
             right_page.update_bytes([RightMostPointer]);
         }
-
         parent_page.remove_cell(separator_index)?;
         if parent_page.is_underflow()? {
             let parent_no = parent_page.page_no;
