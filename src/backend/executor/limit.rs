@@ -9,7 +9,7 @@ use super::Row;
 #[derive(Debug)]
 pub struct Limit<F: SqliteFile> {
     child: Box<Plan<F>>,
-    limit: usize,
+    pub limit: usize,
     is_done: bool,
 }
 

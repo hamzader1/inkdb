@@ -18,6 +18,9 @@ impl<F: SqliteFile> Project<F> {
     pub fn new(child: Box<Plan<F>>, columns: Vec<usize>) -> Self {
         Self { child, columns }
     }
+    pub fn columns(&self) -> &[usize] {
+        &self.columns
+    }
 }
 impl<F: SqliteFile> Project<F> {
     pub fn next(

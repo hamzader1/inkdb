@@ -347,6 +347,7 @@ impl<'a> Lexer<'a> {
                         "ELSE" => TokenKind::Else,
                         "END" => TokenKind::End,
                         "CAST" => TokenKind::Cast,
+                        "EXPLAIN" => TokenKind::Explain,
                         "BEGIN" => TokenKind::Begin,
                         "COMMIT" => TokenKind::Commit,
 

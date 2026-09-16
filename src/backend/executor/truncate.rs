@@ -26,6 +26,13 @@ impl TruncateTable {
         }
     }
 
+    pub fn root_page(&self) -> u32 {
+        self.root_page
+    }
+    pub fn indexes(&self) -> Option<&[u32]> {
+        self.indexes.as_deref()
+    }
+
     fn new_index(root_page: u32) -> Self {
         Self {
             root_page,

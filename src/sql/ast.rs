@@ -110,6 +110,10 @@ pub struct DeleteStmt {
     pub(crate) where_clause: Option<usize>,
 }
 
+#[derive(Debug)]
+pub struct ExplainStmt {
+    pub(crate) query: Box<Ast>,
+}
 // pub enum QueryStmt {
 //     Select(SelectStmt),
 //     Insert(InsertStmt),
@@ -178,6 +182,7 @@ pub enum Ast {
     SelectStmtAst(SelectStmt),
     InsertStmtAst(InsertStmt),
     DeleteStmtAst(DeleteStmt),
+    ExplainStmtAst(ExplainStmt),
     TruncateTableAst(TruncateTable),
     BeginTransaction,
     CommitTransaction,

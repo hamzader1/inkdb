@@ -9,9 +9,9 @@ use super::scan_guard::ScanGuard;
 
 #[derive(Debug)]
 pub struct TableScan<F: SqliteFile> {
-    cursor: BTreeCursor<F>,
+    pub cursor: BTreeCursor<F>,
     is_done: bool,
-    guard: Box<dyn ScanGuard<F>>,
+    pub guard: Box<dyn ScanGuard<F>>,
 }
 impl<F: SqliteFile> TableScan<F> {
     pub fn new(

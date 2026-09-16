@@ -17,6 +17,11 @@ use crate::storage::cell::Encode;
 pub struct CreateTable {
     meta: ResolvedCreateTableQuery,
 }
+impl CreateTable {
+    pub fn table_name(&self) -> &str {
+        &self.meta.meta.name
+    }
+}
 #[derive(Debug)]
 pub struct CreateIndex<F: SqliteFile> {
     child: Box<Plan<F>>,
@@ -60,6 +65,12 @@ impl<F: SqliteFile> CreateIndex<F> {
             index_root_page: new_page,
             col_idx: meta.column_index,
         })
+    }
+    pub fn index_root_page(&self) -> u32 {
+        self.index_root_page
+    }
+    pub fn col_idx(&self) -> usize {
+        self.col_idx
     }
     // todo: remove allocte per insert.
     // use batch instead

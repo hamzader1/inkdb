@@ -16,6 +16,7 @@ pub trait ScanGuard<F: SqliteFile>: std::fmt::Debug {
     ) -> SqliteResult<()> {
         Ok(())
     }
+    fn scan_type(&self) -> String;
 }
 
 // Unsafe means the row may vanish under us through Delete. When the
@@ -39,6 +40,9 @@ impl<F: SqliteFile> ScanGuard<F> for UnsafeScan {
     ) -> SqliteResult<()> {
         cursor.save_position(pager)
     }
+    fn scan_type(&self) -> String {
+        "UnsafeScan".into()
+    }
 }
 
 #[derive(Debug)]
@@ -50,5 +54,8 @@ impl<F: SqliteFile> ScanGuard<F> for SafeScan {
         cursor: &mut BTreeCursor<F>,
     ) -> SqliteResult<()> {
         cursor.next(pager)
+    }
+    fn scan_type(&self) -> String {
+        "SafeScan".into()
     }
 }

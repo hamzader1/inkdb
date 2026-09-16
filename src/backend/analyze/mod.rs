@@ -76,6 +76,11 @@ pub struct ResolvedCreateIndexQuery {
 }
 
 #[derive(Debug)]
+pub struct ResolvedExplainQuery {
+    pub query: Box<ResolvedQuery>,
+}
+
+#[derive(Debug)]
 pub enum ResolvedQuery {
     SelectQuery(ResolvedSelectQuery),
     InsertQuery(ResolvedInsertQuery),
@@ -86,6 +91,7 @@ pub enum ResolvedQuery {
     BeginTransactionQuery,
     CommitTransactionQuery,
     RollbackTransactionQuery,
+    ExplainQuery(ResolvedExplainQuery),
 }
 
 impl Analyze {
@@ -115,6 +121,9 @@ impl Analyze {
                 }))
             }
             Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, sqlite_master),
+            Ast::ExplainStmtAst(stmt) => Ok(ResolvedQuery::ExplainQuery(ResolvedExplainQuery {
+                query: Box::new(Self::analyze(*stmt.query, sqlite_master)?),
+            })),
         }
     }
 

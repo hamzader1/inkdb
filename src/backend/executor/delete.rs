@@ -22,6 +22,9 @@ impl<F: SqliteFile> Delete<F> {
     pub fn child_mut(&mut self) -> &mut Plan<F> {
         &mut self.child
     }
+    pub fn root_page(&self) -> PageNo {
+        self.root_page
+    }
     pub fn next(
         &mut self,
         pager: &mut Pager<F>,

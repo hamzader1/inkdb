@@ -1,3 +1,5 @@
+use self::Plan::Halt;
+
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
 use crate::backend::analyze::{
@@ -42,7 +44,9 @@ pub enum Plan<F: SqliteFile> {
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
+    Explain,
     Terminate(Terminate<F>),
+    Halt,
 }
 
 impl<F: SqliteFile> Plan<F> {
@@ -114,6 +118,27 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Resolved(
                 Self::init_create_index_plan(stmt, pager)?,
             )),
+            ResolvedQuery::ExplainQuery(stmt) => {
+                let plan = Self::create_plan(*stmt.query, pager, sqlite_master)?;
+                match plan {
+                    PlanContext::Logical(mut l) => {
+                        println!("{}", l.explain_plan(None));
+                        while let Some(c) = l.child_mut() {
+                            println!("{}", c.explain_plan(None));
+                        }
+                    }
+                    PlanContext::Resolved(mut r) => {
+                        let mut plan = &mut r.parent;
+                        println!("{}", plan.explain_plan(r.arena.as_ref()));
+                        while let Some(c) = plan.child_mut() {
+                            println!("{}", c.explain_plan(None));
+                            plan = c;
+                        }
+                    }
+                };
+                Ok(PlanContext::Logical(Plan::Halt))
+            }
+            _ => todo!(),
         }
     }
 
@@ -260,6 +285,8 @@ impl<F: SqliteFile> Plan<F> {
             Self::Terminate(t) => t.next(pager),
             Self::PrepareIndex(pi) => pi.next(pager, arena),
             Self::PrepareRow(pr) => pr.next(pager),
+            Halt => Ok(None),
+            _ => unreachable!(),
         }
     }
 }
@@ -277,5 +304,65 @@ impl<F: SqliteFile> Terminate<F> {
     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
         while self.child.next(pager, None)?.is_some() {}
         Ok(None)
+    }
+}
+
+impl<F: SqliteFile> Plan<F> {
+    pub fn explain_plan(&self, arena: Option<&ExprArena>) -> String {
+        match self {
+            Self::TableScan(tb) => {
+                format!(
+                    "TableScan [root_page: {}, scan_plan: {}]",
+                    tb.cursor.root,
+                    tb.guard.scan_type()
+                )
+            }
+            Self::Filter(f) => match arena {
+                Some(a) => format!("Filter [{:?}]", a.nodes[f.predicate()]),
+                None => format!("Filter [pred: {}]", f.predicate()),
+            },
+            Self::Limit(l) => {
+                format!("LIMIT [limit: {}]", l.limit)
+            }
+            Self::Insert(i) => format!(
+                "INSERT [root_page: {}, key: {}, data..]",
+                i.root_page, i.key
+            ),
+            Self::PrepareRow(pr) => format!(
+                "PrepareRow [root_page: {}, rows: {:#?}",
+                pr.root_page, pr.rows
+            ),
+            Self::Project(p) => format!("Project [columns: {:?}]", p.columns()),
+            Self::Delete(d) => format!("Delete [root_page: {}]", d.root_page()),
+            Self::CreateTable(c) => format!("CreateTable [name: {}]", c.table_name()),
+            Self::CreateIndex(c) => format!(
+                "CreateIndex [index_root: {}, col: {}]",
+                c.index_root_page(),
+                c.col_idx()
+            ),
+            Self::PrepareIndex(p) => format!(
+                "PrepareIndex [index_root: {}, col: {}, action: {}]",
+                p.index_root_page(),
+                p.col_idx(),
+                p.action_name()
+            ),
+            Self::IndexExactMatch(i) => format!(
+                "IndexExactMatch [index_root: {}, table_root: {}, target: {}]",
+                i.index_root_page(),
+                i.relation_root_page(),
+                i.target()
+            ),
+            Self::TruncateTable(t) => format!(
+                "TruncateTable [root_page: {}, indexes: {:?}]",
+                t.root_page(),
+                t.indexes()
+            ),
+            Self::BeginTransaction(_) => "BeginTransaction".into(),
+            Self::CommitTransaction(_) => "CommitTransaction".into(),
+            Self::RollbackTransaction(_) => "RollbackTransaction".into(),
+            Self::Explain => "Explain".into(),
+            Self::Terminate(_) => "Terminate".into(),
+            _ => unreachable!(),
+        }
     }
 }

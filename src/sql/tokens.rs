@@ -28,6 +28,7 @@ pub enum TokenKind {
     Delete,
     Update,
     Desc,
+    Explain,
     Asc,
 
     // DML
@@ -117,7 +118,7 @@ pub enum TokenKind {
     RollBack,
     Commit,
 }
-use std::fmt;
+use std::fmt::{self};
 
 impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -228,6 +229,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Text => write!(f, "TEXT"),
             TokenKind::Float => write!(f, "FLOAT"),
             TokenKind::Bool => write!(f, "BOOL"),
+            TokenKind::Explain => write!(f, "EXPLAIN"),
         }
     }
 }

@@ -1,4 +1,10 @@
-use super::{ast::Ast, tokens::Span};
+use super::{
+    ast::{
+        Ast::{self, ExplainStmtAst},
+        ExplainStmt,
+    },
+    tokens::Span,
+};
 use crate::errors::SqliteError::{self, *};
 
 use super::tokens::{
@@ -138,6 +144,13 @@ impl Parser {
     pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {
         match self.peek() {
             Some(Create) => self.parse_create(),
+            Some(Explain) => {
+                self.expect(Explain)?;
+                let query = self.parse_statement()?;
+                Ok(ExplainStmtAst(ExplainStmt{
+                    query: Box::new(query)
+                }))
+            },
             Some(Select) => self.parse_select(),
             Some(Insert) => self.parse_insert(),
             Some(Delete) => self.parse_delete(),

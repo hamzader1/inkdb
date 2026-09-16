@@ -116,7 +116,7 @@ pub enum RestorePosition {
 }
 #[derive(Debug)]
 pub struct BTreeCursor<F: crate::vfs::file::SqliteFile> {
-    root: PageNo,
+    pub root: PageNo,
     pub stack: Vec<Path>,
     pub state: CursorState,
     pub saved_key: Option<Value<'static>>,

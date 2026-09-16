@@ -57,6 +57,15 @@ impl<F: SqliteFile> PrepareIndex<F> {
     pub fn child_mut(&mut self) -> &mut Plan<F> {
         &mut self.child
     }
+    pub fn index_root_page(&self) -> u32 {
+        self.index_root_page
+    }
+    pub fn col_idx(&self) -> usize {
+        self.col_idx
+    }
+    pub fn action_name(&self) -> String {
+        format!("{:?}", self.action)
+    }
 }
 
 #[derive(Debug)]
@@ -90,6 +99,15 @@ impl<F: SqliteFile> IndexExactMatch<F> {
             scan_guard,
             is_done: false,
         })
+    }
+    pub fn index_root_page(&self) -> u32 {
+        self.index_root_page
+    }
+    pub fn relation_root_page(&self) -> u32 {
+        self.relation_root_page
+    }
+    pub fn target(&self) -> &Value<'_> {
+        &self.target
     }
     pub fn next(&mut self, pager: &mut Pager<F>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
         // If the previous row survived, step over it. If it was deleted,
