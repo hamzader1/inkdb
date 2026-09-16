@@ -1779,8 +1779,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         } else {
             // Interior rotation promotes new_right[0] to the parent, so the
             // right share must keep at least 2 cells (promoted + remainder)
-            // and the left must not shrink.
-            if new_right_page_cells.len() < 2 || split_at < current_page_len {
+            // and the left must grow. split_at == current_page_len would
+            // never reach the `i == current_page_len` slot below, so the
+            // parent divider would silently not move down and the old
+            // right most subtree would be orphaned. Reject it too.
+            if new_right_page_cells.len() < 2 || split_at <= current_page_len {
                 return Err(SqliteError::Internal(
                     "cannot redistribute interior: split leaves no promotable cell".into(),
                 ));
