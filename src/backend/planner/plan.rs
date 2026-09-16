@@ -44,7 +44,7 @@ pub enum Plan<F: SqliteFile> {
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
-    Explain,
+    Explain(Explain<F>),
     Terminate(Terminate<F>),
     Halt,
 }
@@ -121,22 +121,13 @@ impl<F: SqliteFile> Plan<F> {
             ResolvedQuery::ExplainQuery(stmt) => {
                 let plan = Self::create_plan(*stmt.query, pager, sqlite_master)?;
                 match plan {
-                    PlanContext::Logical(mut l) => {
-                        println!("{}", l.explain_plan(None));
-                        while let Some(c) = l.child_mut() {
-                            println!("{}", c.explain_plan(None));
-                        }
-                    }
-                    PlanContext::Resolved(mut r) => {
-                        let mut plan = &mut r.parent;
-                        println!("{}", plan.explain_plan(r.arena.as_ref()));
-                        while let Some(c) = plan.child_mut() {
-                            println!("{}", c.explain_plan(None));
-                            plan = c;
-                        }
-                    }
-                };
-                Ok(PlanContext::Logical(Plan::Halt))
+                    PlanContext::Logical(p) => Ok(PlanContext::Logical(Self::Explain(Explain {
+                        child: Box::new(p),
+                    }))),
+                    PlanContext::Resolved(r) => Ok(PlanContext::Logical(Self::Explain(Explain {
+                        child: Box::new(r.parent),
+                    }))),
+                }
             }
             _ => todo!(),
         }
@@ -285,6 +276,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::Terminate(t) => t.next(pager),
             Self::PrepareIndex(pi) => pi.next(pager, arena),
             Self::PrepareRow(pr) => pr.next(pager),
+            Self::Explain(e) => e.next(arena),
             Halt => Ok(None),
             _ => unreachable!(),
         }
@@ -360,9 +352,30 @@ impl<F: SqliteFile> Plan<F> {
             Self::BeginTransaction(_) => "BeginTransaction".into(),
             Self::CommitTransaction(_) => "CommitTransaction".into(),
             Self::RollbackTransaction(_) => "RollbackTransaction".into(),
-            Self::Explain => "Explain".into(),
+            Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
             _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct Explain<F: SqliteFile> {
+    child: Box<Plan<F>>,
+}
+
+impl<F: SqliteFile> Explain<F> {
+    fn new(child: Box<Plan<F>>) -> Self {
+        Self { child }
+    }
+
+    fn next(&mut self, arena: Option<&ExprArena>) -> SqliteResult<Option<Row>> {
+        let mut plan = &mut *self.child;
+        println!("{}", plan.explain_plan(arena));
+        while let Some(child) = plan.child_mut() {
+            println!("{}", child.explain_plan(arena));
+            plan = child;
+        }
+        Ok(None)
     }
 }
