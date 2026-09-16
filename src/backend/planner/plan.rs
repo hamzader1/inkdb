@@ -9,11 +9,11 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
+use crate::backend::executor::scan_guard::{SafeScan, UnsafeScan};
 use crate::backend::executor::index::{IndexDelete, IndexExactMatch, IndexInsert, PrepareIndex};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
-use crate::backend::executor::tablescan::{SafeTableScan, UnsafeTableScan};
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
@@ -125,7 +125,7 @@ impl<F: SqliteFile> Plan<F> {
         let mut child = Self::TableScan(TableScan::new(
             resolved_query.root_page,
             pager,
-            Box::new(SafeTableScan),
+            Box::new(SafeScan),
         )?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
@@ -191,7 +191,7 @@ impl<F: SqliteFile> Plan<F> {
         let mut parent = Self::TableScan(TableScan::new(
             resolved_query.root_page,
             pager,
-            Box::new(UnsafeTableScan),
+            Box::new(UnsafeScan),
         )?);
         if let Some(predict) = resolved_query.where_clause {
             parent = Self::Filter(Filter::new(Box::new(parent), predict));
@@ -228,7 +228,7 @@ impl<F: SqliteFile> Plan<F> {
         let child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
             pager,
-            Box::new(SafeTableScan),
+            Box::new(SafeScan),
         )?);
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query, pager)?);
         Ok(PreparedPlan::new(parent, None))
