@@ -1563,6 +1563,12 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 parent_page.right_most_ptr().unwrap()
             }
         };
+ 
+        if sib_page_no == child_page_no {
+            return Err(SqliteError::Corrupt(
+                "borrow right from self, parent holds a duplicate pointer".into(),
+            ));
+        }
         let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
         let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
         // debug_assert!(
@@ -1906,6 +1912,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let sibling_cell = parent_page.cell(sibling_idx)?;
         let sib_page_no = sibling_cell.left_child();
 
+        if sib_page_no == child_page_no {
+            return Err(SqliteError::Corrupt(
+                "borrow left from self, parent holds a duplicate pointer".into(),
+            ));
+        }
         let mut sibling_page_guard = self.pager.get_mut(sib_page_no)?;
         let mut sibling_page = self.page_as_mut(sib_page_no, &mut sibling_page_guard)?;
         // debug_assert!(
@@ -2206,6 +2217,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         parent_page: &mut BTreePageMut,
         abandoned: PageNo,
     ) -> SqliteResult<()> {
+        if right_page.page_no == abandoned {
+            return Err(SqliteError::Corrupt("merge of a page into itself".into()));
+        }
         // Callers pool the parent separator into all_cells for index trees
         // and for interior pages, so the entry moves down instead of being
         // dropped. Table leaf callers keep the old copy semantics and pass
