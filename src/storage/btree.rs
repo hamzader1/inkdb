@@ -1288,9 +1288,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         f(&mut page, &cell)
     }
 
-    // TODO:
-    //     USE FREE LIST AS PRIMARY SOURCE, THEN ALLOCATE IF NONE
-    //
     pub fn allocate_page(&mut self) -> Result<PageNo, SqliteError> {
         self.pager.allocate_new_page()
     }
@@ -1582,10 +1579,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 .cell_bytes_as_ref(parent_path.cell_idx)?
                 .to_vec();
             if is_leaf_page {
-                let leaf_sep = sep_bytes[4..].to_vec();
-                total_size_in_bytes += leaf_sep.len();
+                let leaf_sep = sep_bytes[4..].to_vec(); // strip the left page
+                total_size_in_bytes += leaf_sep.len(); // add the bytes to the total_size_in_bytes so we can check later if we can merge
                 all_cells_as_bytes.insert(current_page_len, leaf_sep);
             } else {
+                // Left page right most pointer would be the key of the pulled node
                 let left_rmp = current_page
                     .header
                     .right_most_ptr
@@ -1673,11 +1671,15 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                         "cannot redistribute index leaf: not enough cells".into(),
                     ));
                 }
+                // Both must stay >= 1, otherwise we built an empty page
+                // Later we promote left_share.last() to the parent and keeps left_share[..len-1]
                 split_at = split_at.clamp(2, total_cells - 1);
                 let (left_share, right_share) = all_cells_as_bytes.split_at(split_at);
                 let promoted = left_share.last().cloned().ok_or(SqliteError::Internal(
                     "index redistribute left share is empty".into(),
                 ))?;
+                // We don't include the last cell because its the promoted cell.
+                // By doing so, we prevent duplicate the key between parent and child
                 let left_cells = &left_share[..left_share.len() - 1];
                 current_page.reset_for_rebuild();
                 for (i, bytes) in left_cells.iter().enumerate() {
@@ -1696,8 +1698,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     }
                 }
                 let new_bytes = Encode::encode_index_interior_cell(child_page_no, &promoted);
+                // See previous comments
+                // Remove the current separator to prevent duplicates, since we already have a copy in its childrens
                 parent_page.remove_cell(parent_path.cell_idx)?;
-                if parent_page.insert_cell(&new_bytes, parent_path.cell_idx)?
+                if parent_page.insert_cell(&new_bytes, parent_path.cell_idx)? // Insert the new separator
                     == InsertionState::None
                 {
                     return Err(SqliteError::Internal(
