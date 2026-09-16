@@ -1860,6 +1860,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 "Separator key was not moved down as expected"
             );
             current_page.header.right_most_ptr = Some(first_cell_of_right_sibling.left_child());
+            current_page.update_bytes([RightMostPointer]);
             let new_parent_cell = if !is_index {
                 Encode::encode_table_interior_cell(
                     child_page_no,
@@ -2175,7 +2176,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 ));
             }
         }
+
         sibling_page.header.right_most_ptr = Some(promoted_cell.left_child());
+        sibling_page.update_bytes([RightMostPointer]);
         let new_parent_cell = if !is_index {
             Encode::encode_table_interior_cell(sib_page_no, promoted_cell.row_id())
         } else {
