@@ -1498,13 +1498,37 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // println!("Underflow Fixed on pageno {}", child_page_no);
         Ok(())
     }
-    fn underflow_planner(&self, cell_idx: CellIndex, parent_cells: u16) -> UnderflowAction {
+
+    
+    fn underflow_planner(
+        &mut self,
+        parent_page_no: PageNo,
+        cell_idx: CellIndex,
+        parent_cells: u16,
+    ) -> SqliteResult<UnderflowAction> {
         if cell_idx == 0 {
-            UnderflowAction::BorrowRight
-        } else if cell_idx == parent_cells {
-            UnderflowAction::BorrowLeft
+            return Ok(UnderflowAction::BorrowRight);
+        }
+        if cell_idx == parent_cells {
+            return Ok(UnderflowAction::BorrowLeft);
+        }
+        let (left_no, right_no) = self.with_page_ref(parent_page_no, |p| {
+            let left = p.cell(cell_idx - 1)?.left_child();
+            let right = if cell_idx + 1 < p.no_of_cells() {
+                p.cell(cell_idx + 1)?.left_child()
+            } else {
+                p.right_most_ptr().ok_or(SqliteError::Corrupt(
+                    "interior page has no right child".into(),
+                ))?
+            };
+            Ok((left, right))
+        })?;
+        let left_cells = self.with_page_ref(left_no, |p| Ok(p.no_of_cells()))?;
+        let right_cells = self.with_page_ref(right_no, |p| Ok(p.no_of_cells()))?;
+        if left_cells > right_cells {
+            Ok(UnderflowAction::BorrowLeft)
         } else {
-            UnderflowAction::Both
+            Ok(UnderflowAction::BorrowRight)
         }
     }
     fn try_fix_underflow(
