@@ -2006,6 +2006,13 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             return Ok(());
         }
 
+    
+        if !is_leaf_page {
+            let dropped = all_cells_as_bytes.remove(sibling_len);
+            total_size_in_bytes -= dropped.len();
+        }
+        let total_cells = all_cells_as_bytes.len();
+
         let target = total_size_in_bytes / 2;
         let mut split_at = 0;
         let mut running_size = 0;
