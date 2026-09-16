@@ -15,7 +15,7 @@ use crate::{
     vfs::file::SqliteFile,
 };
 
-use super::insert::Insert;
+use super::{insert::Insert, scan_guard::ScanGuard};
 #[derive(Debug)]
 pub struct PrepareIndex<F: SqliteFile> {
     index_root_page: u32,
@@ -65,6 +65,7 @@ pub struct IndexExactMatch<F: SqliteFile> {
     relation_root_page: u32,
     target: Value<'static>,
     cursor: BTreeCursor<F>,
+    scan_guard: Box<dyn ScanGuard<F>>,
     is_done: bool,
 }
 
@@ -74,6 +75,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         index_root_page: u32,
         relation_root_page: u32,
         target: Value<'static>,
+        scan_guard: Box<dyn ScanGuard<F>>,
     ) -> Result<Self, SqliteError> {
         // Park on the first entry at or after the wanted key. Matches may
         // live in a later leaf than the raw landing, so done stays false
@@ -85,15 +87,14 @@ impl<F: SqliteFile> IndexExactMatch<F> {
             relation_root_page,
             target,
             cursor,
+            scan_guard,
             is_done: false,
         })
     }
     pub fn next(&mut self, pager: &mut Pager<F>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
         // If the previous row survived, step over it. If it was deleted,
         // restore already sits on its successor.
-        if let RestorePosition::Exact = self.cursor.restore_position(pager)? {
-            self.cursor.next(pager)?;
-        }
+        self.scan_guard.restore(pager, &mut self.cursor)?;
 
         if self.is_done {
             return Ok(None);
@@ -127,15 +128,14 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         let relation_record = relation_btree
             .cursor
             .current_record(pager)?
-            .ok_or_else(|| {
-                SqliteError::Corrupt("row vanished between exact seek and read".into())
-            })?
+            .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
             .iter()
             .map(|v| v.into_owned())
             .collect();
 
         let row = Row::new(row_id.cast_int()? as _, relation_record);
-        self.cursor.save_position(pager)?;
+        self.scan_guard.save_or_advance(pager, &mut self.cursor)?;
+        // self.cursor.save_position(pager)?;
 
         Ok(Some(row))
     }
