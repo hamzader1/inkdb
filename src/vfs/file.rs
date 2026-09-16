@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::DbError;
 
 #[allow(clippy::len_without_is_empty)]
-pub trait SqliteFile {
+pub trait SqliteFile: std::fmt::Debug {
     fn name(&self) -> &str;
 
     fn path(&self) -> PathBuf;
