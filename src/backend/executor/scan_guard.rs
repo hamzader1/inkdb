@@ -59,3 +59,24 @@ impl<F: SqliteFile> ScanGuard<F> for SafeScan {
         "SafeScan".into()
     }
 }
+
+pub struct CustomScanGuard<G, F>
+where
+    F: SqliteFile,
+    G: FnOnce() -> Box<dyn ScanGuard<F>>,
+{
+    pub scan_guard: Option<G>,
+}
+
+impl<G, F> CustomScanGuard<G, F>
+where
+    F: SqliteFile,
+    G: FnOnce() -> Box<dyn ScanGuard<F>>,
+{
+    pub fn new(scan_guard: Option<G>) -> Self {
+        Self { scan_guard }
+    }
+    pub fn take(&mut self) -> G::Output {
+        (self.scan_guard.take().unwrap())()
+    }
+}
