@@ -145,6 +145,16 @@ impl<F: SqliteFile> Plan<F> {
         )?);
         if let Some(predict) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predict));
+            Optimizer::new(
+                &mut child,
+                pager,
+                sqlite_master,
+                &resolved_query.table_name,
+                resolved_query.root_page,
+                &resolved_query.arena,
+                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<F>> { Box::new(SafeScan) })),
+            )
+            .optimize()?;
         }
         if let Some(limit) = resolved_query.limit {
             let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;
@@ -212,6 +222,17 @@ impl<F: SqliteFile> Plan<F> {
         )?);
         if let Some(predict) = resolved_query.where_clause {
             parent = Self::Filter(Filter::new(Box::new(parent), predict));
+
+            Optimizer::new(
+                &mut parent,
+                pager,
+                sqlite_master,
+                &resolved_query.table_name,
+                resolved_query.root_page,
+                resolved_query.arena.as_ref().unwrap(),
+                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<F>> { Box::new(UnsafeScan) })),
+            )
+            .optimize()?;
         }
 
         if let Some(indexes) = resolved_query.indexes {
