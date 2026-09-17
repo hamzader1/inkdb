@@ -1312,7 +1312,6 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         self.pager.allocate_new_page()
     }
     pub fn deallocate_page(&mut self, page_no: PageNo) -> SqliteResult<()> {
-        println!("PAGE TO BE DEALLOCATED {page_no}");
         self.pager.dealloc(page_no)
     }
 
