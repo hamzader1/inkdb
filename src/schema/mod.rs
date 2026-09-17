@@ -94,7 +94,7 @@ pub struct Index {
 }
 
 impl Index {
-    pub fn has_index_on(&self, col_name: &str, table_name: &str) -> bool {
+    pub fn is_on(&self, col_name: &str, table_name: &str) -> bool {
         // LIMITED: for single col index
         // TODO: HANDLE MULTIPLE INDEXES
         let (indexed_col, indexed_table) = (&self.columns[0], &self.table);

@@ -1,3 +1,5 @@
+use std::ops::{Bound, RangeBounds};
+
 use crate::{
     SqliteResult,
     backend::{
@@ -122,11 +124,6 @@ impl<F: SqliteFile> IndexExactMatch<F> {
             self.is_done = true;
             return Ok(None);
         };
-
-        let row_id = index_record
-            .pop()
-            .expect("Index record is empty")
-            .into_owned();
 
         if index_record[0] != self.target {
             self.is_done = true;

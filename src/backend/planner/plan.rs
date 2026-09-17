@@ -11,16 +11,18 @@ use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::filter::Filter;
-use crate::backend::executor::index::{IndexDelete, IndexExactMatch, IndexInsert, PrepareIndex};
+use crate::backend::executor::index::{
+    IndexDelete, IndexExactMatch, IndexInsert, IndexRangeScan, PrepareIndex,
+};
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
-use crate::backend::executor::scan_guard::{SafeScan, UnsafeScan};
+use crate::backend::executor::scan_guard::{CustomScanGuard, SafeScan, ScanGuard, UnsafeScan};
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
 use crate::backend::executor::truncate::TruncateTable;
-use crate::backend::optimazer::Optimazer;
+use crate::backend::optimizer::Optimizer;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
@@ -40,6 +42,7 @@ pub enum Plan<F: SqliteFile> {
     CreateIndex(CreateIndex<F>),
     PrepareIndex(PrepareIndex<F>),
     IndexExactMatch(IndexExactMatch<F>),
+    IndexRangeScan(IndexRangeScan<F>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
@@ -164,15 +167,7 @@ impl<F: SqliteFile> Plan<F> {
             Box::new(child),
             resolved_query.columns.clone(),
         ));
-        Optimazer::optimaze_plan(
-            &mut parent,
-            pager,
-            sqlite_master,
-            &resolved_query.table_name,
-            resolved_query.root_page,
-            Some(&resolved_query.arena),
-            false,
-        )?;
+
         Ok(PreparedPlan::new(parent, Some(resolved_query.arena)))
     }
 
@@ -247,16 +242,6 @@ impl<F: SqliteFile> Plan<F> {
             }
         }
         parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
-        Optimazer::optimaze_plan(
-            &mut parent,
-            pager,
-            sqlite_master,
-            &resolved_query.table_name,
-            resolved_query.root_page,
-            resolved_query.arena.as_ref(),
-            true,
-        )?;
-
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
@@ -293,6 +278,7 @@ impl<F: SqliteFile> Plan<F> {
             Self::RollbackTransaction(rbt) => rbt.next(pager),
             Self::TruncateTable(tb) => tb.next(pager),
             Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
+            Self::IndexRangeScan(irc) => irc.next(pager),
             Self::CreateIndex(ci) => ci.next(pager),
             Self::Terminate(t) => t.next(pager),
             Self::PrepareIndex(pi) => pi.next(pager, arena),
@@ -375,6 +361,12 @@ impl<F: SqliteFile> Plan<F> {
             Self::RollbackTransaction(_) => "RollbackTransaction".into(),
             Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
+            Self::IndexRangeScan(i) => format!(
+                "IndexRangeScan [index_root: {}, table_root: {}, target: {:?}]",
+                i.index_root_page(),
+                i.relation_root_page(),
+                i.range()
+            ),
             _ => unreachable!(),
         }
     }
