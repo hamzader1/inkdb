@@ -201,17 +201,18 @@ impl<F: SqliteFile> IndexMutation<F> for IndexInsert {
     }
 }
 
+#[derive(Debug)]
 pub struct IndexRangeScan<F: SqliteFile> {
     index_root_page: u32,
     relation_root_page: u32,
-    range: (Bound<Value<'static>>, Bound<Value<'static>>),
+    pub range: (Bound<Value<'static>>, Bound<Value<'static>>),
     scan_guard: Box<dyn ScanGuard<F>>,
     cursor: BTreeCursor<F>,
     is_done: bool,
 }
 
 impl<F: SqliteFile> IndexRangeScan<F> {
-    fn new(
+    pub fn new(
         index_root_page: u32,
         relation_root_page: u32,
         start: Bound<Value<'static>>,
@@ -223,11 +224,11 @@ impl<F: SqliteFile> IndexRangeScan<F> {
         let mut cursor = BTreeCursor::<F>::new(index_root_page);
         match start {
             Bound::Included(ref i) => {
-                cursor.seek_lower_bound(pager, i)?;
+                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.into_owned()]))?;
             }
             Bound::Excluded(ref i) => {
-                cursor.seek_lower_bound(pager, i)?;
-                if let Some(record) = cursor.current_record(pager)?
+                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.into_owned()]))?;
+                while let Some(record) = cursor.current_record(pager)?
                     && &record[0] == i
                 {
                     cursor.next(pager)?;
@@ -253,6 +254,9 @@ impl<F: SqliteFile> IndexRangeScan<F> {
     }
     pub fn relation_root_page(&self) -> u32 {
         self.relation_root_page
+    }
+    pub fn range(&self) -> &(Bound<Value<'static>>, Bound<Value<'static>>) {
+        &self.range
     }
 
     pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
@@ -290,6 +294,6 @@ impl<F: SqliteFile> IndexRangeScan<F> {
 
         let row = Row::new(row_id.cast_int()? as _, relation_record);
         self.scan_guard.save_or_advance(pager, &mut self.cursor)?;
-        Ok(None)
+        Ok(Some(row))
     }
 }
