@@ -105,9 +105,28 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
                 self.is_done = true;
                 return Ok(());
             }
-            Expr::And { left, right } => {
-                self.optimaze_where(left)?;
-                self.optimaze_where(right)?;
+            Expr::And { .. } => {
+                // Exact matches beat ranges: gather every conjunct, probe
+                // the equality leaves first so a range never spends the
+                // single guard before an exact on the same index is seen.
+                // Either way the kept Filter verifies the full predicate.
+                let mut leaves = Vec::new();
+                Self::collect_conjuncts(self.arena, predict, &mut leaves);
+                let mut exact_built = false;
+                for &leaf in &leaves {
+                    if self.try_exact_side(leaf)? {
+                        exact_built = true;
+                        break;
+                    }
+                }
+                if !exact_built {
+                    for &leaf in &leaves {
+                        self.optimaze_where(leaf)?;
+                        if self.is_done {
+                            break;
+                        }
+                    }
+                }
             }
             // Anything else (bare columns, literals, arithmetic) has no
             // index shape.
