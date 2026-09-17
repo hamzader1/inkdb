@@ -135,6 +135,37 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
         Ok(())
     }
 
+    /// Flatten a chain of ANDs into its conjunct leaves. Anything that
+    /// is not itself an AND (equalities, ranges, ORs, bare nodes) stays
+    /// whole for the normal per leaf handling.
+    fn collect_conjuncts(arena: &ExprArena, node: usize, out: &mut Vec<usize>) {
+        if let Expr::And { left, right } = arena.nodes[node] {
+            Self::collect_conjuncts(arena, left, out);
+            Self::collect_conjuncts(arena, right, out);
+        } else {
+            out.push(node);
+        }
+    }
+
+    /// True when the leaf is an equality with a usable index, building
+    /// the exact scan as a side effect. Both operand orders tried.
+    fn try_exact_side(&mut self, node: usize) -> SqliteResult<bool> {
+        if let Expr::BinaryOp {
+            left,
+            op: BinaryOperator::Eq,
+            right,
+        } = self.arena.nodes[node]
+        {
+            if self.try_index(left, right, BinaryOperator::Eq)?.is_some() {
+                return Ok(true);
+            }
+            if self.try_index(right, left, BinaryOperator::Eq)?.is_some() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn try_index(
         &mut self,
         left: usize,
