@@ -193,6 +193,30 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
             if !self.is_done /*&& self.ready_index.is_none()*/
             && let Some(index_root_page) = index_root_page
             {
+                if let Some(Plan::IndexRangeScan(irc)) = self.ready_index.as_mut()
+                    && irc.index_root_page() == index_root_page
+                {
+                    match op {
+                        BinaryOperator::Ge => {
+                            tighten_lower_bound(&mut irc.range.0, Bound::Included(target));
+                            return Ok(None);
+                        }
+                        BinaryOperator::Gt => {
+                            tighten_lower_bound(&mut irc.range.0, Bound::Excluded(target));
+                            return Ok(None);
+                        }
+                        BinaryOperator::Le => {
+                            tighten_upper_bound(&mut irc.range.1, Bound::Included(target));
+                            return Ok(None);
+                        }
+                        BinaryOperator::Lt => {
+                            tighten_upper_bound(&mut irc.range.1, Bound::Excluded(target));
+                            return Ok(None);
+                        }
+                        // Exact replaces the range below, keep going.
+                        _ => {}
+                    }
+                }
                 // One scan per predicate: a second lookaside keeps the
                 // first scan and lets the kept Filter verify the rest.
                 let Some(scan_guard) = self.scan_guard.take() else {
@@ -203,69 +227,33 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
                         self.new_index_exact_match(index_root_page, target, scan_guard)?
                     }
 
-                    BinaryOperator::Ge => {
-                        if let Some(Plan::IndexRangeScan(irc)) = self.ready_index.as_mut()
-                            && irc.index_root_page() == index_root_page
-                        {
-                            tighten_lower_bound(&mut irc.range.0, Bound::Included(target));
-                            return Ok(None);
-                        }
+                    BinaryOperator::Ge => self.new_index_range_scan(
+                        index_root_page,
+                        Bound::Included(target),
+                        Bound::Unbounded,
+                        scan_guard,
+                    )?,
 
-                        self.new_index_range_scan(
-                            index_root_page,
-                            Bound::Included(target),
-                            Bound::Unbounded,
-                            scan_guard,
-                        )?
-                    }
+                    BinaryOperator::Gt => self.new_index_range_scan(
+                        index_root_page,
+                        Bound::Excluded(target),
+                        Bound::Unbounded,
+                        scan_guard,
+                    )?,
 
-                    BinaryOperator::Gt => {
-                        if let Some(Plan::IndexRangeScan(irc)) = self.ready_index.as_mut()
-                            && irc.index_root_page() == index_root_page
-                        {
-                            tighten_lower_bound(&mut irc.range.0, Bound::Excluded(target));
-                            return Ok(None);
-                        }
+                    BinaryOperator::Le => self.new_index_range_scan(
+                        index_root_page,
+                        Bound::Unbounded,
+                        Bound::Included(target),
+                        scan_guard,
+                    )?,
 
-                        self.new_index_range_scan(
-                            index_root_page,
-                            Bound::Excluded(target),
-                            Bound::Unbounded,
-                            scan_guard,
-                        )?
-                    }
-
-                    BinaryOperator::Le => {
-                        if let Some(Plan::IndexRangeScan(irc)) = self.ready_index.as_mut()
-                            && irc.index_root_page() == index_root_page
-                        {
-                            tighten_upper_bound(&mut irc.range.1, Bound::Included(target));
-                            return Ok(None);
-                        }
-
-                        self.new_index_range_scan(
-                            index_root_page,
-                            Bound::Unbounded,
-                            Bound::Included(target),
-                            scan_guard,
-                        )?
-                    }
-
-                    BinaryOperator::Lt => {
-                        if let Some(Plan::IndexRangeScan(irc)) = self.ready_index.as_mut()
-                            && irc.index_root_page() == index_root_page
-                        {
-                            tighten_upper_bound(&mut irc.range.1, Bound::Excluded(target));
-                            return Ok(None);
-                        }
-
-                        self.new_index_range_scan(
-                            index_root_page,
-                            Bound::Unbounded,
-                            Bound::Excluded(target),
-                            scan_guard,
-                        )?
-                    }
+                    BinaryOperator::Lt => self.new_index_range_scan(
+                        index_root_page,
+                        Bound::Unbounded,
+                        Bound::Excluded(target),
+                        scan_guard,
+                    )?,
                     _ => unreachable!(),
                 };
                 self.ready_index = Some(index_plan);
