@@ -1,5 +1,4 @@
-use std::ops::Bound::Included;
-use std::ops::{Bound, RangeBounds};
+use std::ops::Bound;
 
 use super::executor::index::IndexRangeScan;
 use super::executor::scan_guard::{CustomScanGuard, ScanGuard};
@@ -15,10 +14,7 @@ use crate::sql::parser::ExprArena;
 use crate::vfs::file::SqliteFile;
 use crate::{SqliteMaster, SqliteResult};
 
-pub struct Optimizer<'a, F: SqliteFile, G>
-where
-    G: FnOnce() -> Box<dyn ScanGuard<F>>,
-{
+pub struct Optimizer<'a, F: SqliteFile> {
     sqlite_master: &'a SqliteMaster,
     relation: &'a crate::schema::Table,
     plan: &'a mut Plan<F>,
@@ -26,15 +22,16 @@ where
     arena: &'a ExprArena,
     // if len == requested_len we have a ready index
     ready_index: Option<Plan<F>>,
-    guard: CustomScanGuard<G, F>,
+    // The scan guard factory is spent exactly once, up front. A second
+    // index lookaside in the same predicate (a = x AND b = y) must reuse
+    // the first scan, never build a second one: the factory is FnOnce
+    // and a second take panics.
+    scan_guard: Option<Box<dyn ScanGuard<F>>>,
     is_done: bool,
 }
 
-impl<'a, F: SqliteFile, G> Optimizer<'a, F, G>
-where
-    G: FnOnce() -> Box<dyn ScanGuard<F>>,
-{
-    pub fn new(
+impl<'a, F: SqliteFile> Optimizer<'a, F> {
+    pub fn new<G>(
         plan: &'a mut Plan<F>,
         pager: &'a mut Pager<F>,
         sqlite_master: &'a SqliteMaster,
@@ -42,8 +39,11 @@ where
         root_page: u32,
         arena: &'a ExprArena,
         // Allows the optimizer to modify the source plans to be either SafeScan or Unsafe.
-        guard: CustomScanGuard<G, F>,
-    ) -> Self {
+        mut guard: CustomScanGuard<G, F>,
+    ) -> Self
+    where
+        G: FnOnce() -> Box<dyn ScanGuard<F>>,
+    {
         debug_assert!(
             matches!(plan, Plan::Filter(_)),
             "Expected Filter plan, found {:?}",
@@ -58,7 +58,7 @@ where
             pager,
             arena,
             ready_index: None,
-            guard,
+            scan_guard: Some(guard.take()),
             is_done: false,
         }
     }
@@ -96,7 +96,7 @@ where
                 _ => {
                     match self.try_index(left, right, op)? {
                         Some(_) => return Ok(()),
-                        None => self.try_index(right, left, op),
+                        None => self.try_index(right, left, flip_comparison(op)),
                     };
                 }
             },
@@ -109,7 +109,9 @@ where
                 self.optimaze_where(left)?;
                 self.optimaze_where(right)?;
             }
-            _ => unreachable!(),
+            // Anything else (bare columns, literals, arithmetic) has no
+            // index shape.
+            _ => {}
         };
         Ok(())
     }
@@ -141,13 +143,18 @@ where
             if !self.is_done /*&& self.ready_index.is_none()*/
             && let Some(index_root_page) = index_root_page
             {
+                // One scan per predicate: a second lookaside keeps the
+                // first scan and lets the kept Filter verify the rest.
+                let Some(scan_guard) = self.scan_guard.take() else {
+                    return Ok(None);
+                };
                 let index_plan = match op {
                     BinaryOperator::Eq => Plan::IndexExactMatch(IndexExactMatch::<F>::new(
                         self.pager,
                         index_root_page,
                         self.relation.root_page,
                         target,
-                        self.guard.take(),
+                        scan_guard,
                     )?),
 
                     BinaryOperator::Ge => {
@@ -162,6 +169,7 @@ where
                             index_root_page,
                             Bound::Included(target),
                             Bound::Unbounded,
+                            scan_guard,
                         )?
                     }
 
@@ -177,6 +185,7 @@ where
                             index_root_page,
                             Bound::Excluded(target),
                             Bound::Unbounded,
+                            scan_guard,
                         )?
                     }
 
@@ -192,6 +201,7 @@ where
                             index_root_page,
                             Bound::Unbounded,
                             Bound::Included(target),
+                            scan_guard,
                         )?
                     }
 
@@ -207,6 +217,7 @@ where
                             index_root_page,
                             Bound::Unbounded,
                             Bound::Excluded(target),
+                            scan_guard,
                         )?
                     }
                     _ => unreachable!(),
@@ -222,33 +233,32 @@ where
         Eval::eval(arena, index, None).ok()
     }
 
-    pub fn new_index_exact_match(
-        &mut self,
-        index_root_page: u32,
-        target: Value<'static>,
-    ) -> SqliteResult<Plan<F>> {
-        Ok(Plan::IndexExactMatch(IndexExactMatch::new(
-            self.pager,
-            index_root_page,
-            self.relation.root_page,
-            target,
-            self.guard.take(),
-        )?))
-    }
     pub fn new_index_range_scan(
         &mut self,
         index_root_page: u32,
         start: Bound<Value<'static>>,
         end: Bound<Value<'static>>,
+        scan_guard: Box<dyn ScanGuard<F>>,
     ) -> SqliteResult<Plan<F>> {
         Ok(Plan::IndexRangeScan(IndexRangeScan::new(
             index_root_page,
             self.relation.root_page,
             start,
             end,
-            self.guard.take(),
+            scan_guard,
             self.pager,
         )?))
+    }
+}
+
+fn flip_comparison(op: BinaryOperator) -> BinaryOperator {
+    match op {
+        BinaryOperator::Eq => BinaryOperator::Eq,
+        BinaryOperator::Gt => BinaryOperator::Lt,
+        BinaryOperator::Lt => BinaryOperator::Gt,
+        BinaryOperator::Ge => BinaryOperator::Le,
+        BinaryOperator::Le => BinaryOperator::Ge,
+        BinaryOperator::NotEq => BinaryOperator::NotEq,
     }
 }
 
