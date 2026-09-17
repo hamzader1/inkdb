@@ -132,6 +132,10 @@ impl<F: SqliteFile> IndexExactMatch<F> {
             self.is_done = true;
             return Ok(None);
         }
+        let row_id = index_record
+            .pop()
+            .expect("Index record is empty")
+            .into_owned();
 
         // Every index entry must point at a live table row. A missing row
         // means the table delete and the index delete disagreed, so speak
