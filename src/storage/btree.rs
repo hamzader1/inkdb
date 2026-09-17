@@ -401,14 +401,41 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
                     self.state = CursorState::At;
                     return Ok(());
                 }
-            } else {
-                if cell_idx > 0 {
-                    let child = page.cell(cell_idx - 1)?.left_child();
-                    self.add_path(page_no, cell_idx - 1, guard);
-                    self.descend_to_last(pager, child)?;
+            } else if page.page_type() == BTreePageType::InteriorIndex {
+                if yeilded {
+                    if cell_idx < page.no_of_cells() {
+                        let child = page.cell(cell_idx)?.left_child();
+                        self.stack.push(Path::new(page_no, cell_idx, guard));
+                        self.descend_to_last(pager, child)?;
+                        self.state = CursorState::At;
+                        return Ok(());
+                    }
+                    self.stack.push(Path {
+                        page_no,
+                        cell_idx: cell_idx - 1,
+                        guard,
+                        yeilded: true,
+                    });
                     self.state = CursorState::At;
                     return Ok(());
                 }
+                if cell_idx == 0 {
+                    continue;
+                }
+                self.stack.push(Path {
+                    page_no,
+                    cell_idx: cell_idx - 1,
+                    guard,
+                    yeilded: true,
+                });
+                self.state = CursorState::At;
+                return Ok(());
+            } else if cell_idx > 0 {
+                let child = page.cell(cell_idx - 1)?.left_child();
+                self.add_path(page_no, cell_idx - 1, guard);
+                self.descend_to_last(pager, child)?;
+                self.state = CursorState::At;
+                return Ok(());
             }
         }
         self.state = CursorState::BeforeFirst;
