@@ -199,13 +199,9 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
                     return Ok(None);
                 };
                 let index_plan = match op {
-                    BinaryOperator::Eq => Plan::IndexExactMatch(IndexExactMatch::<F>::new(
-                        self.pager,
-                        index_root_page,
-                        self.relation.root_page,
-                        target,
-                        scan_guard,
-                    )?),
+                    BinaryOperator::Eq => {
+                        self.new_index_exact_match(index_root_page, target, scan_guard)?
+                    }
 
                     BinaryOperator::Ge => {
                         if let Some(Plan::IndexRangeScan(irc)) = self.ready_index.as_mut()
@@ -283,6 +279,20 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
         Eval::eval(arena, index, None).ok()
     }
 
+    pub fn new_index_exact_match(
+        &mut self,
+        index_root_page: u32,
+        target: Value<'static>,
+        scan_guard: Box<dyn ScanGuard<F>>,
+    ) -> SqliteResult<Plan<F>> {
+        Ok(Plan::IndexExactMatch(IndexExactMatch::new(
+            self.pager,
+            index_root_page,
+            self.relation.root_page,
+            target,
+            scan_guard,
+        )?))
+    }
     pub fn new_index_range_scan(
         &mut self,
         index_root_page: u32,
