@@ -200,3 +200,96 @@ impl<F: SqliteFile> IndexMutation<F> for IndexInsert {
         Ok(())
     }
 }
+
+pub struct IndexRangeScan<F: SqliteFile> {
+    index_root_page: u32,
+    relation_root_page: u32,
+    range: (Bound<Value<'static>>, Bound<Value<'static>>),
+    scan_guard: Box<dyn ScanGuard<F>>,
+    cursor: BTreeCursor<F>,
+    is_done: bool,
+}
+
+impl<F: SqliteFile> IndexRangeScan<F> {
+    fn new(
+        index_root_page: u32,
+        relation_root_page: u32,
+        start: Bound<Value<'static>>,
+        end: Bound<Value<'static>>,
+        scan_guard: Box<dyn ScanGuard<F>>,
+        pager: &mut Pager<F>,
+    ) -> SqliteResult<Self> {
+        assert!(!(matches!(start, Bound::Unbounded) && matches!(end, Bound::Unbounded)));
+        let mut cursor = BTreeCursor::<F>::new(index_root_page);
+        match start {
+            Bound::Included(ref i) => {
+                cursor.seek_lower_bound(pager, i)?;
+            }
+            Bound::Excluded(ref i) => {
+                cursor.seek_lower_bound(pager, i)?;
+                if let Some(record) = cursor.current_record(pager)?
+                    && &record[0] == i
+                {
+                    cursor.next(pager)?;
+                }
+            }
+            _ => {
+                cursor.first(pager)?;
+            }
+        };
+
+        Ok(Self {
+            index_root_page,
+            relation_root_page,
+            range: (start, end),
+            scan_guard,
+            cursor,
+            is_done: false,
+        })
+    }
+
+    pub fn index_root_page(&self) -> u32 {
+        self.index_root_page
+    }
+    pub fn relation_root_page(&self) -> u32 {
+        self.relation_root_page
+    }
+
+    pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
+        self.scan_guard.restore(pager, &mut self.cursor)?;
+        if self.is_done {
+            return Ok(None);
+        }
+
+        let Some(mut index_record) = self.cursor.current_record(pager)? else {
+            self.is_done = true;
+            return Ok(None);
+        };
+        if !self.range.contains(&index_record[0]) {
+            self.is_done = true;
+            return Ok(None);
+        }
+        let row_id = index_record
+            .pop()
+            .expect("Index record is empty")
+            .into_owned();
+        let mut relation_btree = BTree::new(self.relation_root_page, pager);
+        if relation_btree.seek(&row_id)? != SeekResult::Exact {
+            return Err(SqliteError::Corrupt(format!(
+                "index {} holds rowid {row_id} but table {} has no such row",
+                self.index_root_page, self.relation_root_page
+            )));
+        }
+        let relation_record = relation_btree
+            .cursor
+            .current_record(pager)?
+            .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
+            .iter()
+            .map(|v| v.into_owned())
+            .collect();
+
+        let row = Row::new(row_id.cast_int()? as _, relation_record);
+        self.scan_guard.save_or_advance(pager, &mut self.cursor)?;
+        Ok(None)
+    }
+}
