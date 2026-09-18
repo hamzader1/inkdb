@@ -184,6 +184,9 @@ impl BufferPool {
         frame.set(DIRTY);
         self.dp_ll_insert(frame_id);
     }
+    pub fn borrow_state(&self, frame_id: FrameId) -> i16 {
+        self.frame_buffer[frame_id].borrow.get()
+    }
     pub fn mark_clean(&mut self, frame_id: FrameId) {
         if self.frame_buffer[frame_id].is(DIRTY) {
             self.dp_ll_remove(frame_id);
