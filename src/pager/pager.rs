@@ -347,7 +347,7 @@ impl<F: SqliteFile> Pager<F> {
         let end = start + self.metadata.page_size;
         let buffer_pool = self.buffer_pool.as_ptr_mut();
         let ptr = unsafe {
-            NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
+            NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_mut_ptr())
         };
         let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, self.metadata.page_size);
 
@@ -359,7 +359,7 @@ impl<F: SqliteFile> Pager<F> {
         let buffer_pool = self.buffer_pool.as_ptr_mut();
         // let bytes = self.buffer_pool.page_buffer[start..end].as_mut();
         let ptr = unsafe {
-            NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_ptr() as *mut u8)
+            NonNull::new_unchecked(self.buffer_pool.page_buffer[start..end].as_mut_ptr())
         };
         let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, self.metadata.page_size);
         PageGuard::new(buffer_pool, frameid, slice, BorrowState::RefMut)
