@@ -246,6 +246,13 @@ impl BufferPool {
         self.frame_buffer[curr].prev = None;
         Some((page_no, curr))
     }
+
+    pub fn with_frame_as_ref<F, R>(&self, frameid: FrameId, f: F) -> R
+    where
+        F: for<'a> FnOnce(&'a Frame) -> R,
+    {
+        f(&self.frame_buffer[frameid])
+    }
 }
 
 #[derive(Debug)]
