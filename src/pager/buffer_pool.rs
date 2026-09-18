@@ -196,6 +196,42 @@ impl BufferPool {
     pub fn unpin(&self, frame_id: FrameId) {
         self.frame_buffer[frame_id].decr_pin_count();
     }
+    pub fn borrow(&self, frameid: FrameId, page_no: PageNo) -> SqliteResult<()> {
+        let frame = &self.frame_buffer[frameid];
+        if frame.borrow.get() < 0 {
+            return Err(SqliteError::Runtime(format!(
+                "Page no '{}' already borrowed as mut",
+                page_no
+            )));
+        }
+        frame.borrow.set(frame.borrow.get() + 1);
+        Ok(())
+    }
+    pub fn exclusive_borrow(&self, frameid: FrameId, page_no: PageNo) -> SqliteResult<()> {
+        let frame = &self.frame_buffer[frameid];
+        if frame.borrow.get() != 0 {
+            return Err(SqliteError::Runtime(format!(
+                "Page no '{}' already borrowed as ref",
+                page_no
+            )));
+        }
+        frame.borrow.set(-1);
+        Ok(())
+    }
+
+    pub fn release_frame(&self, frame_id: FrameId) {
+        let frame = &self.frame_buffer[frame_id];
+        let current = frame.borrow.get();
+        assert!(
+            current >= 0,
+            "current counter is less than 0, page already borrowed as mut"
+        );
+        frame.borrow.set(frame.borrow.get() - 1);
+    }
+    pub fn reset_frame(&self, frame_id: FrameId) {
+        self.frame_buffer[frame_id].borrow.set(0);
+    }
+
     pub fn pop_dirty(&mut self) -> Option<(PageNo, FrameId)> {
         let curr = self.dirty_pages_linked_list?;
         let page_no = self.frame_buffer[curr].page_no.unwrap();
