@@ -892,11 +892,28 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 } else {
                     (right_page_payload, split_metadata.right_max.clone())
                 };
-                parent_page_as_mut.replace_cell(index, &left_page_payload)?;
-                match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
-                    InsertionState::Inserted => Ok(split_metadata),
+                match parent_page_as_mut.replace_cell(index, &left_page_payload)? {
+                    InsertionState::Inserted => {
+                        match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
+                            InsertionState::Inserted => Ok(split_metadata),
+                            InsertionState::None => {
+                                let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                                self.insert_key_to_interior(
+                                    &right_divider_key,
+                                    right_page_payload,
+                                    meta,
+                                )?;
+                                Ok(split_metadata)
+                            }
+                        }
+                    }
                     InsertionState::None => {
+                        // Parent too full to grow this divider in place.
+                        // Split it first, then route both dividers into
+                        // the fresh layout by their own keys.
                         let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                        let left_key = split_metadata.boundary.into_owned();
+                        self.insert_key_to_interior(&left_key, left_page_payload, meta.clone())?;
                         self.insert_key_to_interior(&right_divider_key, right_page_payload, meta)?;
                         Ok(split_metadata)
                     }
@@ -1411,10 +1428,64 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             leaf.cell_bytes_as_ref(pred_cell_idx).map(|b| b.to_vec())
         })?;
         let new_divider = Encode::encode_index_interior_cell(left_child, &pred_bytes);
-        self.with_page_mut(page_no, |parent| {
-            parent.replace_cell(cell_idx, &new_divider)?;
-            Ok::<(), SqliteError>(())
-        })?;
+        if self.with_page_mut(page_no, |parent| parent.replace_cell(cell_idx, &new_divider))?
+            == InsertionState::None
+        {
+            // Parent too full to repaint this divider in place. Unwind
+            // the pushed predecessor path plus the divider entry itself,
+            // split the parent, then re-seek the divider (untouched, the
+            // failed replace wrote nothing) and retry once on fresh space.
+            while self.cursor.stack.len() > base_len - 1 {
+                self.cursor.stack.pop();
+            }
+            self.split_interior(page_no)?;
+            if self.cursor.seek_for_delete(self.pager, &key)? != SeekResult::Exact {
+                return Err(SqliteError::Corrupt(
+                    "index divider vanished across parent split".into(),
+                ));
+            }
+            let (page_no2, cell_idx2) = self.cursor.last_visited_entry_unchecked();
+            if self.with_page_mut(page_no2, |parent| {
+                parent.replace_cell(cell_idx2, &new_divider)
+            })? == InsertionState::None
+            {
+                return Err(SqliteError::Corrupt(
+                    "index divider still does not fit after parent split".into(),
+                ));
+            }
+            // Rebuild the predecessor path under the fresh divider for
+            // the removal below. The split only redistributed divider
+            // keys, so the known leaf cell is still where it was.
+            let mut cur = self.with_page_ref(page_no2, |p| {
+                Ok(p.cell(cell_idx2)?.left_child())
+            })?;
+            let mut depth = 0;
+            while cur != pred_page_no {
+                depth += 1;
+                if depth > 100 {
+                    return Err(SqliteError::Corrupt(
+                        "predecessor path broken across parent split".into(),
+                    ));
+                }
+                let guard = self.pager.get(cur)?;
+                let page = page_as_ref_with_pager(cur, &guard, self.pager)?;
+                if page.is_leaf() {
+                    return Err(SqliteError::Corrupt(
+                        "predecessor path broken across parent split".into(),
+                    ));
+                }
+                let rmp = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                    "index interior has no right child".into(),
+                ))?;
+                let n = page.no_of_cells();
+                self.cursor.stack.push(Path::new(cur, n, guard));
+                cur = rmp;
+            }
+            let pred_guard = self.pager.get(pred_page_no)?;
+            self.cursor
+                .stack
+                .push(Path::new(pred_page_no, pred_cell_idx, pred_guard));
+        }
         let pred_underflow = self.with_page_mut(pred_page_no, |leaf| {
             leaf.remove_cell(pred_cell_idx)?;
             leaf.is_underflow()
