@@ -207,7 +207,7 @@ pub struct IndexRangeScan<F: SqliteFile> {
     index_root_page: u32,
     relation_root_page: u32,
     pub range: (Bound<Value<'static>>, Bound<Value<'static>>),
-    scan_guard: Box<dyn ScanGuard<F>>,
+    pub scan_guard: Box<dyn ScanGuard<F>>,
     cursor: BTreeCursor<F>,
     is_done: bool,
 }

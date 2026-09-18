@@ -227,7 +227,7 @@ impl<F: SqliteFile> Pager<F> {
             self.statistics.inc_cache_hit();
             return Ok(is_dirty); // page already in cache
         }
-
+        // TODO: Will be Replaced by Acquire::Hit(FrameId)
         // check if the we have any free frames
         if let Some(frameid) = self.buffer_pool.free_frames.pop() {
             self.buffer_pool.page_table.insert(page_no, frameid);
@@ -239,6 +239,7 @@ impl<F: SqliteFile> Pager<F> {
 
             return Ok(false);
         }
+        // TODO: Will be Replaced by Acquire::Miss{frame, evected};
         // run the clock
         let mut clock_hand = self.buffer_pool.clock_hand;
         let start = clock_hand;
