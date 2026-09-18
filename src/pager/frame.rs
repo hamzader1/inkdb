@@ -17,6 +17,7 @@ pub struct Frame {
     pub pin_count: Cell<u8>,
     pub next: Option<FrameId>,
     pub prev: Option<FrameId>,
+    pub borrow: Cell<i16>,
 }
 impl Frame {
     pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
@@ -26,6 +27,7 @@ impl Frame {
             pin_count: Cell::new(pin_count),
             next: None,
             prev: None,
+            borrow: Cell::new(0),
         }
     }
     pub fn is(&self, flag: u8) -> bool {
@@ -64,6 +66,7 @@ impl Default for Frame {
             pin_count: Cell::new(0),
             next: None,
             prev: None,
+            borrow: Cell::new(0),
         }
     }
 }
