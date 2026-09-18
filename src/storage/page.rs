@@ -812,7 +812,7 @@ impl<'p> BTreePageMut<'p> {
         &mut self,
         cell_idx: CellIndex,
         content: impl AsRef<[u8]>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<InsertionState, SqliteError> {
         let content = content.as_ref();
         if cell_idx as usize >= self.cell_pointers.len() {
             return Err(SqliteError::Internal(format!(
@@ -834,6 +834,15 @@ impl<'p> BTreePageMut<'p> {
             cells.push(self.bytes[span].to_vec());
         }
 
+        // Fit check before touching a single byte. A failed replace used
+        // to die halfway through the rebuild below, leaving a half empty
+        // page behind. None now means untouched, so the caller is free to
+        // split the page and retry.
+        let bodies: usize = cells.iter().map(|c| c.len()).sum();
+        if bodies + cells.len() * 2 + self.header_size() as usize > self.usable_size {
+            return Ok(InsertionState::None);
+        }
+
         // every body is staged, the page can be rebuilt in place now. this also
         // reclaims the space of the cell being replaced.
         // The rebuild wipes the right most pointer: interiors get it back
@@ -844,7 +853,7 @@ impl<'p> BTreePageMut<'p> {
         for (i, cell) in cells.iter().enumerate() {
             if self.insert_cell(cell, i as _)? == InsertionState::None {
                 return Err(SqliteError::Internal(
-                    "replace_cell: rebuilt page does not fit (replacement larger than reclaimed space)".into(),
+                    "replace_cell: staged rebuild overflowed a fitting page".into(),
                 ));
             }
         }
@@ -852,7 +861,7 @@ impl<'p> BTreePageMut<'p> {
             self.header.right_most_ptr = rmp;
             self.update_bytes([RightMostPointer]);
         }
-        Ok(())
+        Ok(InsertionState::Inserted)
     }
 
     pub fn remaining_space(&self) -> usize {

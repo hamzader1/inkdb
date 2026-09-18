@@ -1398,6 +1398,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // the interior page, so extend it down the right edge. Each
         // interior level parks at its right most slot, the leaf parks at
         // its last cell. That layout is exactly what fix underflow wants.
+        // The stack depth is remembered so a full parent below can be
+        // unwound back to a shape split_interior understands.
+        let base_len = self.cursor.stack.len();
         let mut pred_no = left_child;
         loop {
             let guard = self.pager.get(pred_no)?;
