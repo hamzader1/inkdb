@@ -53,7 +53,7 @@ impl PageGuard {
 impl Drop for PageGuard {
     fn drop(&mut self) {
         unsafe {
-            self.buffer_pool.as_mut().free_page(self.frame_id);
+            self.buffer_pool.as_mut().unpin(self.frame_id);
         }
     }
 }
