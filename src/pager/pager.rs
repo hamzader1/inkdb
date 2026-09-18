@@ -146,10 +146,12 @@ impl<F: SqliteFile> Pager<F> {
         Self::validate_page(page_no, self.metadata.max_allocated_pages)?;
         match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
+                self.buffer_pool.borrow(frameid, page_no)?;
                 self.statistics.inc_cache_hit();
                 Ok(self.guard(frameid, BorrowState::Ref))
             }
             Acquire::Miss { frameid, evicted } => {
+                self.buffer_pool.borrow(frameid, page_no)?;
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
@@ -166,13 +168,16 @@ impl<F: SqliteFile> Pager<F> {
     }
     pub fn get_mut(&mut self, page_no: PageNo) -> SqliteResult<PageGuard> {
         Self::validate_page(page_no, self.metadata.max_allocated_pages)?;
-        debug_assert!(self.in_transaction);
+        debug_assert!(self.in_transaction, "get mut forbidden outside of txn");
         let frameid = match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
+                self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+
                 self.statistics.inc_cache_hit();
                 frameid
             }
             Acquire::Miss { frameid, evicted } => {
+                self.buffer_pool.exclusive_borrow(frameid, page_no)?;
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
@@ -183,6 +188,7 @@ impl<F: SqliteFile> Pager<F> {
                 self.source
                     .read_exact_at(offset as _, self.buffer_pool.frame_bytes_mut(frameid))?;
                 self.statistics.inc_cache_miss();
+
                 frameid
             }
         };
