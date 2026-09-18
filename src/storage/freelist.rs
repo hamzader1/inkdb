@@ -2,7 +2,7 @@ use crate::{
     SqliteCursor, SqliteResult,
     errors::SqliteError,
     pager::pager::{PageNo, Pager},
-    util::validate_page,
+    util::{validate_page, validate_page_non_one},
     vfs::file::SqliteFile,
 };
 
@@ -108,11 +108,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
     }
 
     pub fn validate_non_one_page(&self, page_no: PageNo) -> SqliteResult<()> {
-        validate_page(
-            page_no,
-            self.pager.metadata.max_allocated_pages,
-            Some(|p| p == 1),
-        )
+        validate_page_non_one(page_no, self.pager.metadata.max_allocated_pages)
     }
 }
 
