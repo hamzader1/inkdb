@@ -167,6 +167,7 @@ impl BufferPool {
             self.dp_ll_remove(frameid);
         }
         self.evict_page(frame_page_no, frameid)?;
+        self.page_table.insert(page_no, frameid);
         self.frame_buffer[frameid] = Frame::new(Some(page_no), CLEAN | REFERENCED, 1);
         Ok(Acquire::Miss {
             frameid,
@@ -188,10 +189,15 @@ impl BufferPool {
         self.frame_buffer[frame_id].borrow.get()
     }
     pub fn mark_clean(&mut self, frame_id: FrameId) {
-        if self.frame_buffer[frame_id].is(DIRTY) {
+        if self.is_linked(frame_id) {
             self.dp_ll_remove(frame_id);
         }
         self.frame_buffer[frame_id].reset_to(CLEAN);
+    }
+    fn is_linked(&self, frame_id: FrameId) -> bool {
+        self.dirty_pages_linked_list == Some(frame_id)
+            || self.frame_buffer[frame_id].next.is_some()
+            || self.frame_buffer[frame_id].prev.is_some()
     }
     pub fn pin(&self, frame_id: FrameId) {
         self.frame_buffer[frame_id].incr_pin_count();
