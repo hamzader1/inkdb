@@ -14,18 +14,20 @@ pub type FrameIndex = usize;
 pub struct Frame {
     pub page_no: Option<PageNo>,
     pub flags: Cell<u8>,
-    pub pin_count: Cell<u8>,
+    pub pin_count: Cell<u32>,
     pub next: Option<FrameId>,
     pub prev: Option<FrameId>,
+    pub borrow: Cell<i16>,
 }
 impl Frame {
-    pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u8) -> Self {
+    pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u32) -> Self {
         Self {
             page_no,
             flags: Cell::new(flags),
             pin_count: Cell::new(pin_count),
             next: None,
             prev: None,
+            borrow: Cell::new(0),
         }
     }
     pub fn is(&self, flag: u8) -> bool {
@@ -46,7 +48,6 @@ impl Frame {
     }
     pub fn incr_pin_count(&self) {
         let curr_cnt = self.pin_count.get();
-        assert!((curr_cnt as u16 + 1) < u8::MAX as _, "pin count overflow");
         self.pin_count.set(curr_cnt + 1);
     }
 
@@ -64,6 +65,7 @@ impl Default for Frame {
             pin_count: Cell::new(0),
             next: None,
             prev: None,
+            borrow: Cell::new(0),
         }
     }
 }
