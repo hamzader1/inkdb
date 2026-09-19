@@ -2,7 +2,7 @@ use crate::errors::SqliteError;
 use crate::vfs::disk::{DiskFile, DiskVfs};
 use crate::vfs::file::SqliteFile;
 use crate::vfs::{SqliteOptions, Vfs};
-use crate::{SqliteCursor, size_of};
+use crate::{SqliteCursor, SqliteResult, size_of};
 use std::path::PathBuf;
 
 use super::pager::PageNo;
@@ -12,25 +12,25 @@ const JOURNAL_CAP: usize = 8;
 const JOURNAL_MAGIC: u64 = 0x4A4F55524E414C31;
 const JOURNAL_MAGIC_OFFSET: usize = 0;
 // 2: 8..12
-const PAGE_COUNT_OFFSET: usize = 8;
+pub const PAGE_COUNT_OFFSET: usize = 8;
 // 3: 12..16
 const DATABASE_SIZE_OFFSET: usize = 12;
 
 // 4: 16..20
 const PAGE_SIZE_OFFSET: usize = 16;
 
-const JOURNAL_HEADER_SIZE: usize = 20;
+pub const JOURNAL_HEADER_SIZE: usize = 20;
 
 const PAGE_NUMBER_SIZE: usize = 4;
 
 #[derive(Default)]
 pub struct RawJournal {
-    buffer: Vec<u8>,
+    pub buffer: Vec<u8>,
     path: PathBuf,
-    page_size: u16,
+    pub page_size: u16,
     db_name: String,
     pub db_size: u32,
-    page_count: u32,
+    pub page_count: u32,
     // jfile: Option<DiskFile>,
 }
 
@@ -147,6 +147,15 @@ impl RawJournal {
             file_path,
         };
         Ok(Some(metadata))
+    }
+
+    pub fn presist_tail(&mut self, file: &mut DiskFile, start: usize) -> SqliteResult<()> {
+        let end = (self.page_count * (self.page_size as u32 + 4)) as usize;
+        assert!(start <= end);
+        let buff = &self.buffer[start..end];
+        file.write_all_at(start as _, buff)?;
+        file.write_all_at(PAGE_COUNT_OFFSET as _, &self.page_count.to_be_bytes())?;
+        Ok(())
     }
 
     // Back to idle
