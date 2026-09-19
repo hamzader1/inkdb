@@ -56,16 +56,16 @@ impl Drop for PageGuard {
     fn drop(&mut self) {
         unsafe {
             self.buffer_pool.as_mut().unpin(self.frame_id);
-            match self.state {
-                // x -> x-1 where x >=1
-                BorrowState::Ref => {
-                    self.buffer_pool.as_mut().release_frame(self.frame_id);
-                }
-                // -1 -> 0
-                BorrowState::RefMut => {
-                    self.buffer_pool.as_mut().reset_frame(self.frame_id);
-                }
-            }
+            // match self.state {
+            //     // x -> x-1 where x >=1
+            //     BorrowState::Ref => {
+            //         self.buffer_pool.as_mut().release_frame(self.frame_id);
+            //     }
+            //     // -1 -> 0
+            //     BorrowState::RefMut => {
+            //         self.buffer_pool.as_mut().reset_frame(self.frame_id);
+            //     }
+            // }
         }
     }
 }

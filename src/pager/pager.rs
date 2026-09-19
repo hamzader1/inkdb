@@ -11,8 +11,8 @@ use crate::errors::SqliteError;
 use crate::storage::freelist::FreeList;
 
 use super::buffer_pool::{Acquire, BufferPool};
+use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
-use super::frame::{FLUSHED_IN_TXN, FrameId};
 use super::guard::{BorrowState, PageGuard};
 use super::journal::Journal;
 use super::metadata::SqliteMetadata;
