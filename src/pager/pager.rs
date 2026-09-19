@@ -54,7 +54,7 @@ impl<F: SqliteFile> Pager<F> {
         let mut pager = Pager {
             source,
             buffer_pool: BufferPool::new(page_size),
-            journal: Journal::uninit(),
+            journal: Journal::default(),
             flushed: HashSet::new(),
             journal_pages: HashSet::new(),
             metadata: SqliteMetadata::new(
@@ -69,7 +69,7 @@ impl<F: SqliteFile> Pager<F> {
             txn_snapshot: None,
         };
         pager.recover_from_crash()?;
-        pager.journal = Journal::new(journal_meta);
+        pager.journal = pager.journal.open(journal_meta);
         Ok(pager)
     }
     pub fn with_cache(
@@ -90,7 +90,7 @@ impl<F: SqliteFile> Pager<F> {
         let mut pager = Pager {
             source,
             buffer_pool: BufferPool::with_cache(cache_size, page_size),
-            journal: Journal::uninit(),
+            journal: Journal::default(),
             journal_pages: HashSet::new(),
             flushed: HashSet::new(),
             metadata: SqliteMetadata::new(
@@ -105,7 +105,7 @@ impl<F: SqliteFile> Pager<F> {
             txn_snapshot: None,
         };
         pager.recover_from_crash()?;
-        pager.journal = Journal::new(journal_meta);
+        pager.journal = pager.journal.open(journal_meta);
         Ok(pager)
     }
     pub fn in_transaction(&self) -> bool {
@@ -200,13 +200,16 @@ impl<F: SqliteFile> Pager<F> {
                 frameid
             }
         };
-        if self.journal.is_active() && !self.journal.is_init() {
-            self.journal.init()?;
-        }
-        if self.journal.is_active() && !self.journal_pages.contains(&page_no) {
+        self.journal.init()?;
+        // if self.journal.is_active() && !self.journal.is_init() {
+        //     self.journal.init()?;
+        // }
+        //
+        if !self.journal_pages.contains(&page_no) {
             self.journal_pages.insert(page_no);
-            self.journal
-                .add_page(page_no, self.buffer_pool.frame_bytes(frameid));
+            if let Journal::Open { raw, file, durable } = &mut self.journal {
+                raw.add_page(page_no, self.buffer_pool.frame_bytes(frameid));
+            }
         }
         self.buffer_pool.mark_dirty(frameid);
         Ok(self.guard(frameid, BorrowState::RefMut))
@@ -226,24 +229,39 @@ impl<F: SqliteFile> Pager<F> {
         Ok(())
     }
     pub fn commit(&mut self) -> Result<(), SqliteError> {
-        if self.journal.is_init() {
-            self.journal.commit()?;
+        if let Journal::Open {
+            ref mut raw,
+            ref mut file,
+            durable,
+        } = self.journal
+        {
+            raw.commit(file)?;
             self.flush_all()?;
             self.source.sync()?;
             self.journal.destroy_internal()?;
         }
-        if self.journal.is_active() {
-            self.journal.reset();
-        }
+        // if self.journal.is_init() {
+        //     self.journal.commit()?;
+        // }
+        self.journal.reset();
+        // if self.journal.is_active() {
+        //
+        //     self.journal.reset();
+        // }
         self.journal_pages.clear();
         self.txn_snapshot = None;
         self.in_transaction = false;
         Ok(())
     }
     pub fn rollback(&mut self) -> Result<(), SqliteError> {
-        if self.journal.is_init() {
-            let db_size = self.journal.db_size;
-            let mut iterator = self.journal.make_iterator();
+        if let Journal::Open {
+            ref mut raw,
+            ref mut file,
+            ..
+        } = self.journal
+        {
+            let db_size = raw.db_size;
+            let mut iterator = raw.make_iterator();
             while let Some(page) = iterator.iter()? {
                 if self.journal_pages.contains(&page.page_no) {
                     match self.buffer_pool.lookup(page.page_no) {
@@ -270,9 +288,7 @@ impl<F: SqliteFile> Pager<F> {
             self.source.set_len(db_size as usize)?;
             self.journal.destroy_internal()?;
         }
-        if self.journal.is_active() {
-            self.journal.reset();
-        }
+        self.journal.reset();
         self.journal_pages.clear();
         if let Some(snapshot) = self.txn_snapshot.take() {
             self.metadata = snapshot;
