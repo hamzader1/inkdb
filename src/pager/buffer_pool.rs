@@ -253,6 +253,13 @@ impl BufferPool {
     {
         f(&self.frame_buffer[frameid])
     }
+
+    pub fn restore_bytes(&mut self, id: FrameId, bytes: &[u8]) {
+        assert!(bytes.len() == self.page_size);
+        let start = id * self.page_size;
+        let end = start + self.page_size;
+        self.page_buffer[start..end].copy_from_slice(bytes);
+    }
 }
 
 #[derive(Debug)]
