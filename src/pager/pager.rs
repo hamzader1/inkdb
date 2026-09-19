@@ -8,7 +8,9 @@ use crate::db::header::{
     TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
 use crate::errors::SqliteError;
+use crate::pager::raw_journal::{JOURNAL_HEADER_SIZE, PAGE_COUNT_OFFSET};
 use crate::storage::freelist::FreeList;
+use crate::util::sqlite_assert_with_runtime_err;
 
 use super::buffer_pool::{Acquire, BufferPool};
 use super::frame::FrameId;
@@ -162,7 +164,30 @@ impl<F: SqliteFile> Pager<F> {
                     if ev.was_dirty {
                         self.flush_page(ev.page_no, frameid)?;
                         self.flushed.insert(ev.page_no);
+                        sqlite_assert_with_runtime_err(
+                            matches!(self.journal, Journal::Open { .. }),
+                            || "Journal is not opened yet".into(),
+                        )?;
+                        self.journal.presist_tail()?;
                     }
+                    // let Journal::Open {
+                    //     ref mut raw,
+                    //     ref mut file,
+                    //     ref mut durable,
+                    // } = self.journal
+                    // else {
+                    //     return Err(SqliteError::Internal(
+                    //         "Journal it not initialized yet".into(),
+                    //     ));
+                    // };
+                    // let stepby = self.metadata.page_size + 4;
+                    // let start = JOURNAL_HEADER_SIZE + (*durable as usize * stepby);
+                    // let end = JOURNAL_HEADER_SIZE + (raw.page_count as usize * stepby);
+                    // let slice = &raw.buffer[start..end];
+                    // file.write_all_at(start as _, slice)?;
+                    // file.write_all_at(PAGE_COUNT_OFFSET as _, &raw.page_count.to_be_bytes())?;
+                    // file.sync()?;
+                    // *durable = raw.page_count;
                 }
                 let offset = self.get_page_offset(page_no);
                 self.source
@@ -190,6 +215,12 @@ impl<F: SqliteFile> Pager<F> {
                     if ev.was_dirty {
                         self.flush_page(ev.page_no, frameid)?;
                         self.flushed.insert(ev.page_no);
+
+                        sqlite_assert_with_runtime_err(
+                            matches!(self.journal, Journal::Open { .. }),
+                            || "Journal is not opened yet".into(),
+                        )?;
+                        self.journal.presist_tail()?;
                     }
                 }
                 let offset = self.get_page_offset(page_no);
