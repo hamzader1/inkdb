@@ -26,6 +26,16 @@ where
     Ok(())
 }
 
+pub fn sqlite_assert_with_internal_err<Fn>(condition: bool, err: Fn) -> Result<(), SqliteError>
+where
+    Fn: FnOnce() -> String,
+{
+    if !condition {
+        return Err(SqliteError::Internal(err()));
+    }
+    Ok(())
+}
+
 pub fn validate_page(page_no: PageNo, max_pages: usize) -> Result<(), SqliteError>
 where
 {
