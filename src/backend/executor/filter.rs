@@ -3,20 +3,20 @@ use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 
 use super::Row;
 
 #[derive(Debug)]
-pub struct Filter<F: SqliteFile> {
-    child: Box<Plan<F>>,
+pub struct Filter<V: Vfs> {
+    child: Box<Plan<V>>,
     predict: usize,
 }
-impl<F: SqliteFile> Filter<F> {
-    pub fn new(child: Box<Plan<F>>, predict: usize) -> Self {
+impl<V: Vfs> Filter<V> {
+    pub fn new(child: Box<Plan<V>>, predict: usize) -> Self {
         Self { child, predict }
     }
-    pub fn child_mut(&mut self) -> &mut Plan<F> {
+    pub fn child_mut(&mut self) -> &mut Plan<V> {
         &mut self.child
     }
     pub fn predicate(&self) -> usize {
@@ -24,10 +24,10 @@ impl<F: SqliteFile> Filter<F> {
     }
 }
 
-impl<F: SqliteFile> Filter<F> {
+impl<V: Vfs> Filter<V> {
     pub fn next(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         arena: &ExprArena,
     ) -> Result<Option<Row>, SqliteError> {
         loop {

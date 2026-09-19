@@ -2,17 +2,17 @@ use crate::{
     SqliteResult,
     pager::pager::Pager,
     storage::btree::{BTreeCursor, RestorePosition},
-    vfs::file::SqliteFile,
+    vfs::Vfs,
 };
 
-pub trait ScanGuard<F: SqliteFile>: std::fmt::Debug {
-    fn restore(&mut self, pager: &mut Pager<F>, cursor: &mut BTreeCursor<F>) -> SqliteResult<()> {
+pub trait ScanGuard<V: Vfs>: std::fmt::Debug {
+    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> SqliteResult<()> {
         Ok(())
     }
     fn save_or_advance(
         &mut self,
-        pager: &mut Pager<F>,
-        cursor: &mut BTreeCursor<F>,
+        pager: &mut Pager<V>,
+        cursor: &mut BTreeCursor<V>,
     ) -> SqliteResult<()> {
         Ok(())
     }
@@ -25,8 +25,8 @@ pub trait ScanGuard<F: SqliteFile>: std::fmt::Debug {
 // valid here or the scan is over.
 #[derive(Debug)]
 pub struct UnsafeScan;
-impl<F: SqliteFile> ScanGuard<F> for UnsafeScan {
-    fn restore(&mut self, pager: &mut Pager<F>, cursor: &mut BTreeCursor<F>) -> SqliteResult<()> {
+impl<V: Vfs> ScanGuard<V> for UnsafeScan {
+    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> SqliteResult<()> {
         match cursor.restore_position(pager)? {
             RestorePosition::Exact => cursor.next(pager)?,
             RestorePosition::Next | RestorePosition::Empty => {}
@@ -35,8 +35,8 @@ impl<F: SqliteFile> ScanGuard<F> for UnsafeScan {
     }
     fn save_or_advance(
         &mut self,
-        pager: &mut Pager<F>,
-        cursor: &mut BTreeCursor<F>,
+        pager: &mut Pager<V>,
+        cursor: &mut BTreeCursor<V>,
     ) -> SqliteResult<()> {
         cursor.save_position(pager)
     }
@@ -47,11 +47,11 @@ impl<F: SqliteFile> ScanGuard<F> for UnsafeScan {
 
 #[derive(Debug)]
 pub struct SafeScan;
-impl<F: SqliteFile> ScanGuard<F> for SafeScan {
+impl<V: Vfs> ScanGuard<V> for SafeScan {
     fn save_or_advance(
         &mut self,
-        pager: &mut Pager<F>,
-        cursor: &mut BTreeCursor<F>,
+        pager: &mut Pager<V>,
+        cursor: &mut BTreeCursor<V>,
     ) -> SqliteResult<()> {
         cursor.next(pager)
     }
@@ -60,18 +60,18 @@ impl<F: SqliteFile> ScanGuard<F> for SafeScan {
     }
 }
 
-pub struct CustomScanGuard<G, F>
+pub struct CustomScanGuard<G, V>
 where
-    F: SqliteFile,
-    G: FnOnce() -> Box<dyn ScanGuard<F>>,
+    V: Vfs,
+    G: FnOnce() -> Box<dyn ScanGuard<V>>,
 {
     pub scan_guard: Option<G>,
 }
 
-impl<G, F> CustomScanGuard<G, F>
+impl<G, V> CustomScanGuard<G, V>
 where
-    F: SqliteFile,
-    G: FnOnce() -> Box<dyn ScanGuard<F>>,
+    V: Vfs,
+    G: FnOnce() -> Box<dyn ScanGuard<V>>,
 {
     pub fn new(scan_guard: Option<G>) -> Self {
         Self { scan_guard }

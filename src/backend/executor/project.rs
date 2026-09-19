@@ -3,29 +3,29 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::parser::ExprArena;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 
 use super::Row;
 use super::eval::Eval;
 
 #[derive(Debug)]
-pub struct Project<F: SqliteFile> {
-    pub child: Box<Plan<F>>,
+pub struct Project<V: Vfs> {
+    pub child: Box<Plan<V>>,
     columns: Vec<usize>,
 }
 
-impl<F: SqliteFile> Project<F> {
-    pub fn new(child: Box<Plan<F>>, columns: Vec<usize>) -> Self {
+impl<V: Vfs> Project<V> {
+    pub fn new(child: Box<Plan<V>>, columns: Vec<usize>) -> Self {
         Self { child, columns }
     }
     pub fn columns(&self) -> &[usize] {
         &self.columns
     }
 }
-impl<F: SqliteFile> Project<F> {
+impl<V: Vfs> Project<V> {
     pub fn next(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         arena: &ExprArena,
     ) -> Result<Option<Row>, crate::errors::SqliteError> {
         if let Some(mut row) = self.child.next(pager, Some(arena))? {

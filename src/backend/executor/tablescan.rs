@@ -2,22 +2,22 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::storage::btree::{BTreeCursor, RestorePosition};
 use crate::storage::page::BTreePageRef;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 
 use super::Row;
 use super::scan_guard::ScanGuard;
 
 #[derive(Debug)]
-pub struct TableScan<F: SqliteFile> {
-    pub cursor: BTreeCursor<F>,
+pub struct TableScan<V: Vfs> {
+    pub cursor: BTreeCursor<V>,
     is_done: bool,
-    pub guard: Box<dyn ScanGuard<F>>,
+    pub guard: Box<dyn ScanGuard<V>>,
 }
-impl<F: SqliteFile> TableScan<F> {
+impl<V: Vfs> TableScan<V> {
     pub fn new(
         root_page: u32,
-        pager: &mut Pager<F>,
-        scan_plan: Box<dyn ScanGuard<F>>,
+        pager: &mut Pager<V>,
+        scan_plan: Box<dyn ScanGuard<V>>,
     ) -> Result<Self, SqliteError> {
         let mut cursor = BTreeCursor::new(root_page);
         cursor.first(pager)?;
@@ -26,8 +26,8 @@ impl<F: SqliteFile> TableScan<F> {
         let page = BTreePageRef::new(
             page_no,
             guard.bytes_as_ref(),
-            pager.metadata.page_size,
-            pager.metadata.usable_size,
+            pager.page_size(),
+            pager.usable_size(),
         )?;
         let empty = page.no_of_cells() == 0;
 
@@ -38,8 +38,8 @@ impl<F: SqliteFile> TableScan<F> {
         })
     }
 }
-impl<F: SqliteFile> TableScan<F> {
-    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+impl<V: Vfs> TableScan<V> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         if self.is_done {
             return Ok(None);
         }
@@ -60,21 +60,21 @@ impl<F: SqliteFile> TableScan<F> {
     }
 }
 
-// pub trait RelationScan<F: SqliteFile>: std::fmt::Debug {
+// pub trait RelationScan<V: Vfs>: std::fmt::Debug {
 //     fn next(
 //         &mut self,
-//         pager: &mut Pager<F>,
-//         cursor: &mut BTreeCursor<F>,
+//         pager: &mut Pager<V>,
+//         cursor: &mut BTreeCursor<V>,
 //     ) -> Result<Option<Row>, SqliteError>;
 // }
 
 // #[derive(Debug)]
 // pub struct UnsafeTableScan;
-// impl<F: SqliteFile> RelationScan<F> for UnsafeTableScan {
+// impl<V: Vfs> RelationScan<V> for UnsafeTableScan {
 //     fn next(
 //         &mut self,
-//         pager: &mut Pager<F>,
-//         cursor: &mut BTreeCursor<F>,
+//         pager: &mut Pager<V>,
+//         cursor: &mut BTreeCursor<V>,
 //     ) -> Result<Option<Row>, SqliteError> {
 //         // Unsafe means the row may vanish under us through Delete. When the
 //         // saved row is still there we step over it, when it is gone the
@@ -100,11 +100,11 @@ impl<F: SqliteFile> TableScan<F> {
 
 // #[derive(Debug)]
 // pub struct SafeTableScan;
-// impl<F: SqliteFile> RelationScan<F> for SafeTableScan {
+// impl<V: Vfs> RelationScan<V> for SafeTableScan {
 //     fn next(
 //         &mut self,
-//         pager: &mut Pager<F>,
-//         cursor: &mut BTreeCursor<F>,
+//         pager: &mut Pager<V>,
+//         cursor: &mut BTreeCursor<V>,
 //     ) -> Result<Option<Row>, SqliteError> {
 //         if cursor.last_visited_entry().is_some() {
 //             let row_id = cursor.with_current(pager, |_, c| Ok(c.row_id()))?;

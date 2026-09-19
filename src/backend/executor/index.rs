@@ -14,24 +14,24 @@ use crate::{
         btree::{BTree, BTreeCursor, RestorePosition, SeekResult},
         cell::Encode,
     },
-    vfs::file::SqliteFile,
+    vfs::Vfs,
 };
 
 use super::{insert::Insert, scan_guard::ScanGuard};
 #[derive(Debug)]
-pub struct PrepareIndex<F: SqliteFile> {
+pub struct PrepareIndex<V: Vfs> {
     index_root_page: u32,
     col_idx: usize,
-    action: Box<dyn IndexMutation<F>>,
-    child: Box<Plan<F>>,
+    action: Box<dyn IndexMutation<V>>,
+    child: Box<Plan<V>>,
 }
 
-impl<F: SqliteFile> PrepareIndex<F> {
+impl<V: Vfs> PrepareIndex<V> {
     pub fn new(
         index_root_page: u32,
         col_idx: usize,
-        action: Box<dyn IndexMutation<F>>,
-        child: Box<Plan<F>>,
+        action: Box<dyn IndexMutation<V>>,
+        child: Box<Plan<V>>,
     ) -> Self {
         Self {
             index_root_page,
@@ -42,7 +42,7 @@ impl<F: SqliteFile> PrepareIndex<F> {
     }
     pub fn next(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         arena: Option<&ExprArena>,
     ) -> SqliteResult<Option<Row>> {
         let Some(row) = self.child.next(pager, arena)? else {
@@ -56,7 +56,7 @@ impl<F: SqliteFile> PrepareIndex<F> {
     }
 
     /// Child subtree for optimizer traversal.
-    pub fn child_mut(&mut self) -> &mut Plan<F> {
+    pub fn child_mut(&mut self) -> &mut Plan<V> {
         &mut self.child
     }
     pub fn index_root_page(&self) -> u32 {
@@ -71,22 +71,22 @@ impl<F: SqliteFile> PrepareIndex<F> {
 }
 
 #[derive(Debug)]
-pub struct IndexExactMatch<F: SqliteFile> {
+pub struct IndexExactMatch<V: Vfs> {
     index_root_page: u32,
     relation_root_page: u32,
     target: Value<'static>,
-    cursor: BTreeCursor<F>,
-    scan_guard: Box<dyn ScanGuard<F>>,
+    cursor: BTreeCursor<V>,
+    scan_guard: Box<dyn ScanGuard<V>>,
     is_done: bool,
 }
 
-impl<F: SqliteFile> IndexExactMatch<F> {
+impl<V: Vfs> IndexExactMatch<V> {
     pub fn new(
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         index_root_page: u32,
         relation_root_page: u32,
         target: Value<'static>,
-        scan_guard: Box<dyn ScanGuard<F>>,
+        scan_guard: Box<dyn ScanGuard<V>>,
     ) -> Result<Self, SqliteError> {
         // Park on the first entry at or after the wanted key. Matches may
         // live in a later leaf than the raw landing, so done stays false
@@ -111,7 +111,7 @@ impl<F: SqliteFile> IndexExactMatch<F> {
     pub fn target(&self) -> &Value<'_> {
         &self.target
     }
-    pub fn next(&mut self, pager: &mut Pager<F>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, pager: &mut Pager<V>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
         // If the previous row survived, step over it. If it was deleted,
         // restore already sits on its successor.
         self.scan_guard.restore(pager, &mut self.cursor)?;
@@ -159,14 +159,14 @@ impl<F: SqliteFile> IndexExactMatch<F> {
         Ok(Some(row))
     }
 }
-pub trait IndexMutation<F: SqliteFile>: std::fmt::Debug {
-    fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()>;
+pub trait IndexMutation<V: Vfs>: std::fmt::Debug {
+    fn next(&mut self, btree: &mut BTree<V>, key: Vec<Value>) -> SqliteResult<()>;
 }
 
 #[derive(Debug)]
 pub struct IndexDelete;
-impl<F: SqliteFile> IndexMutation<F> for IndexDelete {
-    fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
+impl<V: Vfs> IndexMutation<V> for IndexDelete {
+    fn next(&mut self, btree: &mut BTree<V>, key: Vec<Value>) -> SqliteResult<()> {
         // A missing entry for a row being deleted is corruption. Silently
         // ignoring it is how rows survived DELETE while the index lost
         // track of them.
@@ -183,8 +183,8 @@ impl<F: SqliteFile> IndexMutation<F> for IndexDelete {
 pub struct IndexInsert {
     pub is_unique: bool,
 }
-impl<F: SqliteFile> IndexMutation<F> for IndexInsert {
-    fn next(&mut self, btree: &mut BTree<F>, key: Vec<Value>) -> SqliteResult<()> {
+impl<V: Vfs> IndexMutation<V> for IndexInsert {
+    fn next(&mut self, btree: &mut BTree<V>, key: Vec<Value>) -> SqliteResult<()> {
         btree.seek(&Value::Tuple(key.clone()))?;
         if self.is_unique
             && let Some(record) = btree.current_record()?
@@ -197,32 +197,32 @@ impl<F: SqliteFile> IndexMutation<F> for IndexInsert {
         }
 
         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
-        Insert::<'_, F>::new(btree.root_page, Value::Tuple(key), &mut bytes).next(btree.pager)?;
+        Insert::<'_, V>::new(btree.root_page, Value::Tuple(key), &mut bytes).next(btree.pager)?;
         Ok(())
     }
 }
 
 #[derive(Debug)]
-pub struct IndexRangeScan<F: SqliteFile> {
+pub struct IndexRangeScan<V: Vfs> {
     index_root_page: u32,
     relation_root_page: u32,
     pub range: (Bound<Value<'static>>, Bound<Value<'static>>),
-    pub scan_guard: Box<dyn ScanGuard<F>>,
-    cursor: BTreeCursor<F>,
+    pub scan_guard: Box<dyn ScanGuard<V>>,
+    cursor: BTreeCursor<V>,
     is_done: bool,
 }
 
-impl<F: SqliteFile> IndexRangeScan<F> {
+impl<V: Vfs> IndexRangeScan<V> {
     pub fn new(
         index_root_page: u32,
         relation_root_page: u32,
         start: Bound<Value<'static>>,
         end: Bound<Value<'static>>,
-        scan_guard: Box<dyn ScanGuard<F>>,
-        pager: &mut Pager<F>,
+        scan_guard: Box<dyn ScanGuard<V>>,
+        pager: &mut Pager<V>,
     ) -> SqliteResult<Self> {
         assert!(!(matches!(start, Bound::Unbounded) && matches!(end, Bound::Unbounded)));
-        let mut cursor = BTreeCursor::<F>::new(index_root_page);
+        let mut cursor = BTreeCursor::<V>::new(index_root_page);
         match start {
             Bound::Included(ref i) => {
                 cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.into_owned()]))?;
@@ -260,7 +260,7 @@ impl<F: SqliteFile> IndexRangeScan<F> {
         &self.range
     }
 
-    pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<Option<Row>> {
         self.scan_guard.restore(pager, &mut self.cursor)?;
         if self.is_done {
             return Ok(None);

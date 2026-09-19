@@ -7,7 +7,7 @@ use crate::{
         btree::page_as_mut_with_pager,
         page::{BTreePageMut, BTreePageOps, BTreePageType},
     },
-    vfs::file::SqliteFile,
+    vfs::Vfs,
 };
 
 #[derive(Debug)]
@@ -41,15 +41,15 @@ impl TruncateTable {
         }
     }
 
-    pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+    pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         Self::dfs(self.root_page, self.root_page, pager)?;
         let mut guard = pager.get_mut(self.root_page)?;
         BTreePageMut::new_from_raw_bytes(
             self.root_page,
             self.page_kind,
             guard.bytes_as_mut_unchecked(),
-            pager.metadata.page_size,
-            pager.metadata.usable_size,
+            pager.page_size(),
+            pager.usable_size(),
         );
         if let Some(ref indexes) = self.indexes {
             for index in indexes {
@@ -69,11 +69,7 @@ impl TruncateTable {
      *      Back to row by row delete or add a linked list of overflow pages
      *
      * */
-    fn dfs<F: SqliteFile>(
-        root_page: u32,
-        page_no: u32,
-        pager: &mut Pager<F>,
-    ) -> Result<(), SqliteError> {
+    fn dfs<V: Vfs>(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         let mut guard = pager.get_mut(page_no)?;
         let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;
         if page.is_leaf() {
