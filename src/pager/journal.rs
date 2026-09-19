@@ -39,10 +39,11 @@ impl Journal {
         Ok(())
     }
 
-    pub fn presist_tail(&mut self) -> Result<(), SqliteError> {
+    pub fn persist_tail(&mut self) -> Result<(), SqliteError> {
         if let Self::Open { raw, file, durable } = self {
-            let start = *durable as usize * (raw.page_size as usize + 4);
-            raw.presist_tail(file, start)?;
+            let start =
+                super::raw_journal::JOURNAL_HEADER_SIZE + *durable as usize * (raw.page_size as usize + 4);
+            raw.persist_tail(file, start)?;
             *durable = raw.page_count;
         }
 

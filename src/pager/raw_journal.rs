@@ -19,7 +19,7 @@ const DATABASE_SIZE_OFFSET: usize = 12;
 // 4: 16..20
 const PAGE_SIZE_OFFSET: usize = 16;
 
-pub const JOURNAL_HEADER_SIZE: usize = 20;
+pub(crate) const JOURNAL_HEADER_SIZE: usize = 20;
 
 const PAGE_NUMBER_SIZE: usize = 4;
 
@@ -149,12 +149,17 @@ impl RawJournal {
         Ok(Some(metadata))
     }
 
-    pub fn presist_tail(&mut self, file: &mut DiskFile, start: usize) -> SqliteResult<()> {
-        let end = (self.page_count * (self.page_size as u32 + 4)) as usize;
+    pub fn persist_tail(&mut self, file: &mut DiskFile, start: usize) -> SqliteResult<()> {
+        let end = JOURNAL_HEADER_SIZE + (self.page_count * (self.page_size as u32 + 4)) as usize;
         assert!(start <= end);
+        if start == end {
+            return Ok(());
+        }
         let buff = &self.buffer[start..end];
+        file.set_len(end)?;
         file.write_all_at(start as _, buff)?;
         file.write_all_at(PAGE_COUNT_OFFSET as _, &self.page_count.to_be_bytes())?;
+        file.sync()?;
         Ok(())
     }
 

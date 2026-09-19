@@ -162,32 +162,19 @@ impl<F: SqliteFile> Pager<F> {
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
-                        self.flush_page(ev.page_no, frameid)?;
-                        self.flushed.insert(ev.page_no);
                         sqlite_assert_with_runtime_err(
                             matches!(self.journal, Journal::Open { .. }),
-                            || "Journal is not opened yet".into(),
+                            || {
+                                format!(
+                                    "steal of dirty page {} with journal not open: persist must precede db flush",
+                                    ev.page_no
+                                )
+                            },
                         )?;
-                        self.journal.presist_tail()?;
+                        self.journal.persist_tail()?;
+                        self.flush_page(ev.page_no, frameid)?;
+                        self.flushed.insert(ev.page_no);
                     }
-                    // let Journal::Open {
-                    //     ref mut raw,
-                    //     ref mut file,
-                    //     ref mut durable,
-                    // } = self.journal
-                    // else {
-                    //     return Err(SqliteError::Internal(
-                    //         "Journal it not initialized yet".into(),
-                    //     ));
-                    // };
-                    // let stepby = self.metadata.page_size + 4;
-                    // let start = JOURNAL_HEADER_SIZE + (*durable as usize * stepby);
-                    // let end = JOURNAL_HEADER_SIZE + (raw.page_count as usize * stepby);
-                    // let slice = &raw.buffer[start..end];
-                    // file.write_all_at(start as _, slice)?;
-                    // file.write_all_at(PAGE_COUNT_OFFSET as _, &raw.page_count.to_be_bytes())?;
-                    // file.sync()?;
-                    // *durable = raw.page_count;
                 }
                 let offset = self.get_page_offset(page_no);
                 self.source
@@ -213,14 +200,18 @@ impl<F: SqliteFile> Pager<F> {
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
-                        self.flush_page(ev.page_no, frameid)?;
-                        self.flushed.insert(ev.page_no);
-
                         sqlite_assert_with_runtime_err(
                             matches!(self.journal, Journal::Open { .. }),
-                            || "Journal is not opened yet".into(),
+                            || {
+                                format!(
+                                    "steal of dirty page {} with journal not open: persist must precede db flush",
+                                    ev.page_no
+                                )
+                            },
                         )?;
-                        self.journal.presist_tail()?;
+                        self.journal.persist_tail()?;
+                        self.flush_page(ev.page_no, frameid)?;
+                        self.flushed.insert(ev.page_no);
                     }
                 }
                 let offset = self.get_page_offset(page_no);
@@ -232,10 +223,7 @@ impl<F: SqliteFile> Pager<F> {
             }
         };
         self.journal.init()?;
-        // if self.journal.is_active() && !self.journal.is_init() {
-        //     self.journal.init()?;
-        // }
-        //
+
         if !self.journal_pages.contains(&page_no) {
             self.journal_pages.insert(page_no);
             if let Journal::Open { raw, file, durable } = &mut self.journal {
@@ -271,14 +259,9 @@ impl<F: SqliteFile> Pager<F> {
             self.source.sync()?;
             self.journal.destroy_internal()?;
         }
-        // if self.journal.is_init() {
-        //     self.journal.commit()?;
-        // }
+
         self.journal.reset();
-        // if self.journal.is_active() {
-        //
-        //     self.journal.reset();
-        // }
+
         self.journal_pages.clear();
         self.txn_snapshot = None;
         self.in_transaction = false;
