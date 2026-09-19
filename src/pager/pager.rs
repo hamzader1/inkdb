@@ -238,9 +238,16 @@ impl<F: SqliteFile> Pager<F> {
             let mut iterator = self.journal.make_iterator();
             while let Some(page) = iterator.iter()? {
                 if self.journal_pages.contains(&page.page_no) {
-                    let mut guard = self.get_mut(page.page_no)?;
-                    guard.bytes_as_mut_unchecked().copy_from_slice(page.data);
-                    self.buffer_pool.mark_clean(guard.frame_id());
+                    let frame_id = self.buffer_pool.lookup(page.page_no).unwrap();
+                    self.buffer_pool.restore_bytes(frame_id, page.data);
+                    let was_written_to_disk = self
+                        .buffer_pool
+                        .with_frame_as_ref(frame_id, |frame| (frame.is(FLUSHED_IN_TXN)));
+                    if was_written_to_disk {
+                        self.flush_page(page.page_no, frame_id)?;
+                        self.source.sync()?;
+                    }
+                    self.buffer_pool.mark_clean(frame_id);
                 }
             }
             while let Some((page_no, frameid)) = self.buffer_pool.pop_dirty() {
