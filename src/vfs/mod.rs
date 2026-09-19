@@ -17,11 +17,14 @@ pub struct SqliteOptions {
     options: u8,
 }
 
-pub trait Vfs {
+pub trait Vfs: std::fmt::Debug {
     type File: SqliteFile;
 
     fn open<F: AsRef<Path>>(&mut self, f: F, options: SqliteOptions)
     -> Result<Self::File, DbError>;
+    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, DbError>;
+    fn delete_journal(&mut self, db: &Self::File) -> Result<(), DbError>;
+    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, DbError>;
 }
 impl SqliteOptions {
     pub fn new() -> Self {

@@ -15,12 +15,14 @@ const MEM_D: &str = "__INK_MEMORY_DIR";
 #[derive(Debug, Default)]
 pub struct MemVfs {
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
+    journals: HashMap<usize, Rc<RefCell<Vec<u8>>>>,
 }
 
 impl MemVfs {
     pub fn new() -> Self {
         Self {
             db_buffers: HashMap::new(),
+            journals: HashMap::new(),
         }
     }
 
@@ -47,6 +49,23 @@ impl Vfs for MemVfs {
 
         Err(DbError::DatabaseNotExists)
     }
+    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, DbError> {
+        let key = Rc::as_ptr(&db.bytes) as usize;
+        let entry = self
+            .journals
+            .entry(key)
+            .or_insert_with(|| Rc::new(RefCell::new(Vec::new())));
+        Ok(MemFile::with_dir(Rc::clone(entry), db.temp_dir.clone()))
+    }
+    fn delete_journal(&mut self, db: &Self::File) -> Result<(), DbError> {
+        let key = Rc::as_ptr(&db.bytes) as usize;
+        self.journals.remove(&key);
+        Ok(())
+    }
+    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, DbError> {
+        let key = Rc::as_ptr(&db.bytes) as usize;
+        Ok(self.journals.get(&key).map(|b| b.borrow().clone()))
+    }
 }
 
 #[derive(Debug)]
@@ -63,6 +82,9 @@ impl MemFile {
             bytes,
             temp_dir: path,
         }
+    }
+    pub(crate) fn with_dir(bytes: Rc<RefCell<Vec<u8>>>, temp_dir: PathBuf) -> Self {
+        Self { bytes, temp_dir }
     }
 }
 
