@@ -11,8 +11,8 @@ use crate::errors::SqliteError;
 use crate::storage::freelist::FreeList;
 
 use super::buffer_pool::{Acquire, BufferPool};
-use super::frame::FrameId;
 use super::frame::{CLEAN, DIRTY, REFERENCED};
+use super::frame::{FLUSHED_IN_TXN, FrameId};
 use super::guard::{BorrowState, PageGuard};
 use super::journal::Journal;
 use super::metadata::SqliteMetadata;
@@ -30,6 +30,7 @@ pub struct Pager<F: SqliteFile> {
     journal: Journal,
     journal_pages: HashSet<PageNo>,
     pub metadata: SqliteMetadata,
+    flushed: HashSet<PageNo>,
     statistics: SqliteStatistics,
     in_transaction: bool,
     txn_snapshot: Option<SqliteMetadata>,
@@ -54,6 +55,7 @@ impl<F: SqliteFile> Pager<F> {
             source,
             buffer_pool: BufferPool::new(page_size),
             journal: Journal::uninit(),
+            flushed: HashSet::new(),
             journal_pages: HashSet::new(),
             metadata: SqliteMetadata::new(
                 page_size,
@@ -90,6 +92,7 @@ impl<F: SqliteFile> Pager<F> {
             buffer_pool: BufferPool::with_cache(cache_size, page_size),
             journal: Journal::uninit(),
             journal_pages: HashSet::new(),
+            flushed: HashSet::new(),
             metadata: SqliteMetadata::new(
                 page_size,
                 usable_size,
@@ -142,20 +145,23 @@ impl<F: SqliteFile> Pager<F> {
         let slice = NonNull::<[u8]>::slice_from_raw_parts(ptr, len);
         PageGuard::new(pool, id, slice, state)
     }
+
+    // Todo: temporary turn off for the borrow guard
     pub fn get(&mut self, page_no: PageNo) -> SqliteResult<PageGuard> {
         Self::validate_page(page_no, self.metadata.max_allocated_pages)?;
         match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
-                self.buffer_pool.borrow(frameid, page_no)?;
+                // self.buffer_pool.borrow(frameid, page_no)?;
                 self.statistics.inc_cache_hit();
                 Ok(self.guard(frameid, BorrowState::Ref))
             }
             Acquire::Miss { frameid, evicted } => {
-                self.buffer_pool.borrow(frameid, page_no)?;
+                // self.buffer_pool.borrow(frameid, page_no)?;
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
                         self.flush_page(ev.page_no, frameid)?;
+                        self.flushed.insert(ev.page_no);
                     }
                 }
                 let offset = self.get_page_offset(page_no);
@@ -166,22 +172,24 @@ impl<F: SqliteFile> Pager<F> {
             }
         }
     }
+    // Todo: temporary turn off for the borrow guard
     pub fn get_mut(&mut self, page_no: PageNo) -> SqliteResult<PageGuard> {
         Self::validate_page(page_no, self.metadata.max_allocated_pages)?;
         debug_assert!(self.in_transaction, "get mut forbidden outside of txn");
         let frameid = match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
-                self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+                // self.buffer_pool.exclusive_borrow(frameid, page_no)?;
 
                 self.statistics.inc_cache_hit();
                 frameid
             }
             Acquire::Miss { frameid, evicted } => {
-                self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+                // self.buffer_pool.exclusive_borrow(frameid, page_no)?;
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
                         self.flush_page(ev.page_no, frameid)?;
+                        self.flushed.insert(ev.page_no);
                     }
                 }
                 let offset = self.get_page_offset(page_no);
@@ -254,7 +262,6 @@ impl<F: SqliteFile> Pager<F> {
                                 .write_all_at(self.get_page_offset(page.page_no) as _, page.data);
                         }
                     }
-                    self.buffer_pool.mark_clean(frame_id);
                 }
             }
             while let Some((page_no, frameid)) = self.buffer_pool.pop_dirty() {
