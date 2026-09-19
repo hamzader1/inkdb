@@ -39,6 +39,16 @@ impl Journal {
         Ok(())
     }
 
+    pub fn presist_tail(&mut self) -> Result<(), SqliteError> {
+        if let Self::Open { raw, file, durable } = self {
+            let start = *durable as usize * (raw.page_size as usize + 4);
+            raw.presist_tail(file, start)?;
+            *durable = raw.page_count;
+        }
+
+        Ok(())
+    }
+
     pub fn destroy_internal(&mut self) -> Result<(), SqliteError> {
         if let Self::Open { raw, file, durable } = self {
             raw.destroy_internal()?;
