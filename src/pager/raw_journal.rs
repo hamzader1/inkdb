@@ -1,9 +1,6 @@
 use crate::errors::SqliteError;
-use crate::vfs::disk::{DiskFile, DiskVfs};
 use crate::vfs::file::SqliteFile;
-use crate::vfs::{SqliteOptions, Vfs};
 use crate::{SqliteCursor, SqliteResult, size_of};
-use std::path::PathBuf;
 
 use super::pager::PageNo;
 
@@ -26,30 +23,18 @@ const PAGE_NUMBER_SIZE: usize = 4;
 #[derive(Default)]
 pub struct RawJournal {
     pub buffer: Vec<u8>,
-    path: PathBuf,
     pub page_size: u16,
-    db_name: String,
     pub db_size: u32,
     pub page_count: u32,
-    // jfile: Option<DiskFile>,
 }
 
 pub struct JournalMeta {
-    pub db_name: String,
     pub db_size: u32,
     pub p_size: u16,
-    pub path: PathBuf,
 }
 
 impl RawJournal {
-    pub fn new(
-        JournalMeta {
-            db_name,
-            db_size,
-            p_size,
-            path,
-        }: JournalMeta,
-    ) -> Self {
+    pub fn new(JournalMeta { db_size, p_size }: JournalMeta) -> Self {
         let mut buffer: Vec<u8> = Vec::with_capacity(
             JOURNAL_HEADER_SIZE + ((PAGE_NUMBER_SIZE + p_size as usize) * JOURNAL_CAP),
         );
@@ -59,36 +44,24 @@ impl RawJournal {
         buffer.extend_from_slice(&u32::to_be_bytes(p_size as _));
         Self {
             buffer,
-            path,
-            db_name,
             page_count: 0,
             db_size,
             page_size: p_size,
-            // jfile: None,
         }
     }
 
-    pub fn init(&mut self) -> Result<DiskFile, SqliteError> {
-        let file_path = self.path.join(format!("{}-journal", self.db_name));
-        let file = Vfs::open(&mut DiskVfs, file_path, SqliteOptions::all())?;
+    pub fn init<J: SqliteFile>(&mut self, file: &J) -> Result<(), SqliteError> {
         file.set_len(self.buffer.len())?;
         file.write_all_at(0, &self.buffer[0..JOURNAL_HEADER_SIZE])?;
-        Ok(file)
-        // self.jfile = Some(file); // return the file
-        // Ok(())
+        Ok(())
     }
-    // pub fn is_init(&self) -> bool {
-    //     self.jfile.is_some()
-    // }
 
     pub fn add_page(&mut self, page_no: PageNo, data: &[u8]) {
-        // assert!(self.jfile.is_some());
         self.buffer.extend_from_slice(&u32::to_be_bytes(page_no));
         self.buffer.extend_from_slice(data);
         self.page_count += 1;
     }
-    pub fn commit(&mut self, file: &mut DiskFile) -> Result<(), SqliteError> {
-        // assert!(self.jfile.is_some());
+    pub fn commit<J: SqliteFile>(&mut self, file: &J) -> Result<(), SqliteError> {
         // The page count IS the commit record: it must be durable in the
         // same write as the data. Writing data first with count 0 and
         // patching after leaves a crash window where recovery discards
@@ -110,28 +83,16 @@ impl RawJournal {
     }
 
     pub fn reset(&mut self) {
-        unsafe {
-            self.buffer.set_len(JOURNAL_HEADER_SIZE);
-            self.buffer[8..12].copy_from_slice(&[0, 0, 0, 0]);
-        }
+        self.buffer.truncate(JOURNAL_HEADER_SIZE);
+        self.buffer[8..12].copy_from_slice(&[0, 0, 0, 0]);
         self.page_count = 0;
     }
 
-    pub fn recover(db_name: &str, path: PathBuf) -> Result<Option<RecoverMetadata>, SqliteError> {
-        let file_path = path.join(format!("{}-journal", db_name));
-        if !file_path.exists() {
-            return Ok(None);
-        }
-
-        let file = Vfs::open(&mut DiskVfs, &file_path, SqliteOptions::default())?;
-        let len = file.len()?;
-        let mut bytes = vec![0u8; len as _];
-        file.read_exact_at(0, &mut bytes)?;
+    pub fn parse_recovery(bytes: Vec<u8>) -> Result<Option<RecoverMetadata>, SqliteError> {
         let mut cursor = SqliteCursor::new(&bytes);
         let magic = cursor.read_to(size_of!(u64) as _)?;
         let page_count = cursor.read_next_u32()?;
         if page_count == 0 || magic != u64::to_be_bytes(JOURNAL_MAGIC) {
-            Self::destroy_external(file_path)?;
             return Ok(None);
         }
         let db_size = cursor.read_next_u32()?;
@@ -144,12 +105,11 @@ impl RawJournal {
         let metadata = RecoverMetadata {
             iterator,
             db_size: db_size as _,
-            file_path,
         };
         Ok(Some(metadata))
     }
 
-    pub fn persist_tail(&mut self, file: &mut DiskFile, start: usize) -> SqliteResult<()> {
+    pub fn persist_tail<J: SqliteFile>(&mut self, file: &J, start: usize) -> SqliteResult<()> {
         let end = JOURNAL_HEADER_SIZE + (self.page_count * (self.page_size as u32 + 4)) as usize;
         assert!(start <= end);
         if start == end {
@@ -162,24 +122,10 @@ impl RawJournal {
         file.sync()?;
         Ok(())
     }
-
-    // Back to idle
-    pub fn destroy_internal(&mut self) -> Result<(), SqliteError> {
-        let file_path = self.path.join(format!("{}-journal", self.db_name));
-        std::fs::remove_file(file_path)?;
-        // self.jfile.take(); // back to idle
-        Ok(())
-    }
-    pub fn destroy_external(path: PathBuf) -> Result<(), SqliteError> {
-        std::fs::remove_file(path)?;
-        Ok(())
-    }
 }
-
 pub struct RecoverMetadata {
     pub iterator: JournalIter,
     pub db_size: usize,
-    pub file_path: PathBuf,
 }
 pub struct JournalIter {
     // TODO: Replace the allocation with immutable borrow
@@ -252,11 +198,8 @@ impl fmt::Debug for RawJournal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Journal")
             .field("buffer", &format_args!("<{} bytes>", self.buffer.len()))
-            .field("path", &self.path)
             .field("page_size", &self.page_size)
-            .field("db_name", &self.db_name)
             .field("page_count", &self.page_count)
-            // .field("jfile", &self.jfile)
             .finish()
     }
 }

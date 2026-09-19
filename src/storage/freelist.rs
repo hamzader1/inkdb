@@ -3,14 +3,14 @@ use crate::{
     errors::SqliteError,
     pager::pager::{PageNo, Pager},
     util::{validate_page, validate_page_non_one},
-    vfs::file::SqliteFile,
+    vfs::Vfs,
 };
 
-pub struct FreeList<'a, F: SqliteFile> {
-    pager: &'a mut Pager<F>,
+pub struct FreeList<'a, V: Vfs> {
+    pager: &'a mut Pager<V>,
 }
-impl<'a, F: SqliteFile> FreeList<'a, F> {
-    pub fn new(pager: &'a mut Pager<F>) -> Self {
+impl<'a, V: Vfs> FreeList<'a, V> {
+    pub fn new(pager: &'a mut Pager<V>) -> Self {
         Self { pager }
     }
 
@@ -108,7 +108,7 @@ impl<'a, F: SqliteFile> FreeList<'a, F> {
     }
 
     pub fn validate_non_one_page(&self, page_no: PageNo) -> SqliteResult<()> {
-        validate_page_non_one(page_no, self.pager.metadata.max_allocated_pages)
+        validate_page_non_one(page_no, self.pager.max_allocation_pages())
     }
 }
 

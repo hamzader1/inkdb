@@ -26,39 +26,39 @@ use crate::backend::optimizer::Optimizer;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 use crate::{SqliteMaster, SqliteResult};
 
 #[derive(Debug)]
-pub enum Plan<F: SqliteFile> {
-    TableScan(TableScan<F>),
-    Filter(Filter<F>),
-    Limit(Limit<F>),
-    Project(Project<F>),
-    Insert(Insert<'static, F>),
-    PrepareRow(PrepareRow<F>),
-    Delete(Delete<F>),
+pub enum Plan<V: Vfs> {
+    TableScan(TableScan<V>),
+    Filter(Filter<V>),
+    Limit(Limit<V>),
+    Project(Project<V>),
+    Insert(Insert<'static, V>),
+    PrepareRow(PrepareRow<V>),
+    Delete(Delete<V>),
     CreateTable(CreateTable),
-    CreateIndex(CreateIndex<F>),
-    PrepareIndex(PrepareIndex<F>),
-    IndexExactMatch(IndexExactMatch<F>),
-    IndexRangeScan(IndexRangeScan<F>),
+    CreateIndex(CreateIndex<V>),
+    PrepareIndex(PrepareIndex<V>),
+    IndexExactMatch(IndexExactMatch<V>),
+    IndexRangeScan(IndexRangeScan<V>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
-    Explain(Explain<F>),
-    Terminate(Terminate<F>),
+    Explain(Explain<V>),
+    Terminate(Terminate<V>),
     Halt,
 }
 
-impl<F: SqliteFile> Plan<F> {
+impl<V: Vfs> Plan<V> {
     pub fn is_filter(&self) -> bool {
         matches!(*self, Plan::Filter(_))
     }
     /// Mutable child subtree for optimizer traversal (`while let Some(child)
     /// = plan.child_mut()`). Leaves and sinks return `None`.
-    pub fn child_mut(&mut self) -> Option<&mut Plan<F>> {
+    pub fn child_mut(&mut self) -> Option<&mut Plan<V>> {
         match self {
             Plan::Filter(f) => Some(f.child_mut()),
             Plan::Limit(l) => Some(l.child_mut()),
@@ -70,24 +70,24 @@ impl<F: SqliteFile> Plan<F> {
     }
 }
 
-pub enum PlanContext<F: SqliteFile> {
-    Logical(Plan<F>),
-    Resolved(PreparedPlan<F>),
+pub enum PlanContext<V: Vfs> {
+    Logical(Plan<V>),
+    Resolved(PreparedPlan<V>),
 }
-impl<F: SqliteFile> PlanContext<F> {
-    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+impl<V: Vfs> PlanContext<V> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         match self {
             Self::Logical(p) => p.next(pager, None),
             Self::Resolved(a) => a.next(pager),
         }
     }
 }
-impl<F: SqliteFile> Plan<F> {
+impl<V: Vfs> Plan<V> {
     pub fn create_plan(
         resolved_query: ResolvedQuery,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         sqlite_master: &SqliteMaster,
-    ) -> Result<PlanContext<F>, SqliteError> {
+    ) -> Result<PlanContext<V>, SqliteError> {
         match resolved_query {
             ResolvedQuery::SelectQuery(stmt) => Ok(PlanContext::Resolved(Self::init_select_plan(
                 stmt,
@@ -138,9 +138,9 @@ impl<F: SqliteFile> Plan<F> {
 
     pub fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         sqlite_master: &SqliteMaster,
-    ) -> Result<PreparedPlan<F>, SqliteError> {
+    ) -> Result<PreparedPlan<V>, SqliteError> {
         let mut child = Self::TableScan(TableScan::new(
             resolved_query.root_page,
             pager,
@@ -155,7 +155,7 @@ impl<F: SqliteFile> Plan<F> {
                 &resolved_query.table_name,
                 resolved_query.root_page,
                 &resolved_query.arena,
-                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<F>> { Box::new(SafeScan) })),
+                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<V>> { Box::new(SafeScan) })),
             )
             .optimize()?;
         }
@@ -173,7 +173,7 @@ impl<F: SqliteFile> Plan<F> {
 
     pub fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
-    ) -> Result<PreparedPlan<F>, SqliteError> {
+    ) -> Result<PreparedPlan<V>, SqliteError> {
         // Rows flow upward: PrepareRow yields table rows, each PrepareIndex
         // writes one index entry per row and passes it along
         let mut plan = Plan::PrepareRow(PrepareRow::new(
@@ -207,9 +207,9 @@ impl<F: SqliteFile> Plan<F> {
 
     pub fn init_delete_plan(
         resolved_query: ResolvedDeleteQuery,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         sqlite_master: &SqliteMaster,
-    ) -> SqliteResult<PreparedPlan<F>> {
+    ) -> SqliteResult<PreparedPlan<V>> {
         let mut parent = Self::TableScan(TableScan::new(
             resolved_query.root_page,
             pager,
@@ -225,7 +225,7 @@ impl<F: SqliteFile> Plan<F> {
                 &resolved_query.table_name,
                 resolved_query.root_page,
                 resolved_query.arena.as_ref().unwrap(),
-                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<F>> { Box::new(UnsafeScan) })),
+                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<V>> { Box::new(UnsafeScan) })),
             )
             .optimize()?;
         }
@@ -247,8 +247,8 @@ impl<F: SqliteFile> Plan<F> {
 
     pub fn init_create_index_plan(
         resolved_query: ResolvedCreateIndexQuery,
-        pager: &mut Pager<F>,
-    ) -> SqliteResult<PreparedPlan<F>> {
+        pager: &mut Pager<V>,
+    ) -> SqliteResult<PreparedPlan<V>> {
         let child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
             pager,
@@ -259,10 +259,10 @@ impl<F: SqliteFile> Plan<F> {
     }
 }
 
-impl<F: SqliteFile> Plan<F> {
+impl<V: Vfs> Plan<V> {
     pub fn next(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         arena: Option<&ExprArena>,
     ) -> Result<Option<Row>, SqliteError> {
         match self {
@@ -291,22 +291,22 @@ impl<F: SqliteFile> Plan<F> {
 }
 
 #[derive(Debug)]
-pub struct Terminate<F: SqliteFile> {
-    child: Box<Plan<F>>,
+pub struct Terminate<V: Vfs> {
+    child: Box<Plan<V>>,
 }
 
-impl<F: SqliteFile> Terminate<F> {
-    pub fn new(child: Box<Plan<F>>) -> Self {
+impl<V: Vfs> Terminate<V> {
+    pub fn new(child: Box<Plan<V>>) -> Self {
         Self { child }
     }
 
-    pub fn next(&mut self, pager: &mut Pager<F>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<Option<Row>> {
         while self.child.next(pager, None)?.is_some() {}
         Ok(None)
     }
 }
 
-impl<F: SqliteFile> Plan<F> {
+impl<V: Vfs> Plan<V> {
     pub fn explain_plan(&self, arena: Option<&ExprArena>) -> String {
         match self {
             Self::TableScan(tb) => {
@@ -373,12 +373,12 @@ impl<F: SqliteFile> Plan<F> {
 }
 
 #[derive(Debug)]
-pub struct Explain<F: SqliteFile> {
-    child: Box<Plan<F>>,
+pub struct Explain<V: Vfs> {
+    child: Box<Plan<V>>,
 }
 
-impl<F: SqliteFile> Explain<F> {
-    fn new(child: Box<Plan<F>>) -> Self {
+impl<V: Vfs> Explain<V> {
+    fn new(child: Box<Plan<V>>) -> Self {
         Self { child }
     }
 

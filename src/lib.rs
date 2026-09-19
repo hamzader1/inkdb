@@ -35,8 +35,8 @@ use self::vfs::file::SqliteFile;
 pub type SqliteResult<T> = Result<T, SqliteError>;
 use crate::pager::pager::Pager;
 
-pub struct SqliteDatabase<F: SqliteFile> {
-    pub pager: Pager<F>,
+pub struct SqliteDatabase<V: Vfs> {
+    pub pager: Pager<V>,
     header: SqliteDatabaseHeader,
 }
 

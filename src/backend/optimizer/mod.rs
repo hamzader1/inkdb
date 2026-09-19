@@ -11,38 +11,38 @@ use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 use crate::{SqliteMaster, SqliteResult};
 
-pub struct Optimizer<'a, F: SqliteFile> {
+pub struct Optimizer<'a, V: Vfs> {
     sqlite_master: &'a SqliteMaster,
     relation: &'a crate::schema::Table,
-    plan: &'a mut Plan<F>,
-    pager: &'a mut Pager<F>,
+    plan: &'a mut Plan<V>,
+    pager: &'a mut Pager<V>,
     arena: &'a ExprArena,
     // if len == requested_len we have a ready index
-    ready_index: Option<Plan<F>>,
+    ready_index: Option<Plan<V>>,
     // The scan guard factory is spent exactly once, up front. A second
     // index lookaside in the same predicate (a = x AND b = y) must reuse
     // the first scan, never build a second one: the factory is FnOnce
     // and a second take panics.
-    scan_guard: Option<Box<dyn ScanGuard<F>>>,
+    scan_guard: Option<Box<dyn ScanGuard<V>>>,
     is_done: bool,
 }
 
-impl<'a, F: SqliteFile> Optimizer<'a, F> {
+impl<'a, V: Vfs> Optimizer<'a, V> {
     pub fn new<G>(
-        plan: &'a mut Plan<F>,
-        pager: &'a mut Pager<F>,
+        plan: &'a mut Plan<V>,
+        pager: &'a mut Pager<V>,
         sqlite_master: &'a SqliteMaster,
         table_name: &str,
         root_page: u32,
         arena: &'a ExprArena,
         // Allows the optimizer to modify the source plans to be either SafeScan or Unsafe.
-        mut guard: CustomScanGuard<G, F>,
+        mut guard: CustomScanGuard<G, V>,
     ) -> Self
     where
-        G: FnOnce() -> Box<dyn ScanGuard<F>>,
+        G: FnOnce() -> Box<dyn ScanGuard<V>>,
     {
         debug_assert!(
             matches!(plan, Plan::Filter(_)),
@@ -271,8 +271,8 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
         &mut self,
         index_root_page: u32,
         target: Value<'static>,
-        scan_guard: Box<dyn ScanGuard<F>>,
-    ) -> SqliteResult<Plan<F>> {
+        scan_guard: Box<dyn ScanGuard<V>>,
+    ) -> SqliteResult<Plan<V>> {
         Ok(Plan::IndexExactMatch(IndexExactMatch::new(
             self.pager,
             index_root_page,
@@ -286,8 +286,8 @@ impl<'a, F: SqliteFile> Optimizer<'a, F> {
         index_root_page: u32,
         start: Bound<Value<'static>>,
         end: Bound<Value<'static>>,
-        scan_guard: Box<dyn ScanGuard<F>>,
-    ) -> SqliteResult<Plan<F>> {
+        scan_guard: Box<dyn ScanGuard<V>>,
+    ) -> SqliteResult<Plan<V>> {
         Ok(Plan::IndexRangeScan(IndexRangeScan::new(
             index_root_page,
             self.relation.root_page,

@@ -109,7 +109,7 @@ pub struct SqliteMaster {
 }
 
 impl SqliteMaster {
-    pub fn new<F: crate::vfs::file::SqliteFile>(pager: &mut Pager<F>) -> Result<Self, SqliteError> {
+    pub fn new<V: crate::vfs::Vfs>(pager: &mut Pager<V>) -> Result<Self, SqliteError> {
         let mut sqlite_master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),

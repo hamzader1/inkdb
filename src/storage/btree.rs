@@ -115,15 +115,15 @@ pub enum RestorePosition {
     Empty,
 }
 #[derive(Debug)]
-pub struct BTreeCursor<F: crate::vfs::file::SqliteFile> {
+pub struct BTreeCursor<V: crate::vfs::Vfs> {
     pub root: PageNo,
     pub stack: Vec<Path>,
     pub state: CursorState,
     pub saved_key: Option<Value<'static>>,
     saved_yielded: bool,
-    _phantom: std::marker::PhantomData<F>,
+    _phantom: std::marker::PhantomData<V>,
 }
-impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
+impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn new(root: PageNo) -> Self {
         Self {
             root,
@@ -138,7 +138,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     /*
      * Optimaze these two functions below
      */
-    pub fn save_position(&mut self, pager: &mut Pager<F>) -> SqliteResult<()> {
+    pub fn save_position(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
         if let Some(last_entry) = self.stack.last() {
             let guard = pager.get(last_entry.page_no)?;
             let page = page_as_ref_with_pager(last_entry.page_no, &guard, pager)?;
@@ -159,7 +159,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         Ok(())
     }
 
-    pub fn restore_position(&mut self, pager: &mut Pager<F>) -> SqliteResult<RestorePosition> {
+    pub fn restore_position(&mut self, pager: &mut Pager<V>) -> SqliteResult<RestorePosition> {
         let Some(key) = self.saved_key.take() else {
             return Ok(RestorePosition::Empty);
         };
@@ -199,7 +199,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     /// often cell_idx == no_of_cells. Calling next from there climbs and
     /// descends into the following leaf, or parks AfterLast when done.
     /// Insert never uses this since it needs the raw landing spot.
-    pub fn skip_past_end(&mut self, pager: &mut Pager<F>) -> SqliteResult<()> {
+    pub fn skip_past_end(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
         loop {
             let Some(path) = self.stack.last() else {
                 self.state = CursorState::AfterLast;
@@ -222,7 +222,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     /// that iterate forward.
     pub fn seek_lower_bound(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         target: &Value<'_>,
     ) -> SqliteResult<SeekResult> {
         let res = self.seek_internal(pager, target, true)?;
@@ -236,7 +236,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
 
     pub fn seek(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         target: &Value<'_>,
     ) -> Result<SeekResult, SqliteError> {
         self.seek_internal(pager, target, false)
@@ -247,7 +247,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     /// parent. Insert and prefix scans keep using plain seek.
     pub fn seek_for_delete(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         target: &Value<'_>,
     ) -> Result<SeekResult, SqliteError> {
         self.seek_internal(pager, target, true)
@@ -255,7 +255,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
 
     fn seek_internal(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         target: &Value<'_>,
         stop_at_interior: bool,
     ) -> Result<SeekResult, SqliteError> {
@@ -302,7 +302,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         }
     }
 
-    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
@@ -351,7 +351,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         self.state = CursorState::AfterLast;
         Ok(())
     }
-    pub fn first(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn first(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -369,7 +369,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     }
     pub fn descend_to_first(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         page_no: PageNo,
     ) -> Result<(), SqliteError> {
         let mut page_no = page_no;
@@ -386,7 +386,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
             page_no = child;
         }
     }
-    pub fn prev(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn prev(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
@@ -441,7 +441,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         self.state = CursorState::BeforeFirst;
         Ok(())
     }
-    pub fn last(&mut self, pager: &mut Pager<F>) -> Result<(), SqliteError> {
+    pub fn last(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -466,7 +466,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     }
     fn descend_to_last(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         page_no: PageNo,
     ) -> Result<(), SqliteError> {
         let mut page_no = page_no;
@@ -486,7 +486,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         }
     }
 
-    pub fn current(&self, pager: &mut Pager<F>) -> Result<Option<BTreeCell>, SqliteError> {
+    pub fn current(&self, pager: &mut Pager<V>) -> Result<Option<BTreeCell>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let Path {
                 page_no,
@@ -510,7 +510,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     fn binary_search_interior<'g, P>(
         &self,
         page: &'g P,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         target: &Value,
     ) -> Result<SearchResult, SqliteError>
     where
@@ -581,7 +581,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     fn binary_search_leaf<'a, P>(
         &self,
         page: &'a P,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         target: &Value<'_>,
     ) -> Result<(bool, CellIndex), SqliteError>
     where
@@ -637,7 +637,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
 
     pub fn current_page_as_ref<'a>(
         &'a self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
     ) -> Result<Option<BTreePageRef<'a>>, SqliteError> {
         if let Some(path) = self.stack.last() {
             let page = page_as_ref_with_pager(path.page_no, &path.guard, pager)?;
@@ -647,7 +647,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     }
     pub fn current_record<'a>(
         &'a self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
     ) -> Result<Option<Vec<Value<'a>>>, SqliteError> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current(pager)?
@@ -658,7 +658,7 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         Ok(None)
     }
 
-    fn with_page<T, FN>(pager: &mut Pager<F>, page_no: PageNo, f: FN) -> Result<T, SqliteError>
+    fn with_page<T, FN>(pager: &mut Pager<V>, page_no: PageNo, f: FN) -> Result<T, SqliteError>
     where
         FN: for<'a> FnOnce(&'a BTreePageRef<'a>) -> Result<T, SqliteError>,
     {
@@ -666,12 +666,12 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
         let page = BTreePageRef::new(
             page_no,
             page_guard.bytes_as_ref(),
-            pager.metadata.page_size,
-            pager.metadata.usable_size,
+            pager.page_size(),
+            pager.usable_size(),
         )?;
         f(&page)
     }
-    pub fn with_current<FN, R>(&mut self, pager: &mut Pager<F>, f: FN) -> Result<R, SqliteError>
+    pub fn with_current<FN, R>(&mut self, pager: &mut Pager<V>, f: FN) -> Result<R, SqliteError>
     where
         FN: for<'a> FnOnce(&'a BTreePageRef<'a>, &'a BTreeCell) -> Result<R, SqliteError>,
     {
@@ -690,10 +690,10 @@ impl<F: crate::vfs::file::SqliteFile> BTreeCursor<F> {
     }
 }
 
-pub struct BTree<'a, F: crate::vfs::file::SqliteFile> {
+pub struct BTree<'a, V: crate::vfs::Vfs> {
     pub root_page: PageNo,
-    pub pager: &'a mut Pager<F>,
-    pub cursor: BTreeCursor<F>,
+    pub pager: &'a mut Pager<V>,
+    pub cursor: BTreeCursor<V>,
 }
 
 #[derive(Debug, Clone)]
@@ -722,15 +722,15 @@ impl SplitMetadata {
         }
     }
 }
-impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
-    pub fn new(root_page: PageNo, pager: &'a mut Pager<F>) -> Self {
+impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
+    pub fn new(root_page: PageNo, pager: &'a mut Pager<V>) -> Self {
         Self {
             root_page,
             pager,
             cursor: BTreeCursor::new(root_page),
         }
     }
-    pub fn with_cursor(pager: &'a mut Pager<F>, cursor: BTreeCursor<F>) -> Self {
+    pub fn with_cursor(pager: &'a mut Pager<V>, cursor: BTreeCursor<V>) -> Self {
         Self {
             root_page: cursor.root,
             pager,
@@ -770,8 +770,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     }
 
     pub fn fix_overlow(&mut self, content: &mut Vec<u8>) -> Result<(), SqliteError> {
-        let usable_size = self.pager.metadata.usable_size;
-        if content.len() <= self.pager.metadata.usable_size {
+        let usable_size = self.pager.usable_size();
+        if content.len() <= self.pager.usable_size() {
             return Ok(());
         }
         // TODO TEMPORARY FOR TABLE BTREE ONLY
@@ -926,8 +926,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 new_left_page_no,
                 left_page.page_type(),
                 new_left_page_guard.bytes_as_mut_unchecked(),
-                self.pager.metadata.page_size,
-                self.pager.metadata.usable_size,
+                self.pager.page_size(),
+                self.pager.usable_size(),
             );
             new_left_page.copy_data_from(&left_page)?;
             // TODO REMOVE THIS LATER IF WE DONE FROM IT:
@@ -953,8 +953,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                     BTreePageType::InteriorTable
                 },
                 left_page_guard.bytes_as_mut_unchecked(),
-                self.pager.metadata.page_size,
-                self.pager.metadata.usable_size,
+                self.pager.page_size(),
+                self.pager.usable_size(),
             );
 
             root.header.right_most_ptr = Some(right_page.page_no);
@@ -1000,8 +1000,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             right_page_no,
             left_page.header.page_kind,
             right_page_guard.bytes_as_mut_unchecked(),
-            self.pager.metadata.page_size,
-            self.pager.metadata.usable_size,
+            self.pager.page_size(),
+            self.pager.usable_size(),
         );
         let split_at = left_page.cell_pointers.len() / 2;
         let right_cell_pointers = left_page.cell_pointers.split_off(split_at);
@@ -1098,8 +1098,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             new_page_no,
             interior_page.header.page_kind,
             new_page_guard.bytes_as_mut_unchecked(),
-            self.pager.metadata.page_size,
-            self.pager.metadata.usable_size,
+            self.pager.page_size(),
+            self.pager.usable_size(),
         );
 
         let mut left_cell_pointers = std::mem::take(&mut interior_page.cell_pointers);
@@ -1199,8 +1199,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 new_right_page_no,
                 interior_page.header.page_kind,
                 new_right_page_guard.bytes_as_mut_unchecked(),
-                self.pager.metadata.page_size,
-                self.pager.metadata.usable_size,
+                self.pager.page_size(),
+                self.pager.usable_size(),
             );
 
             new_right_page.copy_data_from(&interior_page)?;
@@ -1211,8 +1211,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
                 interior_page.page_no,
                 interior_page.header.page_kind,
                 interior_page_guard.bytes_as_mut_unchecked(),
-                self.pager.metadata.page_size,
-                self.pager.metadata.usable_size,
+                self.pager.page_size(),
+                self.pager.usable_size(),
             );
 
             root.header.right_most_ptr = Some(new_right_page_no);
@@ -1274,8 +1274,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         BTreePageRef::new(
             page_no,
             guard.bytes_as_ref(),
-            self.pager.metadata.page_size,
-            self.pager.metadata.usable_size,
+            self.pager.page_size(),
+            self.pager.usable_size(),
         )
     }
 
@@ -1287,8 +1287,8 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         BTreePageMut::new(
             page_no,
             guard.bytes_as_mut().unwrap(),
-            self.pager.metadata.page_size,
-            self.pager.metadata.usable_size,
+            self.pager.page_size(),
+            self.pager.usable_size(),
         )
     }
 
@@ -1431,8 +1431,9 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             leaf.cell_bytes_as_ref(pred_cell_idx).map(|b| b.to_vec())
         })?;
         let new_divider = Encode::encode_index_interior_cell(left_child, &pred_bytes);
-        if self.with_page_mut(page_no, |parent| parent.replace_cell(cell_idx, &new_divider))?
-            == InsertionState::None
+        if self.with_page_mut(page_no, |parent| {
+            parent.replace_cell(cell_idx, &new_divider)
+        })? == InsertionState::None
         {
             // Parent too full to repaint this divider in place. Unwind
             // the pushed predecessor path plus the divider entry itself,
@@ -1459,9 +1460,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             // Rebuild the predecessor path under the fresh divider for
             // the removal below. The split only redistributed divider
             // keys, so the known leaf cell is still where it was.
-            let mut cur = self.with_page_ref(page_no2, |p| {
-                Ok(p.cell(cell_idx2)?.left_child())
-            })?;
+            let mut cur = self.with_page_ref(page_no2, |p| Ok(p.cell(cell_idx2)?.left_child()))?;
             let mut depth = 0;
             while cur != pred_page_no {
                 depth += 1;
@@ -1726,7 +1725,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let total_cells = all_cells_as_bytes.len();
         let header_sz = current_page.header_size() as usize;
         let required = total_size_in_bytes + total_cells * 2 + header_sz;
-        if required <= self.pager.metadata.usable_size {
+        if required <= self.pager.usable_size() {
             self.merge(
                 all_cells_as_bytes,
                 &mut sibling_page,
@@ -1897,19 +1896,11 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
             //     current_page.cell_key(&current_page.cell((split_at - 1) as _)?, self.pager)?;
 
             let first_cell_of_right_sibling = if !is_index {
-                TableInteriorCell::parse(
-                    &new_right_page_cells[0],
-                    0,
-                    self.pager.metadata.usable_size,
-                )
-                .map(BTreeCell::TableInterior)
+                TableInteriorCell::parse(&new_right_page_cells[0], 0, self.pager.usable_size())
+                    .map(BTreeCell::TableInterior)
             } else {
-                IndexInteriorCell::parse(
-                    &new_right_page_cells[0],
-                    0,
-                    self.pager.metadata.usable_size,
-                )
-                .map(BTreeCell::IndexInterior)
+                IndexInteriorCell::parse(&new_right_page_cells[0], 0, self.pager.usable_size())
+                    .map(BTreeCell::IndexInterior)
             }?;
 
             debug_assert_eq!(
@@ -2096,7 +2087,7 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         let total_cells = all_cells_as_bytes.len();
         let header_sz = current_page.header_size() as usize;
         let required = total_size_in_bytes + total_cells * 2 + header_sz;
-        if required <= self.pager.metadata.usable_size {
+        if required <= self.pager.usable_size() {
             self.merge(
                 all_cells_as_bytes,
                 &mut current_page,
@@ -2258,10 +2249,10 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
         // Table: boundary rowid moves up. Index: the full entry moves up.
         let promoted_bytes = &new_sibling_cells[new_sibling_cells.len() - 1];
         let promoted_cell = if !is_index {
-            TableInteriorCell::parse(promoted_bytes, 0, self.pager.metadata.usable_size)
+            TableInteriorCell::parse(promoted_bytes, 0, self.pager.usable_size())
                 .map(BTreeCell::TableInterior)?
         } else {
-            IndexInteriorCell::parse(promoted_bytes, 0, self.pager.metadata.usable_size)
+            IndexInteriorCell::parse(promoted_bytes, 0, self.pager.usable_size())
                 .map(BTreeCell::IndexInterior)?
         };
         let parent_separator_cell = parent_page.cell(sibling_idx)?;
@@ -2375,29 +2366,29 @@ impl<'a, F: crate::vfs::file::SqliteFile> BTree<'a, F> {
     }
 }
 
-pub fn page_as_ref_with_pager<'b, P: crate::vfs::file::SqliteFile>(
+pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b PageGuard,
-    pager: &Pager<P>,
+    pager: &Pager<V>,
 ) -> Result<BTreePageRef<'b>, SqliteError> {
     BTreePageRef::new(
         page_no,
         guard.bytes_as_ref(),
-        pager.metadata.page_size,
-        pager.metadata.usable_size,
+        pager.page_size(),
+        pager.usable_size(),
     )
 }
 
-pub fn page_as_mut_with_pager<'b, P: crate::vfs::file::SqliteFile>(
+pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b mut PageGuard,
-    pager: &Pager<P>,
+    pager: &Pager<V>,
 ) -> Result<BTreePageMut<'b>, SqliteError> {
     BTreePageMut::new(
         page_no,
         guard.bytes_as_mut().unwrap(),
-        pager.metadata.page_size,
-        pager.metadata.usable_size,
+        pager.page_size(),
+        pager.usable_size(),
     )
 }
 #[derive(Debug, Clone, Copy)]

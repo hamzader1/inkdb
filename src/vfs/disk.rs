@@ -22,6 +22,13 @@ pub struct DiskFile {
     pub path: PathBuf,
 }
 
+impl DiskVfs {
+    fn journal_path(db: &DiskFile) -> PathBuf {
+        let name = db.name().to_owned() + "-journal";
+        db.path().join(name)
+    }
+}
+
 impl Vfs for DiskVfs {
     type File = DiskFile;
 
@@ -36,6 +43,28 @@ impl Vfs for DiskVfs {
             file,
             path: f.as_ref().to_path_buf(),
         })
+    }
+    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, crate::DbError> {
+        self.open(Self::journal_path(db), super::SqliteOptions::all())
+    }
+    fn delete_journal(&mut self, db: &Self::File) -> Result<(), crate::DbError> {
+        match std::fs::remove_file(Self::journal_path(db)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, crate::DbError> {
+        let path = Self::journal_path(db);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let mut vfs = DiskVfs;
+        let file = vfs.open(path, super::SqliteOptions::default())?;
+        let len = file.len()?;
+        let mut bytes = vec![0u8; len as _];
+        file.read_exact_at(0, &mut bytes)?;
+        Ok(Some(bytes))
     }
 }
 

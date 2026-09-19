@@ -85,7 +85,7 @@ pub const VERSION_VALID_FOR_NUMBER_SIZE: usize = 4;
 
 pub const SQLITE_VERSION_NUMBER_OFFSET: usize = 96;
 pub const SQLITE_VERSION_NUMBER_SIZE: usize = 4;
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SqliteDatabaseHeader {
     pub header_string: [u8; 16],
     pub database_page_size: u32,

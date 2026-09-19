@@ -4,22 +4,22 @@ use crate::pager::pager::{PageNo, Pager};
 use crate::record::SqlType;
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::BTree;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 
 use super::Row;
 
 #[derive(Debug)]
-pub struct Delete<F: SqliteFile> {
-    child: Box<Plan<F>>,
+pub struct Delete<V: Vfs> {
+    child: Box<Plan<V>>,
     root_page: PageNo,
 }
 
-impl<F: SqliteFile> Delete<F> {
-    pub fn new(child: Box<Plan<F>>, root_page: PageNo) -> Self {
+impl<V: Vfs> Delete<V> {
+    pub fn new(child: Box<Plan<V>>, root_page: PageNo) -> Self {
         Self { child, root_page }
     }
     /// Child subtree for optimizer traversal.
-    pub fn child_mut(&mut self) -> &mut Plan<F> {
+    pub fn child_mut(&mut self) -> &mut Plan<V> {
         &mut self.child
     }
     pub fn root_page(&self) -> PageNo {
@@ -27,7 +27,7 @@ impl<F: SqliteFile> Delete<F> {
     }
     pub fn next(
         &mut self,
-        pager: &mut Pager<F>,
+        pager: &mut Pager<V>,
         arena: Option<&ExprArena>,
     ) -> SqliteResult<Option<Row>> {
         while let Some(row) = self.child.next(pager, arena)? {

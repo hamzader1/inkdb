@@ -16,15 +16,15 @@ use std::path::Path;
 use std::rc::Rc;
 pub type DbError = SqliteError;
 
-use crate::pager::pager::Pager;
+use crate::pager::pager::{HeaderCache, Pager};
 use crate::vfs::disk::{DiskFile, DiskVfs};
 
-pub struct Database<F: crate::vfs::file::SqliteFile> {
-    pub pager: Pager<F>,
+pub struct Database<V: crate::vfs::Vfs> {
+    pub pager: Pager<V>,
     header: SqliteDatabaseHeader,
 }
 
-impl Database<DiskFile> {
+impl Database<DiskVfs> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
         let sqlite_default_vfs = DiskVfs;
         Self::with_source(sqlite_default_vfs, db_path)
@@ -52,42 +52,21 @@ impl Database<DiskFile> {
     }
 }
 
-impl<F: crate::vfs::file::SqliteFile> Database<F> {
-    pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteError>
-    where
-        V: Vfs<File = F>,
-    {
+impl<V: crate::vfs::Vfs> Database<V> {
+    pub fn with_source<P: AsRef<Path>>(mut vfs: V, path: P) -> Result<Self, SqliteError> {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
-        let pager = Pager::new(
-            source,
-            header.database_page_size as usize,
-            (header.database_page_size - header.reserved_space as u32) as _,
-            header.database_size_in_pages as _,
-            header.first_freelist_trunk_page,
-            header.total_number_of_freelist_pages,
-        )?;
+        let pager = Pager::new(vfs, source, HeaderCache::from(header))?;
         Ok(Self { pager, header })
     }
-    pub fn with_source_cache<P: AsRef<Path>, V>(
+    pub fn with_source_cache<P: AsRef<Path>>(
         mut vfs: V,
         path: P,
         cache_size: usize,
-    ) -> Result<Self, SqliteError>
-    where
-        V: Vfs<File = F>,
-    {
+    ) -> Result<Self, SqliteError> {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
-        let pager = Pager::with_cache(
-            source,
-            header.database_page_size as _,
-            (header.database_page_size - header.reserved_space as u32) as _,
-            header.database_size_in_pages as _,
-            header.first_freelist_trunk_page,
-            header.total_number_of_freelist_pages,
-            cache_size,
-        )?;
+        let pager = Pager::with_cache(vfs, source, HeaderCache::from(header), cache_size)?;
         Ok(Self { pager, header })
     }
 }

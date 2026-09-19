@@ -5,7 +5,7 @@ use crate::pager::pager::Pager;
 use crate::record::{SqlType, Value};
 use crate::storage::btree::BTree;
 use crate::storage::page::{BTreePageMut, BTreePageType};
-use crate::vfs::file::SqliteFile;
+use crate::vfs::Vfs;
 
 use super::Row;
 use super::insert::Insert;
@@ -23,16 +23,16 @@ impl CreateTable {
     }
 }
 #[derive(Debug)]
-pub struct CreateIndex<F: SqliteFile> {
-    child: Box<Plan<F>>,
+pub struct CreateIndex<V: Vfs> {
+    child: Box<Plan<V>>,
     index_root_page: u32,
     col_idx: usize, // todo: remake usize -> Vec::<usize>;
 }
-impl<F: SqliteFile> CreateIndex<F> {
+impl<V: Vfs> CreateIndex<V> {
     pub fn new(
-        child: Box<Plan<F>>,
+        child: Box<Plan<V>>,
         meta: ResolvedCreateIndexQuery,
-        pager: &mut Pager<impl SqliteFile>,
+        pager: &mut Pager<V>,
     ) -> Result<Self, SqliteError> {
         // todo: start txn
         let new_page = pager.allocate_new_page()?;
@@ -42,8 +42,8 @@ impl<F: SqliteFile> CreateIndex<F> {
             new_page,
             BTreePageType::LeafIndex,
             bytes,
-            pager.metadata.page_size,
-            pager.metadata.usable_size,
+            pager.page_size(),
+            pager.usable_size(),
         );
         let row = [
             Value::text("index"),
@@ -74,7 +74,7 @@ impl<F: SqliteFile> CreateIndex<F> {
     }
     // todo: remove allocte per insert.
     // use batch instead
-    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         while let Some(row) = self.child.next(pager, None)? {
             let record = [row[self.col_idx].clone(), row.key.into_sqlite_value()];
             let key = Value::Tuple(record.to_vec());
@@ -90,7 +90,7 @@ impl CreateTable {
         Self { meta }
     }
 
-    pub fn next<F: SqliteFile>(&self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+    pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         let is_new_txn = pager.start_transaction();
         let name = &self.meta.meta.name;
         // Allocating a new page
@@ -101,8 +101,8 @@ impl CreateTable {
             new_page,
             BTreePageType::LeafTable,
             bytes,
-            pager.metadata.page_size,
-            pager.metadata.usable_size,
+            pager.page_size(),
+            pager.usable_size(),
         );
         let row = [
             Value::text("table"),                       // type

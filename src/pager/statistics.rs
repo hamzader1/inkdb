@@ -1,14 +1,14 @@
 use std::cell::Cell;
 #[rustfmt::skip]
 #[derive(Default, Debug)]
-pub struct SqliteStatistics {
+pub struct Statistics {
     cache_hit    : Cell<usize>,
     cache_miss   : Cell<usize>,
     disk_write   : Cell<usize>,
     evictions    : Cell<usize>,
 }
 
-impl SqliteStatistics {
+impl Statistics {
     pub fn inc_cache_hit(&self) {
         self.cache_hit.set(self.cache_hit.get() + 1);
     }

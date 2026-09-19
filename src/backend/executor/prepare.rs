@@ -2,7 +2,7 @@ use crate::record::SqlType;
 use crate::record::tuple::Tuple;
 use crate::storage::btree::BTree;
 use crate::storage::cell::Encode;
-use crate::{backend::planner::plan::Plan, record::Value, vfs::file::SqliteFile};
+use crate::{backend::planner::plan::Plan, record::Value, vfs::Vfs};
 
 /*
  *
@@ -12,18 +12,18 @@ use crate::{backend::planner::plan::Plan, record::Value, vfs::file::SqliteFile};
  *
  */
 #[derive(Debug)]
-pub struct PrepareRow<F: SqliteFile> {
+pub struct PrepareRow<V: Vfs> {
     #[allow(dead_code)]
-    child: Option<Box<Plan<F>>>,
+    child: Option<Box<Plan<V>>>,
     pub root_page: u32,
     pub rows: Vec<Vec<Value<'static>>>,
     pub table_constraints: Option<Vec<usize>>,
     pos: usize,
 }
 
-impl<F: SqliteFile> PrepareRow<F> {
+impl<V: Vfs> PrepareRow<V> {
     pub fn new(
-        child: Option<Box<Plan<F>>>,
+        child: Option<Box<Plan<V>>>,
         root_page: u32,
         rows: Vec<Vec<Value<'static>>>,
         table_constraints: Option<Vec<usize>>,
@@ -37,7 +37,7 @@ impl<F: SqliteFile> PrepareRow<F> {
         }
     }
 
-    pub fn next(&mut self, pager: &mut Pager<F>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         if self.pos >= self.rows.len() {
             return Ok(None);
         }
