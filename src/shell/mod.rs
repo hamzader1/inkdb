@@ -1,12 +1,12 @@
 use crate::db::Database;
-use crate::vfs::disk::DiskFile;
+use crate::vfs::disk::DiskVfs;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::time::Instant;
 
 pub struct SqliteShell;
 impl SqliteShell {
-    pub fn run(database: &mut Database<DiskFile>) {
+    pub fn run(database: &mut Database<DiskVfs>) {
         let mut rl = DefaultEditor::new().expect("Error initiliazing the shell");
         loop {
             let command = match SqliteShell::read_command(&mut rl) {
