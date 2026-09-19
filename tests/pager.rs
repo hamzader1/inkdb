@@ -1,8 +1,7 @@
 use inkdb::pager::pager::Pager;
-use inkdb::vfs::SqliteOptions;
-use inkdb::vfs::disk::{DiskFile, DiskVfs};
+use inkdb::vfs::disk::DiskVfs;
 use inkdb::vfs::file::SqliteFile;
-use inkdb::vfs::Vfs;
+use inkdb::vfs::{SqliteOptions, Vfs};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -12,15 +11,20 @@ static SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn db_path(tag: &str) -> PathBuf {
     let n = SEQ.fetch_add(1, Ordering::SeqCst);
-    std::env::temp_dir().join(format!("inkdb-pager-{}-{}-{}.db", std::process::id(), tag, n))
+    std::env::temp_dir().join(format!(
+        "inkdb-pager-{}-{}-{}.db",
+        std::process::id(),
+        tag,
+        n
+    ))
 }
 
-fn test_pager(tag: &str, cache: usize, npages: usize) -> (Pager<DiskFile>, PathBuf) {
+fn test_pager(tag: &str, cache: usize, npages: usize) -> (Pager<DiskVfs>, PathBuf) {
     let path = db_path(tag);
     let mut vfs = DiskVfs;
-    let source: DiskFile = vfs.open(&path, SqliteOptions::all()).unwrap();
+    let source = vfs.open(&path, SqliteOptions::all()).unwrap();
     source.set_len(PS * npages).unwrap();
-    let pager = Pager::with_cache(source, PS, PS, npages, 0, 0, cache).unwrap();
+    let pager = Pager::with_cache(vfs, source, PS, PS, npages, 0, 0, cache).unwrap();
     (pager, path)
 }
 
@@ -36,7 +40,7 @@ fn cleanup(db: &PathBuf) {
 
 fn read_page(db: &PathBuf, page_no: u32) -> Vec<u8> {
     let mut vfs = DiskVfs;
-    let source: DiskFile = vfs.open(db, SqliteOptions::default()).unwrap();
+    let source = vfs.open(db, SqliteOptions::default()).unwrap();
     let mut buf = vec![0u8; PS];
     source
         .read_exact_at(((page_no as usize - 1) * PS) as u64, &mut buf)

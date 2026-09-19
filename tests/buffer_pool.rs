@@ -72,8 +72,7 @@ fn clock_evicts_cold_victim() {
     let m = p.acquire(3).unwrap();
     match m {
         Acquire::Miss {
-            evicted: Some(ev),
-            ..
+            evicted: Some(ev), ..
         } => {
             assert!(!ev.was_dirty);
             assert!(ev.page_no == 1 || ev.page_no == 2);
@@ -99,8 +98,7 @@ fn dirty_eviction_reports_was_dirty() {
     let m = p.acquire(3).unwrap();
     match m {
         Acquire::Miss {
-            evicted: Some(ev),
-            ..
+            evicted: Some(ev), ..
         } => {
             assert!(ev.was_dirty);
             assert!(ev.page_no == 1 || ev.page_no == 2);

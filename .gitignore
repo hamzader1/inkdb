@@ -9,3 +9,5 @@ docs/
 profile.*
 *.db
 *.trace
+docs2
+.backup
