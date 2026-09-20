@@ -60,11 +60,16 @@ impl BTreePageType {
             _ => None,
         }
     }
-    fn is_leaf(&self) -> bool {
+
+    pub fn try_from_byte(byte: u8) -> SqliteResult<BTreePageType> {
+        Self::get(byte).ok_or(SqliteError::InvalidPageType(byte))
+    }
+
+    pub fn is_leaf(&self) -> bool {
         matches!(self, Self::LeafIndex | Self::LeafTable)
     }
 
-    fn is_interior(&self) -> bool {
+    pub fn is_interior(&self) -> bool {
         matches!(self, Self::InteriorTable | Self::InteriorIndex)
     }
     pub fn as_byte(&self) -> u8 {
@@ -73,6 +78,12 @@ impl BTreePageType {
             Self::InteriorIndex => 0x02,
             Self::LeafTable => 0x0d,
             Self::InteriorTable => 0x05,
+        }
+    }
+    pub fn header_size(&self) -> u8 {
+        match self {
+            Self::InteriorIndex | Self::InteriorTable => INTERIOR_BTREE_PAGE_HEADER_SIZE,
+            _ => LEAF_BTREE_PAGE_HEADER_SIZE,
         }
     }
 }
