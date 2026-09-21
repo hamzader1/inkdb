@@ -2,11 +2,7 @@ use crate::{
     backend::executor::Row,
     errors::SqliteError,
     pager::pager::Pager,
-    storage::{
-        btree::page_as_mut_with_pager,
-        page::BTreePageType,
-        page::PageMut as BTreePageMut,
-    },
+    storage::{btree::page_as_mut_with_pager, page::BTreePageType, page::PageMut as BTreePageMut},
     vfs::Vfs,
 };
 
