@@ -92,19 +92,15 @@ impl BTreeCell {
 }
 // TODO: REMOVE FUCKING OFFSET HANDLING BY THE FUCKING CELL
 impl TableInteriorCell {
-    pub fn parse(
-        bytes: &[u8],
-        cell_ptr: CellIndex,
-        usable_size: usize,
-    ) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+        let mut cursor = SqliteCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
             return Err(SqliteError::Corrupt(
                 "invalid left child page number: 0".into(),
             ));
         }
-        let (rowid_boundary, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
+        let (rowid_boundary, _) = cursor.read_next_varint(bytes.len())?;
         Ok(Self {
             left_child,
             rowid_boundary,
@@ -112,14 +108,10 @@ impl TableInteriorCell {
     }
 }
 impl TableLeafCell {
-    pub fn parse(
-        bytes: &[u8],
-        cell_ptr: CellIndex,
-        usable_size: usize,
-    ) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
-        let (payload_len, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
-        let (row_id, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+        let mut cursor = SqliteCursor::new(bytes);
+        let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
+        let (row_id, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let local_payload_size =
             compute_table_local_payload_size(usable_size, payload_len as usize);
@@ -149,13 +141,9 @@ impl TableLeafCell {
 }
 
 impl IndexInteriorCell {
-    pub fn parse(
-        bytes: &[u8],
-        cell_ptr: CellIndex,
-        usable_size: usize,
-    ) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
         // Page number of left child
-        let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
+        let mut cursor = SqliteCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
             // use validate function later
@@ -165,7 +153,7 @@ impl IndexInteriorCell {
         }
         // Staged cell bytes can be shorter than a page. Size the varint
         // window by what is actually here, like the table parsers do.
-        let (payload_len, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
+        let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size = Range::from(current_pos..current_pos + payload_size);
@@ -194,15 +182,11 @@ impl IndexInteriorCell {
 }
 
 impl IndexLeafCell {
-    pub fn parse(
-        bytes: &[u8],
-        cell_ptr: CellIndex,
-        usable_size: usize,
-    ) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::with_offset(bytes, cell_ptr as _)?;
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+        let mut cursor = SqliteCursor::new(bytes);
         // Same short buffer rule as above. Exact cell bytes are often
         // smaller than the page usable size during rebalancing.
-        let (payload_len, _) = cursor.read_next_varint(usable_size.min(bytes.len()))?;
+        let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
         let local_payload_size = Range::from(current_pos..current_pos + payload_size);
