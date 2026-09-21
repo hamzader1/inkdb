@@ -1,7 +1,7 @@
 use super::cell::BTreeCell;
 use super::cell::Encode;
-use super::page::InsertionState;
 use super::page::BTreePage;
+use super::page::InsertionState;
 use super::page::PageMut as BTreePageMut;
 use super::page::PageRef as BTreePageRef;
 use std::cmp::Ordering;
@@ -867,6 +867,18 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 // indexes the old divider is a real entry, so it stays as
                 // the divider for the new right page and only the left
                 // divider becomes the fresh boundary.
+                //
+                // The slot found by key must be the divider of the page we
+                // just split. If it is not, the tree was already wrong and
+                // rewriting this slot would only spread the damage.
+                let old_child = parent_page_as_mut.cell(index)?.left_child();
+                if old_child != split_metadata.left_page {
+                    return Err(SqliteError::Corrupt(format!(
+                        "leaf split: parent {} slot {index} points at {old_child}, expected split page {}",
+                        parent_page_as_mut.page_no(),
+                        split_metadata.left_page
+                    )));
+                }
                 let (right_page_payload, right_divider_key) = if is_index {
                     let old_cell = parent_page_as_mut.cell(index)?;
                     let old_key = parent_page_as_mut
@@ -900,8 +912,19 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     }
                     InsertionState::None => {
                         // Parent too full to grow this divider in place.
-                        // Split it first, then route both dividers into
-                        // the fresh layout by their own keys.
+                        // replace_cell refused, so the OLD divider is still
+                        // at `index` and still points at left_page. If it
+                        // survived the split below it would sit next to the
+                        // fresh (left_page, boundary) cell as a second
+                        // pointer to the same page. Worse, if split_interior
+                        // picked it as the promoted cell, left_page would
+                        // become the new left half's right-most pointer and
+                        // both fresh dividers would land beside it. Either
+                        // way integrity_check reports "2nd reference to
+                        // page". Remove it first: nothing routes through the
+                        // parent while split_interior only shuffles cells,
+                        // and both children get fresh dividers right after.
+                        parent_page_as_mut.remove_cell(index)?;
                         let meta = self.split_interior(parent_page_as_mut.page_no())?;
                         let left_key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&left_key, left_page_payload, meta.clone())?;
@@ -966,11 +989,19 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     &split_metadata.boundary_bytes.unwrap(),
                 )
             };
-            root.insert_cell(&left_child_payload, 0)?;
+            if root.insert_cell(&left_child_payload, 0)? == InsertionState::None {
+                return Err(SqliteError::Internal(
+                    "root split: divider does not fit in a fresh root".into(),
+                ));
+            }
+            // Route by the divider the root actually holds. For tables that
+            // equals `key`. For indexes the divider was cut out of the left
+            // leaf, so `key` is one entry lower and an insert falling
+            // between the two would go right while lookups go left.
             Ok(SplitMetadata::new(
                 new_left_page_no,
                 right_page.page_no(),
-                key,
+                split_metadata.boundary,
                 right_max,
             ))
         }
@@ -1240,7 +1271,14 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             .cursor
             .binary_search_interior(&page_mut, self.pager, key)?
             .cell_index();
-        page_mut.insert_cell(&payload, cell_idx)?;
+        // A refused insert here would silently drop a divider and orphan
+        // a whole subtree. The page was just split so it should fit; if it
+        // does not, stop instead of continuing with a broken tree.
+        if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
+            return Err(SqliteError::Internal(format!(
+                "divider does not fit in page {target_page} right after its split"
+            )));
+        }
         Ok(())
     }
     pub fn insert_key_to_leaf<T: AsRef<[u8]>>(
@@ -1257,7 +1295,11 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut page_guard = self.pager.get_mut(target_page)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
         let (_, cell_idx) = self.cursor.binary_search_leaf(&page_mut, self.pager, key)?;
-        page_mut.insert_cell(&payload, cell_idx)?;
+        if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
+            return Err(SqliteError::Internal(format!(
+                "leaf cell does not fit in page {target_page} right after its split"
+            )));
+        }
         Ok(())
     }
     pub fn page_as_ref(
@@ -1440,6 +1482,14 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
             let (page_no2, cell_idx2) = self.cursor.last_visited_entry_unchecked();
+            // split_interior may have promoted this very divider one level
+            // up. Its left child is then the fresh left half, not the child
+            // it carried before, so the repaint has to keep whatever child
+            // the relocated cell holds now. Reusing the stale child would
+            // orphan the new half and reference the old child twice.
+            let child_now =
+                self.with_page_ref(page_no2, |p| Ok(p.cell(cell_idx2)?.left_child()))?;
+            let new_divider = Encode::encode_index_interior_cell(child_now, &pred_bytes);
             if self.with_page_mut(page_no2, |parent| {
                 parent.replace_cell(cell_idx2, &new_divider)
             })? == InsertionState::None
