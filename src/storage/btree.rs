@@ -1,10 +1,9 @@
 use super::cell::BTreeCell;
 use super::cell::Encode;
-use super::page::BTreePageMut;
-use super::page::BTreePageOps;
-use super::page::BTreePageRef;
 use super::page::InsertionState;
-use super::page::PageField::*;
+use super::page::BTreePage;
+use super::page::PageMut as BTreePageMut;
+use super::page::PageRef as BTreePageRef;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
@@ -142,7 +141,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         if let Some(last_entry) = self.stack.last() {
             let guard = pager.get(last_entry.page_no)?;
             let page = page_as_ref_with_pager(last_entry.page_no, &guard, pager)?;
-            if last_entry.cell_idx >= page.no_of_cells() {
+            if last_entry.cell_idx >= page.no_of_cells()? {
                 // Past the end
                 // No key to save
                 self.saved_key = None;
@@ -174,14 +173,14 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             // as yielded again. Otherwise the caller would visit it twice.
             let guard = pager.get(path.page_no)?;
             let page = page_as_ref_with_pager(path.page_no, &guard, pager)?;
-            if !page.is_leaf() {
+            if !page.is_leaf()? {
                 path.yeilded = true;
             }
         }
         let (page_no, cell_idx) = (path.page_no, path.cell_idx);
         let guard = pager.get(page_no)?;
         let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-        if cell_idx < page.no_of_cells() {
+        if cell_idx < page.no_of_cells()? {
             let cell = page.cell(cell_idx)?;
             if page.cell_key(&cell, pager)? == key {
                 return Ok(RestorePosition::Exact);
@@ -206,7 +205,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 return Ok(());
             };
             let page = page_as_ref_with_pager(path.page_no, &path.guard, pager)?;
-            if path.cell_idx < page.no_of_cells() {
+            if path.cell_idx < page.no_of_cells()? {
                 self.state = CursorState::At;
                 return Ok(());
             }
@@ -265,7 +264,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
+            if page.is_leaf()? {
                 let (found, cell_idx) = self.binary_search_leaf(&page, pager, target)?;
                 self.stack.push(Path::new(page_no, cell_idx, guard));
                 if found {
@@ -284,7 +283,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                     cell_index,
                     exact: saw_eq,
                 } => {
-                    if stop_at_interior && saw_eq && cell_index < page.no_of_cells() {
+                    if stop_at_interior && saw_eq && cell_index < page.no_of_cells()? {
                         let cell = page.cell(cell_index)?;
                         let key = page.cell_key(&cell, pager)?;
                         if key == *target {
@@ -312,16 +311,16 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             } = path;
 
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
-                if cell_idx + 1 < page.no_of_cells() {
+            if page.is_leaf()? {
+                if cell_idx + 1 < page.no_of_cells()? {
                     self.stack.push(Path::new(page_no, cell_idx + 1, guard));
                     self.state = CursorState::At;
                     return Ok(());
                 }
             } else {
-                if page.page_type() == BTreePageType::InteriorIndex
+                if page.page_type()? == BTreePageType::InteriorIndex
                     && !yeilded
-                    && cell_idx < page.no_of_cells()
+                    && cell_idx < page.no_of_cells()?
                 {
                     self.stack.push(Path {
                         page_no,
@@ -331,15 +330,15 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                     });
                     self.state = CursorState::At;
                     return Ok(());
-                } else if cell_idx + 1 == page.no_of_cells() {
-                    let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
+                } else if cell_idx + 1 == page.no_of_cells()? {
+                    let child = page.right_most_ptr()?.ok_or(SqliteError::Internal(format!(
                         "cursor next: interior page {page_no} has no right-most child"
                     )))?;
                     self.add_path(page_no, cell_idx + 1, guard);
                     self.descend_to_first(pager, child)?;
                     self.state = CursorState::At;
                     return Ok(());
-                } else if cell_idx + 1 < page.no_of_cells() {
+                } else if cell_idx + 1 < page.no_of_cells()? {
                     let child = page.cell(cell_idx + 1)?.left_child();
                     self.add_path(page_no, cell_idx + 1, guard);
                     self.descend_to_first(pager, child)?;
@@ -357,7 +356,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
+            if page.is_leaf()? {
                 self.add_path(page_no, 0, guard);
                 self.state = CursorState::At;
                 return Ok(());
@@ -376,7 +375,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
+            if page.is_leaf()? {
                 self.add_path(page_no, 0, guard);
                 self.state = CursorState::At;
                 return Ok(());
@@ -395,15 +394,15 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 yeilded,
             } = path;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
+            if page.is_leaf()? {
                 if cell_idx > 0 {
                     self.add_path(page_no, cell_idx - 1, guard);
                     self.state = CursorState::At;
                     return Ok(());
                 }
-            } else if page.page_type() == BTreePageType::InteriorIndex {
+            } else if page.page_type()? == BTreePageType::InteriorIndex {
                 if yeilded {
-                    if cell_idx < page.no_of_cells() {
+                    if cell_idx < page.no_of_cells()? {
                         let child = page.cell(cell_idx)?.left_child();
                         self.stack.push(Path::new(page_no, cell_idx, guard));
                         self.descend_to_last(pager, child)?;
@@ -447,20 +446,20 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
-                let cell_idx = if page.no_of_cells() == 0 {
+            if page.is_leaf()? {
+                let cell_idx = if page.no_of_cells()? == 0 {
                     0
                 } else {
-                    page.no_of_cells() - 1
+                    page.no_of_cells()? - 1
                 };
                 self.add_path(page_no, cell_idx, guard);
                 self.state = CursorState::At;
                 return Ok(());
             }
-            let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
+            let child = page.right_most_ptr()?.ok_or(SqliteError::Internal(format!(
                 "cursor last: interior page {page_no} has no right-most child"
             )))?;
-            self.add_path(page_no, page.no_of_cells(), guard);
+            self.add_path(page_no, page.no_of_cells()?, guard);
             page_no = child;
         }
     }
@@ -473,15 +472,15 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf() {
-                self.add_path(page_no, page.no_of_cells() - 1, guard);
+            if page.is_leaf()? {
+                self.add_path(page_no, page.no_of_cells()? - 1, guard);
                 self.state = CursorState::At;
                 return Ok(());
             }
-            let child = page.right_most_ptr().ok_or(SqliteError::Internal(format!(
+            let child = page.right_most_ptr()?.ok_or(SqliteError::Internal(format!(
                 "cursor descend_to_last: interior page {page_no} has no right-most child"
             )))?;
-            self.add_path(page_no, page.no_of_cells(), guard);
+            self.add_path(page_no, page.no_of_cells()?, guard);
             page_no = child;
         }
     }
@@ -496,7 +495,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             } = path;
 
             let page = page_as_ref_with_pager(*page_no, guard, pager)?;
-            if *cell_idx >= page.no_of_cells() {
+            if *cell_idx >= page.no_of_cells()? {
                 return Ok(None);
             }
             let cell = page.cell(*cell_idx)?;
@@ -507,21 +506,18 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     fn clear_path(&mut self) {
         self.stack.clear();
     }
-    fn binary_search_interior<'g, P>(
+    fn binary_search_interior<B: AsRef<[u8]>>(
         &self,
-        page: &'g P,
+        page: &BTreePage<B>,
         pager: &mut Pager<V>,
         target: &Value,
-    ) -> Result<SearchResult, SqliteError>
-    where
-        P: BTreePageOps<'g>,
-    {
-        sqlite_assert_with_corrupt_err(page.is_interior(), || {
+    ) -> Result<SearchResult, SqliteError> {
+        sqlite_assert_with_corrupt_err(page.is_interior()?, || {
             "Navigation path of this works only with interior pages".into()
         })?;
 
-        let cell_count = page.no_of_cells();
-        let is_table = page.page_type() == BTreePageType::InteriorTable;
+        let cell_count = page.no_of_cells()?;
+        let is_table = page.page_type()? == BTreePageType::InteriorTable;
 
         let mut l = 0;
         let mut r = cell_count;
@@ -563,7 +559,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
 
         // Past the end: every key compared less-than, so no equality seen.
         Ok(SearchResult::Descend {
-            child: page.right_most_ptr().unwrap(),
+            child: page.right_most_ptr()?.unwrap(),
             cell_index: cell_count,
             exact: false,
         })
@@ -578,27 +574,24 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         self.last_visited_entry().expect("Path stack is empty")
     }
 
-    fn binary_search_leaf<'a, P>(
+    fn binary_search_leaf<B: AsRef<[u8]>>(
         &self,
-        page: &'a P,
+        page: &BTreePage<B>,
         pager: &mut Pager<V>,
         target: &Value<'_>,
-    ) -> Result<(bool, CellIndex), SqliteError>
-    where
-        P: BTreePageOps<'a> + Debug,
-    {
-        sqlite_assert_with_corrupt_err(page.is_leaf(), || {
+    ) -> Result<(bool, CellIndex), SqliteError> {
+        sqlite_assert_with_corrupt_err(page.is_leaf()?, || {
             "This navigation path works only for leaves".into()
         })?;
 
-        let cell_cnt = page.no_of_cells();
+        let cell_cnt = page.no_of_cells()?;
         let mut l = 0;
         let mut r = cell_cnt;
         let mut found = None;
         while l < r {
             let m: u16 = l + ((r - l) / 2);
 
-            let value = if page.page_type() == BTreePageType::LeafTable {
+            let value = if page.page_type()? == BTreePageType::LeafTable {
                 page.cell(m)?.row_id().into_sqlite_value()
             } else {
                 let entry = page.record_of_cell(m, pager)?;
@@ -652,8 +645,8 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current(pager)?
         {
-            let cell = page.record_of(&cell, pager)?;
-            return Ok(Some(cell));
+            let record = page.record_of(&cell, pager)?;
+            return Ok(Some(record.into_iter().map(|v| v.into_owned()).collect()));
         }
         Ok(None)
     }
@@ -665,9 +658,9 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         let page_guard = pager.get(page_no)?;
         let page = BTreePageRef::new(
             page_no,
-            page_guard.bytes_as_ref(),
             pager.page_size(),
             pager.usable_size(),
+            page_guard.bytes_as_ref(),
         )?;
         f(&page)
     }
@@ -761,6 +754,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut page = self.page_as_mut(page_no, &mut page_guard)?;
         // self.fix_overlow(&mut content)?;
         if let InsertionState::Inserted = page.insert_cell(&content, cell_idx)? {
+            debug_assert!(page.assert_invariants().is_ok());
             return Ok(());
         } else {
             let meta = self.balance(page_no)?;
@@ -811,7 +805,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut right_page_guard = self.pager.get_mut(split_metadata.right_page)?;
         let right_page = self.page_as_mut(split_metadata.right_page, &mut right_page_guard)?;
 
-        let is_index = right_page.as_ref()?.is_index();
+        let is_index = right_page.as_ref()?.is_index()?;
         if let Some(path) = self.cursor.stack.pop() {
             let parent_page_as_ref = self.page_as_ref(path.page_no, &path.guard)?;
             let index = self
@@ -821,23 +815,23 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             // At this point we are not longer dealing with Leaves
             let left_page_payload = if is_index {
                 Encode::encode_index_interior_cell(
-                    left_page.page_no,
+                    left_page.page_no(),
                     split_metadata.boundary_bytes.as_ref().unwrap(),
                 )
             } else {
                 Encode::encode_table_interior_cell(
-                    left_page.page_no,
+                    left_page.page_no(),
                     split_metadata.boundary.cast_int()? as _,
                 )
             };
             let right_page_payload = if is_index {
                 Encode::encode_index_interior_cell(
-                    right_page.page_no,
+                    right_page.page_no(),
                     split_metadata.right_max_bytes.as_ref().unwrap(),
                 )
             } else {
                 Encode::encode_table_interior_cell(
-                    right_page.page_no,
+                    right_page.page_no(),
                     split_metadata.right_max.cast_int()? as _,
                 )
             };
@@ -846,26 +840,23 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             let mut parent_page_as_mut = self.page_as_mut(path.page_no, &mut guard)?;
 
             let was_rightmost =
-                parent_page_as_mut.header.right_most_ptr() == Some(split_metadata.left_page);
+                parent_page_as_mut.right_most_ptr()? == Some(split_metadata.left_page);
 
             if was_rightmost {
                 // the divider becomes the parent's new last cell and the
                 // right-most pointer is re-pointed at the new right page
                 match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
                     InsertionState::Inserted => {
-                        parent_page_as_mut.header.right_most_ptr = Some(split_metadata.right_page);
-
-                        parent_page_as_mut.update_bytes([RightMostPointer]);
+                        parent_page_as_mut.set_right_most_ptr(split_metadata.right_page)?;
                         Ok(split_metadata)
                     }
                     InsertionState::None => {
-                        let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                        let meta = self.split_interior(parent_page_as_mut.page_no())?;
                         let key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&key, left_page_payload, meta.clone())?;
                         let mut guard = self.pager.get_mut(meta.right_page)?;
                         let mut page = self.page_as_mut(meta.right_page, &mut guard)?;
-                        page.header.right_most_ptr = Some(split_metadata.right_page);
-                        page.update_bytes([RightMostPointer]);
+                        page.set_right_most_ptr(split_metadata.right_page)?;
                         Ok(split_metadata)
                     }
                 }
@@ -897,7 +888,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                         match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
                             InsertionState::Inserted => Ok(split_metadata),
                             InsertionState::None => {
-                                let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                                let meta = self.split_interior(parent_page_as_mut.page_no())?;
                                 self.insert_key_to_interior(
                                     &right_divider_key,
                                     right_page_payload,
@@ -911,7 +902,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                         // Parent too full to grow this divider in place.
                         // Split it first, then route both dividers into
                         // the fresh layout by their own keys.
-                        let meta = self.split_interior(parent_page_as_mut.page_no)?;
+                        let meta = self.split_interior(parent_page_as_mut.page_no())?;
                         let left_key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&left_key, left_page_payload, meta.clone())?;
                         self.insert_key_to_interior(&right_divider_key, right_page_payload, meta)?;
@@ -924,29 +915,37 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
             let mut new_left_page = BTreePageMut::new_from_raw_bytes(
                 new_left_page_no,
-                left_page.page_type(),
+                left_page.page_type()?,
                 new_left_page_guard.bytes_as_mut_unchecked(),
                 self.pager.page_size(),
                 self.pager.usable_size(),
-            );
+            )?;
             new_left_page.copy_data_from(&left_page)?;
-            // TODO REMOVE THIS LATER IF WE DONE FROM IT:
-            left_page.clear();
             //
             // rebuild metadata
-            let left_last_ptr = new_left_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Internal("root split with an empty left leaf".into())
-            })?;
-            let key =
-                new_left_page.cell_key(&new_left_page.parse_cell_at(left_last_ptr)?, self.pager)?;
-            let right_last_ptr = right_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Internal("root split with an empty right leaf".into())
-            })?;
-            let right_max =
-                right_page.cell_key(&right_page.parse_cell_at(right_last_ptr)?, self.pager)?;
+            let new_left_n = new_left_page.no_of_cells()?;
+            if new_left_n == 0 {
+                return Err(SqliteError::Internal(
+                    "root split with an empty left leaf".into(),
+                ));
+            }
+            let key = new_left_page.cell_key(
+                &new_left_page.parse_cell_at(new_left_page.cell_ptr(new_left_n - 1)?)?,
+                self.pager,
+            )?;
+            let right_n = right_page.no_of_cells()?;
+            if right_n == 0 {
+                return Err(SqliteError::Internal(
+                    "root split with an empty right leaf".into(),
+                ));
+            }
+            let right_max = right_page.cell_key(
+                &right_page.parse_cell_at(right_page.cell_ptr(right_n - 1)?)?,
+                self.pager,
+            )?;
 
             let mut root = BTreePageMut::new_from_raw_bytes(
-                left_page.page_no,
+                left_page.page_no(),
                 if is_index {
                     BTreePageType::InteriorIndex
                 } else {
@@ -955,10 +954,9 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 left_page_guard.bytes_as_mut_unchecked(),
                 self.pager.page_size(),
                 self.pager.usable_size(),
-            );
+            )?;
 
-            root.header.right_most_ptr = Some(right_page.page_no);
-            root.update_bytes([RightMostPointer]);
+            root.set_right_most_ptr(right_page.page_no())?;
 
             let left_child_payload = if !is_index {
                 Encode::encode_table_interior_cell(new_left_page_no, key.cast_int()? as _)
@@ -971,7 +969,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             root.insert_cell(&left_child_payload, 0)?;
             Ok(SplitMetadata::new(
                 new_left_page_no,
-                right_page.page_no,
+                right_page.page_no(),
                 key,
                 right_max,
             ))
@@ -981,16 +979,16 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     pub fn split_leaf(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
         let mut left_page_guard = self.pager.get_mut(page_no)?;
         let mut left_page = self.page_as_mut(page_no, &mut left_page_guard)?;
-        let is_index = left_page.as_ref()?.is_index();
+        let is_index = left_page.as_ref()?.is_index()?;
 
         if !is_index {
             debug_assert!(
-                left_page.cell_pointers.len() >= 2,
+                left_page.no_of_cells()? >= 2,
                 "cannot split a leaf table page holding fewer than two cells",
             )
         } else {
             debug_assert!(
-                left_page.cell_pointers.len() >= 3,
+                left_page.no_of_cells()? >= 3,
                 "cannot split a leaf index page holding fewer than three cells",
             )
         }
@@ -998,22 +996,20 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut right_page_guard = self.pager.get_mut(right_page_no)?;
         let mut right_page = BTreePageMut::new_from_raw_bytes(
             right_page_no,
-            left_page.header.page_kind,
+            left_page.page_type()?,
             right_page_guard.bytes_as_mut_unchecked(),
             self.pager.page_size(),
             self.pager.usable_size(),
-        );
-        let split_at = left_page.cell_pointers.len() / 2;
-        let right_cell_pointers = left_page.cell_pointers.split_off(split_at);
-        let mut left_cells: Vec<Vec<u8>> = Vec::with_capacity(left_page.cell_pointers.len());
-        for &cell_offset in left_page.cell_pointers.iter() {
-            let span = left_page.cell_span(cell_offset)?;
-            left_cells.push(left_page.bytes[span].to_vec());
+        )?;
+        let total = left_page.no_of_cells()? as usize;
+        let split_at = total / 2;
+        let mut left_cells: Vec<Vec<u8>> = Vec::with_capacity(split_at);
+        for i in 0..split_at {
+            left_cells.push(left_page.cell_bytes_as_ref(i as _)?.to_vec());
         }
-        let mut right_cells: Vec<&[u8]> = Vec::with_capacity(right_cell_pointers.len());
-        for &cell_offset in right_cell_pointers.iter() {
-            let span = left_page.cell_span(cell_offset)?;
-            right_cells.push(&left_page.bytes[span]);
+        let mut right_cells: Vec<Vec<u8>> = Vec::with_capacity(total - split_at);
+        for i in split_at..total {
+            right_cells.push(left_page.cell_bytes_as_ref(i as _)?.to_vec());
         }
 
         for (i, cell) in right_cells.iter().enumerate() {
@@ -1032,7 +1028,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
          *  CELL CONTENT AREA
          *
          */
-        left_page.reset_for_rebuild();
+        left_page.reset_for_rebuild()?;
         for (i, cell) in left_cells.iter().enumerate() {
             if left_page.insert_cell(cell, i as _)? == InsertionState::None {
                 return Err(SqliteError::Internal(
@@ -1041,38 +1037,41 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             }
         }
 
-        let left_last_ptr =
-            left_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Internal("left leaf page is empty after split".into())
-            })?;
-        let right_last_ptr =
-            right_page.cell_pointers.last().copied().ok_or_else(|| {
-                SqliteError::Internal("right leaf page is empty after split".into())
-            })?;
-
-        let left_cell = left_page.parse_cell_at(left_last_ptr)?;
+        let left_n = left_page.no_of_cells()?;
+        let right_n = right_page.no_of_cells()?;
+        if left_n == 0 {
+            return Err(SqliteError::Internal(
+                "left leaf page is empty after split".into(),
+            ));
+        }
+        if right_n == 0 {
+            return Err(SqliteError::Internal(
+                "right leaf page is empty after split".into(),
+            ));
+        }
+        let left_cell = left_page.parse_cell_at(left_page.cell_ptr(left_n - 1)?)?;
         let left_cell_key = left_page.cell_key(&left_cell, self.pager)?;
-        let right_cell = right_page.parse_cell_at(right_last_ptr)?;
+        let right_cell = right_page.parse_cell_at(right_page.cell_ptr(right_n - 1)?)?;
         let right_cell_key = right_page.cell_key(&right_cell, self.pager)?;
 
         let mut metadata = SplitMetadata::new(
-            left_page.page_no,
-            right_page.page_no,
+            left_page.page_no(),
+            right_page.page_no(),
             left_cell_key,
             right_cell_key,
         );
 
         if is_index {
-            let left_cell_span = left_page.cell_span(left_last_ptr)?;
-            let left_cell_bytes = left_page.bytes[left_cell_span].to_vec();
-            let right_cell_span = right_page.cell_span(right_last_ptr)?;
-            let right_cell_bytes = right_page.bytes[right_cell_span].to_vec();
+            let left_n = left_page.no_of_cells()?;
+            let right_n = right_page.no_of_cells()?;
+            debug_assert!(left_n > 0 && right_n > 0);
+            let left_cell_bytes = left_page.cell_bytes_as_ref(left_n - 1)?.to_vec();
+            let right_cell_bytes = right_page.cell_bytes_as_ref(right_n - 1)?.to_vec();
             metadata.boundary_bytes = Some(left_cell_bytes);
             metadata.right_max_bytes = Some(right_cell_bytes);
 
             // remove the cell
-            debug_assert_eq!(left_page.cell_pointers.last(), Some(&left_last_ptr));
-            left_page.remove_cell(left_page.no_of_cells() - 1)?;
+            left_page.remove_cell(left_n - 1)?;
         }
 
         Ok(metadata)
@@ -1082,11 +1081,11 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // ORIGINAL PAGE
         let mut interior_page_guard = self.pager.get_mut(page_no)?;
         let mut interior_page = self.page_as_mut(page_no, &mut interior_page_guard)?;
-        let is_index = interior_page.as_ref()?.is_index();
+        let is_index = interior_page.as_ref()?.is_index()?;
         // one cell would make the pop below panic, two would leave the new page
         // without a single cell
         debug_assert!(
-            interior_page.cell_pointers.len() >= 3,
+            interior_page.no_of_cells()? as usize >= 3,
             "cannot split an interior page holding fewer than three cells",
         );
 
@@ -1096,35 +1095,31 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // let mut new_page = self.page_as_mut(new_page_no, &mut new_page_guard)?;
         let mut new_page = BTreePageMut::new_from_raw_bytes(
             new_page_no,
-            interior_page.header.page_kind,
+            interior_page.page_type()?,
             new_page_guard.bytes_as_mut_unchecked(),
             self.pager.page_size(),
             self.pager.usable_size(),
-        );
+        )?;
 
-        let mut left_cell_pointers = std::mem::take(&mut interior_page.cell_pointers);
-        let right_cell_pointers = left_cell_pointers.split_off(left_cell_pointers.len() / 2);
-        let promoted_cell_offset = left_cell_pointers
-            .pop()
-            .ok_or_else(|| SqliteError::Internal("interior split left half is empty".into()))?;
-        let cell_to_be_promoted = interior_page.parse_cell_at(promoted_cell_offset)?;
+        let n = interior_page.no_of_cells()? as usize;
+        let left_count = n / 2;
+        let promoted_idx = left_count - 1;
+        let promoted_ptr = interior_page.cell_ptr(promoted_idx as u16)?;
+        let cell_to_be_promoted = interior_page.parse_cell_at(promoted_ptr)?;
         let cell_to_be_promoted_key = interior_page.cell_key(&cell_to_be_promoted, self.pager)?;
 
-        let cell_range = interior_page.cell_span(promoted_cell_offset)?;
-        let cell_to_be_promoted_bytes: Vec<u8> =
-            interior_page.bytes[(cell_range.start + 4)..cell_range.end].to_owned();
+        let promoted_bytes = interior_page.cell_bytes_as_ref(promoted_idx as u16)?;
+        let cell_to_be_promoted_bytes: Vec<u8> = promoted_bytes[4..].to_owned();
 
         // stage both halves before writing anything, both are read from the
         // bytes of the original page
-        let mut left_cells: Vec<&[u8]> = Vec::with_capacity(left_cell_pointers.len());
-        for &cell_offset in left_cell_pointers.iter() {
-            let span = interior_page.cell_span(cell_offset)?;
-            left_cells.push(&interior_page.bytes[span]);
+        let mut left_cells: Vec<Vec<u8>> = Vec::with_capacity(promoted_idx);
+        for i in 0..promoted_idx {
+            left_cells.push(interior_page.cell_bytes_as_ref(i as u16)?.to_vec());
         }
-        let mut right_cells: Vec<Vec<u8>> = Vec::with_capacity(right_cell_pointers.len());
-        for &cell_offset in right_cell_pointers.iter() {
-            let span = interior_page.cell_span(cell_offset)?;
-            right_cells.push(interior_page.bytes[span].to_vec());
+        let mut right_cells: Vec<Vec<u8>> = Vec::with_capacity(n - left_count);
+        for i in left_count..n {
+            right_cells.push(interior_page.cell_bytes_as_ref(i as u16)?.to_vec());
         }
 
         for (i, cell) in left_cells.iter().enumerate() {
@@ -1134,15 +1129,13 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
         }
-        new_page.header.right_most_ptr = Some(cell_to_be_promoted.left_child());
-
-        new_page.update_bytes([RightMostPointer]);
+        new_page.set_right_most_ptr(cell_to_be_promoted.left_child())?;
 
         // The original page keeps the RIGHT half: its right-most subtree is
         // untouched, so its RMP must survive the reset. Without this the
         // page keeps the transient 0 and the next descent follows RMP 0.
-        let old_rmp = interior_page.header.right_most_ptr;
-        interior_page.reset_for_rebuild();
+        let old_rmp = interior_page.right_most_ptr()?;
+        interior_page.reset_for_rebuild()?;
         for (i, cell) in right_cells.iter().enumerate() {
             if interior_page.insert_cell(cell, i as _)? == InsertionState::None {
                 return Err(SqliteError::Internal(
@@ -1150,16 +1143,20 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
         }
-        if interior_page.header.right_most_ptr != old_rmp {
-            interior_page.header.right_most_ptr = old_rmp;
-            interior_page.update_bytes([RightMostPointer]);
+        if interior_page.right_most_ptr()? != old_rmp {
+            if let Some(rmp) = old_rmp {
+                interior_page.set_right_most_ptr(rmp)?;
+            }
         }
         // PROMOTE KEY STAGE
 
         let promoted_cell_payload = if is_index {
-            Encode::encode_index_interior_cell(new_page.page_no, &cell_to_be_promoted_bytes)
+            Encode::encode_index_interior_cell(new_page.page_no(), &cell_to_be_promoted_bytes)
         } else {
-            Encode::encode_table_interior_cell(new_page.page_no, cell_to_be_promoted.row_id() as _)
+            Encode::encode_table_interior_cell(
+                new_page.page_no(),
+                cell_to_be_promoted.row_id() as _,
+            )
         };
         let promoted_key = cell_to_be_promoted_key;
         if let Some(path) = self.cursor.stack.pop() {
@@ -1174,7 +1171,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             match parent_page.insert_cell(&promoted_cell_payload, cell_idx)? {
                 InsertionState::Inserted => Ok(SplitMetadata::new(
                     new_page_no,
-                    interior_page.page_no,
+                    interior_page.page_no(),
                     promoted_key.clone(),
                     promoted_key,
                 )),
@@ -1184,7 +1181,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     self.insert_key_to_interior(&key, promoted_cell_payload, split_metadata)?;
                     Ok(SplitMetadata::new(
                         new_page_no,
-                        interior_page.page_no,
+                        interior_page.page_no(),
                         key.clone(),
                         key,
                     ))
@@ -1197,26 +1194,23 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             let mut new_right_page_guard = self.pager.get_mut(new_right_page_no)?;
             let mut new_right_page = BTreePageMut::new_from_raw_bytes(
                 new_right_page_no,
-                interior_page.header.page_kind,
+                interior_page.page_type()?,
                 new_right_page_guard.bytes_as_mut_unchecked(),
                 self.pager.page_size(),
                 self.pager.usable_size(),
-            );
+            )?;
 
             new_right_page.copy_data_from(&interior_page)?;
-            interior_page.clear();
 
-            // SAFE TO USE THE METADATA SINCE ITS CACHED
             let mut root = BTreePageMut::new_from_raw_bytes(
-                interior_page.page_no,
-                interior_page.header.page_kind,
+                interior_page.page_no(),
+                interior_page.page_type()?,
                 interior_page_guard.bytes_as_mut_unchecked(),
                 self.pager.page_size(),
                 self.pager.usable_size(),
-            );
+            )?;
 
-            root.header.right_most_ptr = Some(new_right_page_no);
-            root.update_bytes([RightMostPointer]);
+            root.set_right_most_ptr(new_right_page_no)?;
 
             root.insert_cell(&promoted_cell_payload, 0)?;
 
@@ -1273,9 +1267,9 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     ) -> Result<BTreePageRef<'a>, SqliteError> {
         BTreePageRef::new(
             page_no,
-            guard.bytes_as_ref(),
             self.pager.page_size(),
             self.pager.usable_size(),
+            guard.bytes_as_ref(),
         )
     }
 
@@ -1286,9 +1280,9 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     ) -> Result<BTreePageMut<'a>, SqliteError> {
         BTreePageMut::new(
             page_no,
-            guard.bytes_as_mut().unwrap(),
             self.pager.page_size(),
             self.pager.usable_size(),
+            guard.bytes_as_mut().unwrap(),
         )
     }
 
@@ -1338,14 +1332,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     pub fn seek_into_last(&mut self) -> Result<(), SqliteError> {
         self.cursor.last(self.pager)
     }
-    pub fn current_page_header_unchecked(
-        &mut self,
-    ) -> Result<super::page::BTreePageHeader, SqliteError> {
+    pub fn current_page_header_unchecked(&mut self) -> Result<u16, SqliteError> {
         let (pn, _) = self.cursor.last_visited_entry_unchecked();
 
-        let header =
-            self.with_page_ref::<_, super::page::BTreePageHeader>(pn, |page| Ok(page.header()))?;
-        Ok(header)
+        self.with_page_ref(pn, |page| Ok(page.no_of_cells()?))
     }
 
     // Delete one entry by its full key. Tables hold every row in a leaf
@@ -1359,7 +1349,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             return Ok(false);
         };
         let (is_leaf, n_cells, is_index) = self.with_page_ref(page_no, |p| {
-            Ok((p.is_leaf(), p.no_of_cells(), p.is_index()))
+            Ok((p.is_leaf()?, p.no_of_cells()?, p.is_index()?))
         })?;
         if cell_idx >= n_cells {
             return Ok(false);
@@ -1379,7 +1369,8 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         if is_leaf {
             let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
                 page.remove_cell(cell_idx)?;
-                page.is_underflow()
+                debug_assert!(page.assert_invariants().is_ok());
+                Ok(page.is_underflow()?)
             })?;
             if page_no != self.root_page && is_underflow {
                 self.fix_page_underflow(page_no)?;
@@ -1405,8 +1396,8 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         loop {
             let guard = self.pager.get(pred_no)?;
             let page = page_as_ref_with_pager(pred_no, &guard, self.pager)?;
-            if page.is_leaf() {
-                let n = page.no_of_cells();
+            if page.is_leaf()? {
+                let n = page.no_of_cells()?;
                 if n == 0 {
                     return Err(SqliteError::Corrupt(
                         "index predecessor leaf is empty".into(),
@@ -1415,10 +1406,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 self.cursor.stack.push(Path::new(pred_no, n - 1, guard));
                 break;
             }
-            let rmp = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+            let rmp = page.right_most_ptr()?.ok_or(SqliteError::Corrupt(
                 "index interior has no right child".into(),
             ))?;
-            let n = page.no_of_cells();
+            let n = page.no_of_cells()?;
             self.cursor.stack.push(Path::new(pred_no, n, guard));
             pred_no = rmp;
         }
@@ -1471,15 +1462,15 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 }
                 let guard = self.pager.get(cur)?;
                 let page = page_as_ref_with_pager(cur, &guard, self.pager)?;
-                if page.is_leaf() {
+                if page.is_leaf()? {
                     return Err(SqliteError::Corrupt(
                         "predecessor path broken across parent split".into(),
                     ));
                 }
-                let rmp = page.right_most_ptr().ok_or(SqliteError::Corrupt(
+                let rmp = page.right_most_ptr()?.ok_or(SqliteError::Corrupt(
                     "index interior has no right child".into(),
                 ))?;
-                let n = page.no_of_cells();
+                let n = page.no_of_cells()?;
                 self.cursor.stack.push(Path::new(cur, n, guard));
                 cur = rmp;
             }
@@ -1490,7 +1481,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         }
         let pred_underflow = self.with_page_mut(pred_page_no, |leaf| {
             leaf.remove_cell(pred_cell_idx)?;
-            leaf.is_underflow()
+            Ok(leaf.is_underflow()?)
         })?;
         if pred_page_no != self.root_page && pred_underflow {
             self.fix_page_underflow(pred_page_no)?;
@@ -1503,7 +1494,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     /// The orphaned child page is leaked for now (TODO: freelist).
     fn collapse_root(&mut self, root_no: PageNo) -> SqliteResult<()> {
         let (n_cells, is_leaf, rmp) = self.with_page_ref(root_no, |page| {
-            Ok((page.no_of_cells(), page.is_leaf(), page.right_most_ptr()))
+            Ok((page.no_of_cells()?, page.is_leaf()?, page.right_most_ptr()?))
         })?;
         if is_leaf || n_cells > 0 {
             return Ok(());
@@ -1513,17 +1504,18 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         ))?;
         // Collect the surviving child before overwriting the root.
         let (kind, child_rmp, cells) = self.with_page_mut(child_no, |child| {
-            let mut cells = Vec::with_capacity(child.no_of_cells() as usize);
-            for i in 0..child.no_of_cells() {
+            let mut cells = Vec::with_capacity(child.no_of_cells()? as usize);
+            for i in 0..child.no_of_cells()? {
                 cells.push(child.cell_bytes_as_ref(i)?.to_vec());
             }
-            Ok((child.header.page_kind, child.header.right_most_ptr, cells))
+            Ok((child.page_type()?, child.right_most_ptr()?, cells))
         })?;
         self.with_page_mut(root_no, |root| {
-            root.reset_for_rebuild();
-            root.header.page_kind = kind;
-            root.header.right_most_ptr = child_rmp;
-            root.update_bytes([PageKind, RightMostPointer]);
+            root.reset_for_rebuild()?;
+            root.set_page_type(kind)?;
+            if let Some(rmp) = child_rmp {
+                root.set_right_most_ptr(rmp)?;
+            }
             for (i, bytes) in cells.iter().enumerate() {
                 if root.insert_cell(bytes, i as _)? == InsertionState::None {
                     return Err(SqliteError::Internal(
@@ -1574,7 +1566,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         }
 
         let (parent_page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        let parent_n = self.with_page_ref(parent_page_no, |page| Ok(page.no_of_cells()))?;
+        let parent_n = self.with_page_ref(parent_page_no, |page| Ok(page.no_of_cells()?))?;
         if parent_n == 0 {
             if parent_page_no != self.root_page {
                 return Err(SqliteError::Internal(
@@ -1605,17 +1597,17 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         }
         let (left_no, right_no) = self.with_page_ref(parent_page_no, |p| {
             let left = p.cell(cell_idx - 1)?.left_child();
-            let right = if cell_idx + 1 < p.no_of_cells() {
+            let right = if cell_idx + 1 < p.no_of_cells()? {
                 p.cell(cell_idx + 1)?.left_child()
             } else {
-                p.right_most_ptr().ok_or(SqliteError::Corrupt(
+                p.right_most_ptr()?.ok_or(SqliteError::Corrupt(
                     "interior page has no right child".into(),
                 ))?
             };
             Ok((left, right))
         })?;
-        let left_cells = self.with_page_ref(left_no, |p| Ok(p.no_of_cells()))?;
-        let right_cells = self.with_page_ref(right_no, |p| Ok(p.no_of_cells()))?;
+        let left_cells = self.with_page_ref(left_no, |p| Ok(p.no_of_cells()?))?;
+        let right_cells = self.with_page_ref(right_no, |p| Ok(p.no_of_cells()?))?;
         if left_cells > right_cells {
             Ok(UnderflowAction::BorrowLeft)
         } else {
@@ -1641,17 +1633,17 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     ) -> SqliteResult<()> {
         let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
         let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
-        let is_index = parent_page.as_ref()?.is_index();
+        let is_index = parent_page.as_ref()?.is_index()?;
         debug_assert!(
-            parent_path.cell_idx < parent_page.no_of_cells(),
+            parent_path.cell_idx < parent_page.no_of_cells()?,
             "Right most pointer has no right sibling"
         );
         let sibling_idx = parent_path.cell_idx + 1;
         let sib_page_no = {
-            if sibling_idx < parent_page.no_of_cells() {
+            if sibling_idx < parent_page.no_of_cells()? {
                 parent_page.cell(sibling_idx)?.left_child()
             } else {
-                parent_page.right_most_ptr().unwrap()
+                parent_page.right_most_ptr()?.unwrap()
             }
         };
 
@@ -1671,13 +1663,13 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut current_page = self.page_as_mut(child_page_no, &mut current_page_guard)?;
         let mut all_cells_as_bytes: Vec<Vec<u8>> = Vec::new();
         let mut total_size_in_bytes = 0;
-        for i in 0..current_page.no_of_cells() {
+        for i in 0..current_page.no_of_cells()? {
             let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
         }
-        let current_page_len = current_page.no_of_cells() as usize;
-        for i in 0..sibling_page.no_of_cells() {
+        let current_page_len = current_page.no_of_cells()? as usize;
+        for i in 0..sibling_page.no_of_cells()? {
             let bytes = sibling_page.cell_bytes_as_ref(i)?.to_vec();
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
@@ -1687,7 +1679,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // Table dividers are routing copies, they stay out of the pool.
         // Interior merges pull the separator down with the left right most
         // child so routing for that subtree survives.
-        let is_leaf_page = current_page.is_leaf();
+        let is_leaf_page = current_page.is_leaf()?;
         if is_index {
             let sep_bytes = parent_page
                 .cell_bytes_as_ref(parent_path.cell_idx)?
@@ -1698,23 +1690,17 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 all_cells_as_bytes.insert(current_page_len, leaf_sep);
             } else {
                 // Left page right most pointer would be the key of the pulled node
-                let left_rmp = current_page
-                    .header
-                    .right_most_ptr
-                    .ok_or(SqliteError::Corrupt(
-                        "left interior has no right child".into(),
-                    ))?;
+                let left_rmp = current_page.right_most_ptr()?.ok_or(SqliteError::Corrupt(
+                    "left interior has no right child".into(),
+                ))?;
                 let pulled = Encode::encode_index_interior_cell(left_rmp, &sep_bytes[4..]);
                 total_size_in_bytes += pulled.len();
                 all_cells_as_bytes.insert(current_page_len, pulled);
             }
         } else if !is_leaf_page {
-            let left_rmp = current_page
-                .header
-                .right_most_ptr
-                .ok_or(SqliteError::Corrupt(
-                    "left interior has no right child".into(),
-                ))?;
+            let left_rmp = current_page.right_most_ptr()?.ok_or(SqliteError::Corrupt(
+                "left interior has no right child".into(),
+            ))?;
             let rowid = parent_page.cell(parent_path.cell_idx)?.row_id();
             let pulled = Encode::encode_table_interior_cell(left_rmp, rowid);
             total_size_in_bytes += pulled.len();
@@ -1723,7 +1709,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
 
         // Check if they can fit in one page (cells + pointers + header)
         let total_cells = all_cells_as_bytes.len();
-        let header_sz = current_page.header_size() as usize;
+        let header_sz = current_page.header_size()? as usize;
         let required = total_size_in_bytes + total_cells * 2 + header_sz;
         if required <= self.pager.usable_size() {
             self.merge(
@@ -1781,11 +1767,11 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         /*
          * If the page we are rebalancing is a leaf page
          */
-        if current_page.is_leaf() {
+        if current_page.is_leaf()? {
             debug_assert!(
-                sibling_page.is_leaf(),
+                sibling_page.is_leaf()?,
                 "The current page is a leaf ({}), while its sibling page is an interior node ({}).",
-                current_page.page_no,
+                current_page.page_no(),
                 sib_page_no
             );
             if is_index {
@@ -1807,7 +1793,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 // We don't include the last cell because its the promoted cell.
                 // By doing so, we prevent duplicate the key between parent and child
                 let left_cells = &left_share[..left_share.len() - 1];
-                current_page.reset_for_rebuild();
+                current_page.reset_for_rebuild()?;
                 for (i, bytes) in left_cells.iter().enumerate() {
                     if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
                         return Err(SqliteError::Internal(
@@ -1815,7 +1801,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                         ));
                     }
                 }
-                sibling_page.reset_for_rebuild();
+                sibling_page.reset_for_rebuild()?;
                 for (i, bytes) in right_share.iter().enumerate() {
                     if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
                         return Err(SqliteError::Internal(
@@ -1836,7 +1822,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 }
                 return Ok(());
             }
-            current_page.reset_for_rebuild();
+            current_page.reset_for_rebuild()?;
             for (i, bytes) in new_left_page_cell.iter().enumerate() {
                 if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
                     return Err(SqliteError::Internal(
@@ -1844,7 +1830,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     ));
                 }
             }
-            sibling_page.reset_for_rebuild();
+            sibling_page.reset_for_rebuild()?;
             for (i, bytes) in new_right_page_cells.iter().enumerate() {
                 if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
                     return Err(SqliteError::Internal(
@@ -1856,7 +1842,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 !current_page.is_underflow()?,
                 "Current page still underflows after redistribution \
              (page_no: {}, free_space: {})",
-                current_page.page_no,
+                current_page.page_no(),
                 current_page.freespace()?
             );
 
@@ -1864,7 +1850,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 !sibling_page.is_underflow()?,
                 "Sibling page still underflows after redistribution \
              (page_no: {}, free_space: {})",
-                sibling_page.page_no,
+                sibling_page.page_no(),
                 sibling_page.freespace()?
             );
 
@@ -1896,22 +1882,24 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             //     current_page.cell_key(&current_page.cell((split_at - 1) as _)?, self.pager)?;
 
             let first_cell_of_right_sibling = if !is_index {
-                TableInteriorCell::parse(&new_right_page_cells[0], 0, self.pager.usable_size())
+                TableInteriorCell::parse(&new_right_page_cells[0], self.pager.usable_size())
                     .map(BTreeCell::TableInterior)
             } else {
-                IndexInteriorCell::parse(&new_right_page_cells[0], 0, self.pager.usable_size())
+                IndexInteriorCell::parse(&new_right_page_cells[0], self.pager.usable_size())
                     .map(BTreeCell::IndexInterior)
             }?;
 
             debug_assert_eq!(
-                current_page.header.page_kind, sibling_page.header.page_kind,
+                current_page.page_type()?,
+                sibling_page.page_type()?,
                 "Current page kind ({:?}) does not match sibling page kind ({:?})",
-                current_page.header.page_kind, sibling_page.header.page_kind,
+                current_page.page_type()?,
+                sibling_page.page_type()?,
             );
 
             let parent_separator_cell = parent_page.cell(parent_path.cell_idx)?;
             // Sibling keeps its rightmost subtree; save before reset wipes it.
-            let sibling_rmp = sibling_page.header.right_most_ptr;
+            let sibling_rmp = sibling_page.right_most_ptr()?;
 
             // Rotation moves the parent separator down into the deficient
             // page and promotes the sibling extreme up. Both entries are
@@ -1920,7 +1908,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             // separator, losing one entry and duplicating the other.
             let new_cell_for_curr_page = if !is_index {
                 Encode::encode_table_interior_cell(
-                    current_page.right_most_ptr().unwrap(),
+                    current_page.right_most_ptr()?.unwrap(),
                     parent_separator_cell.row_id(),
                 )
             } else {
@@ -1930,7 +1918,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     .cell_bytes_as_ref(parent_path.cell_idx)?
                     .to_vec();
                 Encode::encode_index_interior_cell(
-                    current_page.right_most_ptr().unwrap(),
+                    current_page.right_most_ptr()?.unwrap(),
                     &parent_sep_bytes[4..],
                 )
             };
@@ -1940,7 +1928,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 "Redistributing Cells has no offect on the underflowed page"
             );
             let mut temp_offset = 0;
-            current_page.reset_for_rebuild();
+            current_page.reset_for_rebuild()?;
             for (i, bytes) in new_left_page_cell.iter().enumerate() {
                 if i == current_page_len {
                     if current_page.insert_cell(&new_cell_for_curr_page, i as _)?
@@ -1964,8 +1952,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 temp_offset, 1,
                 "Separator key was not moved down as expected"
             );
-            current_page.header.right_most_ptr = Some(first_cell_of_right_sibling.left_child());
-            current_page.update_bytes([RightMostPointer]);
+            current_page.set_right_most_ptr(first_cell_of_right_sibling.left_child())?;
             let new_parent_cell = if !is_index {
                 Encode::encode_table_interior_cell(
                     child_page_no,
@@ -1984,7 +1971,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     "redistribute interior: parent separator does not fit".into(),
                 ));
             }
-            sibling_page.reset_for_rebuild();
+            sibling_page.reset_for_rebuild()?;
             // skip the cell we promote
             for (i, bytes) in new_right_page_cells[1..].iter().enumerate() {
                 if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
@@ -1993,9 +1980,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     ));
                 }
             }
-            if sibling_page.header.right_most_ptr != sibling_rmp {
-                sibling_page.header.right_most_ptr = sibling_rmp;
-                sibling_page.update_bytes([RightMostPointer]);
+            if sibling_page.right_most_ptr()? != sibling_rmp {
+                if let Some(rmp) = sibling_rmp {
+                    sibling_page.set_right_most_ptr(rmp)?;
+                }
             }
             return Ok(());
         }
@@ -2009,9 +1997,9 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     ) -> SqliteResult<()> {
         let mut parent_page_guard = self.pager.get_mut(parent_path.page_no)?;
         let mut parent_page = self.page_as_mut(parent_path.page_no, &mut parent_page_guard)?;
-        let is_index = parent_page.as_ref()?.is_index();
+        let is_index = parent_page.as_ref()?.is_index()?;
         debug_assert!(
-            parent_path.cell_idx > 0 && parent_path.cell_idx <= parent_page.no_of_cells(),
+            parent_path.cell_idx > 0 && parent_path.cell_idx <= parent_page.no_of_cells()?,
             "Left most pointer has no left sibling"
         );
         let sibling_idx = parent_path.cell_idx - 1;
@@ -2037,14 +2025,14 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut all_cells_as_bytes: Vec<Vec<u8>> = Vec::new();
         let mut total_size_in_bytes = 0;
         // sibling (left, smaller keys) goes FIRST
-        for i in 0..sibling_page.no_of_cells() {
+        for i in 0..sibling_page.no_of_cells()? {
             let bytes = sibling_page.cell_bytes_as_ref(i)?.to_vec();
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
         }
-        let sibling_len = sibling_page.no_of_cells() as usize;
+        let sibling_len = sibling_page.no_of_cells()? as usize;
 
-        for i in 0..current_page.no_of_cells() {
+        for i in 0..current_page.no_of_cells()? {
             let bytes = current_page.cell_bytes_as_ref(i)?.to_vec();
             total_size_in_bytes += bytes.len();
             all_cells_as_bytes.push(bytes);
@@ -2053,7 +2041,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // leaves is a real index entry, so it joins the pool instead of
         // being dropped. Interior separators are pulled down with the left
         // right most child for the same reason.
-        let is_leaf_page = current_page.is_leaf();
+        let is_leaf_page = current_page.is_leaf()?;
         if is_index {
             let sep_bytes = parent_page.cell_bytes_as_ref(sibling_idx)?.to_vec();
             if is_leaf_page {
@@ -2061,23 +2049,17 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 total_size_in_bytes += leaf_sep.len();
                 all_cells_as_bytes.insert(sibling_len, leaf_sep);
             } else {
-                let left_rmp = sibling_page
-                    .header
-                    .right_most_ptr
-                    .ok_or(SqliteError::Corrupt(
-                        "left interior has no right child".into(),
-                    ))?;
+                let left_rmp = sibling_page.right_most_ptr()?.ok_or(SqliteError::Corrupt(
+                    "left interior has no right child".into(),
+                ))?;
                 let pulled = Encode::encode_index_interior_cell(left_rmp, &sep_bytes[4..]);
                 total_size_in_bytes += pulled.len();
                 all_cells_as_bytes.insert(sibling_len, pulled);
             }
         } else if !is_leaf_page {
-            let left_rmp = sibling_page
-                .header
-                .right_most_ptr
-                .ok_or(SqliteError::Corrupt(
-                    "left interior has no right child".into(),
-                ))?;
+            let left_rmp = sibling_page.right_most_ptr()?.ok_or(SqliteError::Corrupt(
+                "left interior has no right child".into(),
+            ))?;
             let rowid = parent_page.cell(sibling_idx)?.row_id();
             let pulled = Encode::encode_table_interior_cell(left_rmp, rowid);
             total_size_in_bytes += pulled.len();
@@ -2085,7 +2067,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         }
 
         let total_cells = all_cells_as_bytes.len();
-        let header_sz = current_page.header_size() as usize;
+        let header_sz = current_page.header_size()? as usize;
         let required = total_size_in_bytes + total_cells * 2 + header_sz;
         if required <= self.pager.usable_size() {
             self.merge(
@@ -2123,11 +2105,11 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // sibling gets the LEFT half, current_page gets the RIGHT half
         let (new_sibling_cells, new_current_cells) = all_cells_as_bytes.split_at(split_at);
 
-        if current_page.is_leaf() {
+        if current_page.is_leaf()? {
             debug_assert!(
-                sibling_page.is_leaf(),
+                sibling_page.is_leaf()?,
                 "The current page is a leaf ({}), while its sibling page is an interior node ({}).",
-                current_page.page_no,
+                current_page.page_no(),
                 sib_page_no
             );
             if is_index {
@@ -2144,7 +2126,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     "index redistribute left share is empty".into(),
                 ))?;
                 let left_cells = &left_share[..left_share.len() - 1];
-                sibling_page.reset_for_rebuild();
+                sibling_page.reset_for_rebuild()?;
                 for (i, bytes) in left_cells.iter().enumerate() {
                     if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
                         return Err(SqliteError::Internal(
@@ -2152,7 +2134,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                         ));
                     }
                 }
-                current_page.reset_for_rebuild();
+                current_page.reset_for_rebuild()?;
                 for (i, bytes) in right_share.iter().enumerate() {
                     if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
                         return Err(SqliteError::Internal(
@@ -2172,7 +2154,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 return Ok(());
             }
             let separator_index = split_at - 1;
-            let sibling_len = sibling_page.no_of_cells() as usize;
+            let sibling_len = sibling_page.no_of_cells()? as usize;
             let separator_key = if separator_index < sibling_len {
                 sibling_page.cell(separator_index as _)?.row_id()
             } else {
@@ -2182,7 +2164,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             };
             let new_bytes = Encode::encode_table_interior_cell(sib_page_no, separator_key);
 
-            sibling_page.reset_for_rebuild();
+            sibling_page.reset_for_rebuild()?;
             for (i, bytes) in new_sibling_cells.iter().enumerate() {
                 if sibling_page.insert_cell(bytes, i as _)? == InsertionState::None {
                     return Err(SqliteError::Internal(
@@ -2190,7 +2172,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     ));
                 }
             }
-            current_page.reset_for_rebuild();
+            current_page.reset_for_rebuild()?;
             for (i, bytes) in new_current_cells.iter().enumerate() {
                 if current_page.insert_cell(bytes, i as _)? == InsertionState::None {
                     return Err(SqliteError::Internal(
@@ -2202,13 +2184,13 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             debug_assert!(
                 !sibling_page.is_underflow()?,
                 "Sibling page still underflows after redistribution (page_no: {}, free_space: {})",
-                sibling_page.page_no,
+                sibling_page.page_no(),
                 sibling_page.freespace()?
             );
             debug_assert!(
                 !current_page.is_underflow()?,
                 "Current page still underflows after redistribution (page_no: {}, free_space: {})",
-                current_page.page_no,
+                current_page.page_no(),
                 current_page.freespace()?
             );
 
@@ -2234,11 +2216,13 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             ));
         }
         debug_assert_eq!(
-            current_page.header.page_kind, sibling_page.header.page_kind,
+            current_page.page_type()?,
+            sibling_page.page_type()?,
             "Current page kind ({:?}) does not match sibling page kind ({:?})",
-            current_page.header.page_kind, sibling_page.header.page_kind,
+            current_page.page_type()?,
+            sibling_page.page_type()?,
         );
-        let current_len = current_page.no_of_cells() as usize;
+        let current_len = current_page.no_of_cells()? as usize;
         let right_final = (total_cells - split_at) + 1;
         if right_final <= current_len {
             return Err(SqliteError::Internal(
@@ -2249,34 +2233,34 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // Table: boundary rowid moves up. Index: the full entry moves up.
         let promoted_bytes = &new_sibling_cells[new_sibling_cells.len() - 1];
         let promoted_cell = if !is_index {
-            TableInteriorCell::parse(promoted_bytes, 0, self.pager.usable_size())
+            TableInteriorCell::parse(promoted_bytes, self.pager.usable_size())
                 .map(BTreeCell::TableInterior)?
         } else {
-            IndexInteriorCell::parse(promoted_bytes, 0, self.pager.usable_size())
+            IndexInteriorCell::parse(promoted_bytes, self.pager.usable_size())
                 .map(BTreeCell::IndexInterior)?
         };
         let parent_separator_cell = parent_page.cell(sibling_idx)?;
         // Current keeps its rightmost subtree; save before reset wipes it.
         // (Sibling's new RMP is set to the promoted cell's left child below.)
-        let current_rmp = current_page.header.right_most_ptr;
+        let current_rmp = current_page.right_most_ptr()?;
         // Parent separator moves down front of right page; its left child is
         // the sibling's old right-most pointer. Index: move the full parent
         // record down (parsed for its payload range first).
         let new_cell_for_right = if !is_index {
             Encode::encode_table_interior_cell(
-                sibling_page.right_most_ptr().unwrap(),
+                sibling_page.right_most_ptr()?.unwrap(),
                 parent_separator_cell.row_id(),
             )
         } else {
             // parent cell is left_child + varint+payload; strip left_child
             let parent_cell_bytes = parent_page.cell_bytes_as_ref(sibling_idx)?.to_vec();
             Encode::encode_index_interior_cell(
-                sibling_page.right_most_ptr().unwrap(),
+                sibling_page.right_most_ptr()?.unwrap(),
                 &parent_cell_bytes[4..],
             )
         };
 
-        sibling_page.reset_for_rebuild();
+        sibling_page.reset_for_rebuild()?;
         for (i, bytes) in new_sibling_cells[..new_sibling_cells.len() - 1]
             .iter()
             .enumerate()
@@ -2288,8 +2272,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             }
         }
 
-        sibling_page.header.right_most_ptr = Some(promoted_cell.left_child());
-        sibling_page.update_bytes([RightMostPointer]);
+        sibling_page.set_right_most_ptr(promoted_cell.left_child())?;
         let new_parent_cell = if !is_index {
             Encode::encode_table_interior_cell(sib_page_no, promoted_cell.row_id())
         } else {
@@ -2302,7 +2285,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 "redistribute interior: parent separator does not fit".into(),
             ));
         }
-        current_page.reset_for_rebuild();
+        current_page.reset_for_rebuild()?;
         if current_page.insert_cell(&new_cell_for_right, 0 as _)? == InsertionState::None {
             return Err(SqliteError::Internal(
                 "redistribute interior: parent separator does not fit".into(),
@@ -2315,9 +2298,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
         }
-        if current_page.header.right_most_ptr != current_rmp {
-            current_page.header.right_most_ptr = current_rmp;
-            current_page.update_bytes([RightMostPointer]);
+        if current_page.right_most_ptr()? != current_rmp {
+            if let Some(rmp) = current_rmp {
+                current_page.set_right_most_ptr(rmp)?;
+            }
         }
 
         Ok(())
@@ -2331,7 +2315,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         parent_page: &mut BTreePageMut,
         abandoned: PageNo,
     ) -> SqliteResult<()> {
-        if right_page.page_no == abandoned {
+        if right_page.page_no() == abandoned {
             return Err(SqliteError::Corrupt("merge of a page into itself".into()));
         }
         // Callers pool the parent separator into all_cells for index trees
@@ -2339,8 +2323,8 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         // dropped. Table leaf callers keep the old copy semantics and pass
         // only leaf cells. The merged page keeps the right page right most
         // pointer, otherwise the next seek follows a zeroed pointer.
-        let merged_rmp = right_page.header.right_most_ptr;
-        right_page.reset_for_rebuild();
+        let merged_rmp = right_page.right_most_ptr()?;
+        right_page.reset_for_rebuild()?;
         for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
             if right_page.insert_cell(bytes, i as _)? == InsertionState::None {
                 return Err(SqliteError::Internal(
@@ -2348,13 +2332,14 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
         }
-        if right_page.header.right_most_ptr != merged_rmp {
-            right_page.header.right_most_ptr = merged_rmp;
-            right_page.update_bytes([RightMostPointer]);
+        if right_page.right_most_ptr()? != merged_rmp {
+            if let Some(rmp) = merged_rmp {
+                right_page.set_right_most_ptr(rmp)?;
+            }
         }
         parent_page.remove_cell(separator_index)?;
         if parent_page.is_underflow()? {
-            let parent_no = parent_page.page_no;
+            let parent_no = parent_page.page_no();
             self.fix_page_underflow(parent_no)?;
         }
         // All content now lives in right_page; the left page is garbage.
@@ -2373,9 +2358,9 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
 ) -> Result<BTreePageRef<'b>, SqliteError> {
     BTreePageRef::new(
         page_no,
-        guard.bytes_as_ref(),
         pager.page_size(),
         pager.usable_size(),
+        guard.bytes_as_ref(),
     )
 }
 
@@ -2386,9 +2371,9 @@ pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
 ) -> Result<BTreePageMut<'b>, SqliteError> {
     BTreePageMut::new(
         page_no,
-        guard.bytes_as_mut().unwrap(),
         pager.page_size(),
         pager.usable_size(),
+        guard.bytes_as_mut().unwrap(),
     )
 }
 #[derive(Debug, Clone, Copy)]

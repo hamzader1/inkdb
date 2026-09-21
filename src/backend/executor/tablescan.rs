@@ -1,7 +1,7 @@
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::storage::btree::{BTreeCursor, RestorePosition};
-use crate::storage::page::BTreePageRef;
+use crate::storage::page::PageRef as BTreePageRef;
 use crate::vfs::Vfs;
 
 use super::Row;
@@ -25,11 +25,11 @@ impl<V: Vfs> TableScan<V> {
         let guard = pager.get(page_no)?;
         let page = BTreePageRef::new(
             page_no,
-            guard.bytes_as_ref(),
             pager.page_size(),
             pager.usable_size(),
+            guard.bytes_as_ref(),
         )?;
-        let empty = page.no_of_cells() == 0;
+        let empty = page.no_of_cells()? == 0;
 
         Ok(Self {
             cursor,

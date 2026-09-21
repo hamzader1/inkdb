@@ -1,11 +1,11 @@
 use crate::{
-    SqliteCursor,
     backend::executor::Row,
     errors::SqliteError,
     pager::pager::Pager,
     storage::{
         btree::page_as_mut_with_pager,
-        page::{BTreePageMut, BTreePageOps, BTreePageType},
+        page::BTreePageType,
+        page::PageMut as BTreePageMut,
     },
     vfs::Vfs,
 };
@@ -50,7 +50,7 @@ impl TruncateTable {
             guard.bytes_as_mut_unchecked(),
             pager.page_size(),
             pager.usable_size(),
-        );
+        )?;
         if let Some(ref indexes) = self.indexes {
             for index in indexes {
                 Self::new_index(*index).next(pager)?;
@@ -70,26 +70,32 @@ impl TruncateTable {
      *
      * */
     fn dfs<V: Vfs>(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), SqliteError> {
-        let mut guard = pager.get_mut(page_no)?;
-        let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;
-        if page.is_leaf() {
+        let (is_leaf, children, rmp) = {
+            let mut guard = pager.get_mut(page_no)?;
+            let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;
+            let is_leaf = page.is_leaf()?;
+            let mut children = Vec::new();
+            if !is_leaf {
+                for i in 0..page.no_of_cells()? {
+                    children.push(page.cell(i)?.left_child());
+                }
+            }
+            (is_leaf, children, page.right_most_ptr()?)
+        };
+        if is_leaf {
             if page_no != root_page {
-                pager.dealloc(page.page_no)?;
+                pager.dealloc(page_no)?;
             }
             return Ok(());
         }
-        for &cell_offset in page.cell_pointers.iter() {
-            let mut cursor = SqliteCursor::with_offset(page.bytes, cell_offset as _)?;
-            let child_page = cursor.read_next_u32()?;
+        for child_page in children {
             Self::dfs(root_page, child_page, pager)?;
         }
-        // RMP
-        if let Some(rmp) = page.right_most_ptr() {
+        if let Some(rmp) = rmp {
             Self::dfs(root_page, rmp, pager)?;
         }
-        // Never deallocate root page
-        if page.page_no != root_page {
-            pager.dealloc(page.page_no)?;
+        if page_no != root_page {
+            pager.dealloc(page_no)?;
         }
         Ok(())
     }

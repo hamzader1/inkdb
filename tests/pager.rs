@@ -1,4 +1,4 @@
-use inkdb::pager::pager::Pager;
+use inkdb::pager::pager::{HeaderCache, Pager};
 use inkdb::vfs::disk::DiskVfs;
 use inkdb::vfs::file::SqliteFile;
 use inkdb::vfs::{SqliteOptions, Vfs};
@@ -24,10 +24,12 @@ fn test_pager(tag: &str, cache: usize, npages: usize) -> (Pager<DiskVfs>, PathBu
     let mut vfs = DiskVfs;
     let source = vfs.open(&path, SqliteOptions::all()).unwrap();
     source.set_len(PS * npages).unwrap();
-    let pager = Pager::with_cache(vfs, source, PS, PS, npages, 0, 0, cache).unwrap();
+    let header = HeaderCache::new(PS as _, PS as _, npages as _, 0, 0);
+    let pager = Pager::with_cache(vfs, source, header, cache).unwrap();
     (pager, path)
 }
 
+#[allow(clippy::ptr_arg)]
 fn journal_path(db: &PathBuf) -> PathBuf {
     let name = db.file_name().unwrap().to_str().unwrap().to_owned();
     db.parent().unwrap().join(format!("{}-journal", name))

@@ -4,7 +4,7 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::record::{SqlType, Value};
 use crate::storage::btree::BTree;
-use crate::storage::page::{BTreePageMut, BTreePageType};
+use crate::storage::page::{PageMut as BTreePageMut, BTreePageType};
 use crate::vfs::Vfs;
 
 use super::Row;
