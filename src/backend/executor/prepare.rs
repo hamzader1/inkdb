@@ -43,7 +43,7 @@ impl<V: Vfs> PrepareRow<V> {
         }
         let mut btree = BTree::new(self.root_page, pager);
         btree.seek_into_last()?;
-        let is_empty = btree.current_page_header_unchecked()?.no_of_cells == 0;
+        let is_empty = btree.current_page_header_unchecked()? == 0;
         let (page_no, cell_idx) = btree.cursor.last_visited_entry_unchecked();
         let next_row_id = if is_empty {
             1
