@@ -9,12 +9,14 @@ use crate::pager::pager::Pager;
 use crate::record::tuple::Tuple;
 use crate::record::tuple::{decode_sqltype, into_borrowed, into_owned};
 use crate::record::{SqlType, Value};
-use crate::util::{sqlite_assert_one, sqlite_assert_with_corrupt_err};
+use crate::util::{
+    sqlite_assert_one, sqlite_assert_with_corrupt_err, sqlite_assert_with_runtime_err,
+};
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
-use PageField::*;
 use std::marker::PhantomData;
 
+// use super::cell::BTreeCell;
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
 
@@ -88,1069 +90,10 @@ impl BTreePageType {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct BTreePageHeader {
-    pub page_kind: BTreePageType,
-    pub first_freeblock: u16,
-    pub no_of_cells: u16,
-    pub cell_content_area: u16,
-    pub frag_cnt: u8,
-    pub right_most_ptr: Option<PageNo>,
-}
-impl BTreePageHeader {
-    pub fn new(page_kind: BTreePageType, usable_size: usize) -> Self {
-        Self {
-            page_kind,
-            first_freeblock: 0,
-            no_of_cells: 0,
-            cell_content_area: usable_size as _,
-            frag_cnt: 0,
-            right_most_ptr: None,
-        }
-    }
-    pub fn parse(bytes: &[u8], header_offsert: u8) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::with_offset(bytes, header_offsert as _)?;
-        let page_kind_byte = cursor.read_next_u8()?;
-        // use std::backtrace::Backtrace;
-        // let bt = Backtrace::force_capture();
-        // eprintln!("BACKTRACE:\n{bt}");
-        let p_kind = match BTreePageType::get(page_kind_byte) {
-            Some(x) => x,
-            _ => return Err(SqliteError::InvalidPageType(page_kind_byte)),
-        };
-
-        Self::parse_page(&mut cursor, p_kind)
-    }
-    fn parse_page(
-        cursor: &mut SqliteCursor,
-        page_kind: BTreePageType,
-    ) -> Result<Self, SqliteError> {
-        let first_freeblock: u16 = cursor.read_next_u16()?;
-        let no_of_cells: u16 = cursor.read_next_u16()?;
-        let cell_content_area: u16 = cursor.read_next_u16()?;
-        let frag_cnt: u8 = cursor.read_next_u8()?;
-        let is_interior = page_kind.is_interior();
-        let right_most_ptr: Option<PageNo> = if is_interior {
-            Some(cursor.read_next_u32()?)
-        } else {
-            None
-        };
-        let page_header = Self {
-            page_kind,
-            first_freeblock,
-            no_of_cells,
-            cell_content_area,
-            frag_cnt,
-            right_most_ptr,
-        };
-        Ok(page_header)
-    }
-    pub fn right_most_ptr(&self) -> Option<PageNo> {
-        self.right_most_ptr
-    }
-    pub fn local_header_size(&self) -> u8 {
-        if self.page_kind.is_interior() {
-            return INTERIOR_BTREE_PAGE_HEADER_SIZE;
-        }
-        LEAF_BTREE_PAGE_HEADER_SIZE
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum InsertionState {
     Inserted,
     None,
-}
-
-#[derive(Clone)]
-pub struct BTreePageRef<'p> {
-    pub page_no: PageNo,
-    header_offset: u8,
-    header: BTreePageHeader,
-    pub bytes: &'p [u8],
-    page_size: usize,
-    usable_size: usize,
-    _marker: PhantomData<&'p PageGuard>,
-}
-impl<'p> BTreePageRef<'p> {
-    pub fn new(
-        page_no: PageNo,
-        bytes: &'p [u8],
-        page_size: usize,
-        usable_size: usize,
-    ) -> Result<Self, SqliteError> {
-        let header_offset = if page_no == 1 { 100 } else { 0 };
-        let header = BTreePageHeader::parse(bytes, header_offset)?;
-        Ok(Self {
-            page_no,
-            header_offset,
-            header,
-            bytes,
-            page_size,
-            usable_size,
-            _marker: PhantomData,
-        })
-    }
-    pub fn header(&self) -> BTreePageHeader {
-        self.header.to_owned()
-    }
-
-    pub fn get_cell_offset(&self, cell_idx: CellIndex) -> Result<u16, SqliteError> {
-        let start = self.header_size() as u16;
-        let end = start + self.no_of_cells() * 2;
-
-        let cell_offset = (cell_idx * 2) + self.header_size() as u16;
-        sqlite_assert_with_corrupt_err(
-            cell_offset >= start && cell_offset < end && (cell_offset - start).is_multiple_of(2),
-            || {
-                format!(
-                    "Cell Index Out of Bounds: Start: {}, End: {}, CellOffset: {}",
-                    start, end, cell_offset
-                )
-            },
-        )?;
-        let mut cursor = SqliteCursor::with_offset(self.bytes, cell_offset as _)?;
-        let cell_ptr = cursor.read_next_u16()?;
-        Ok(cell_ptr)
-    }
-
-    pub fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
-        let cell_ptr = self.get_cell_offset(cell_idx)?;
-        self.cell_by_ptr(cell_ptr)
-    }
-
-    pub fn cell_by_ptr(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
-        debug_assert!(cell_ptr as usize <= self.usable_size);
-        let bytes = self.bytes;
-
-        match self.header.page_kind {
-            BTreePageType::InteriorTable => {
-                TableInteriorCell::parse(bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableInterior)
-            }
-            BTreePageType::LeafTable => {
-                TableLeafCell::parse(bytes, cell_ptr, self.usable_size).map(BTreeCell::TableLeaf)
-            }
-
-            BTreePageType::InteriorIndex => {
-                IndexInteriorCell::parse(bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexInterior)
-            }
-            BTreePageType::LeafIndex => {
-                IndexLeafCell::parse(bytes, cell_ptr, self.usable_size).map(BTreeCell::IndexLeaf)
-            }
-        }
-    }
-
-    pub fn is_index(&self) -> bool {
-        self.header.page_kind == BTreePageType::InteriorIndex
-            || self.header.page_kind == BTreePageType::LeafIndex
-    }
-
-    pub fn freespace(&self) -> SqliteResult<usize> {
-        let freeblocks_size = self.freeblocks_size()?;
-        let total_free_bytes = freeblocks_size
-            + self.header.frag_cnt as usize
-            + self.header.cell_content_area as usize
-            - (self.header_size() as u16 + self.header.no_of_cells * 2) as usize;
-        Ok(total_free_bytes)
-    }
-    fn freeblocks_size(&self) -> SqliteResult<usize> {
-        if self.header.first_freeblock == 0 {
-            return Ok(0);
-        }
-        let mut cursor = SqliteCursor::with_offset(self.bytes, self.header.first_freeblock as u64)?;
-        let mut total_size = 0;
-        let mut next_freeblock_offset = cursor.read_next_u16()?;
-        let mut freeblock_size = cursor.read_next_u16()?;
-        total_size += freeblock_size;
-        while next_freeblock_offset != 0 {
-            cursor.set_offset(next_freeblock_offset as _);
-            next_freeblock_offset = cursor.read_next_u16()?;
-            freeblock_size = cursor.read_next_u16()?;
-            total_size += freeblock_size;
-        }
-
-        Ok(total_size as _)
-    }
-    pub fn is_underflow(&self) -> SqliteResult<bool> {
-        Ok(self.freespace()? > self.usable_size * 2 / 3)
-    }
-    pub fn would_underflow_after_remove(&self, delta: usize) -> SqliteResult<bool> {
-        let freespace = self.freespace()?;
-        let threshold = self.usable_size * 2 / 3;
-
-        let result = match freespace.checked_add(delta) {
-            Some(new_freespace) => new_freespace > threshold,
-            None => true,
-        };
-        Ok(result)
-    }
-    pub fn record_of_cell<V: crate::vfs::Vfs>(
-        &self,
-        cell_idx: CellIndex,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'p>>, SqliteError> {
-        let mut records = Vec::new();
-        let cell = self.cell(cell_idx)?;
-        self.get_cell_record(pager, &cell, &mut records)?;
-        Ok(records)
-    }
-    pub fn record_of<V: crate::vfs::Vfs>(
-        &self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'p>>, SqliteError> {
-        let mut records = Vec::new();
-        self.get_cell_record(pager, cell, &mut records)?;
-        Ok(records)
-    }
-
-    pub fn record_of_cell_into<V: crate::vfs::Vfs>(
-        &self,
-        cell_idx: CellIndex,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'p>>,
-    ) -> Result<(), SqliteError> {
-        let cell = self.cell(cell_idx)?;
-        self.get_cell_record(pager, &cell, records)
-    }
-
-    pub fn record_of_into<V: crate::vfs::Vfs>(
-        &self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'p>>,
-    ) -> Result<(), SqliteError> {
-        self.get_cell_record(pager, cell, records)
-    }
-    fn get_cell_record<V: crate::vfs::Vfs>(
-        &self,
-        pager: &mut Pager<V>,
-        cell: &BTreeCell,
-        collector: &mut Vec<Value<'p>>,
-    ) -> Result<(), SqliteError> {
-        if let Some(overflow_page) = cell.overflow_page() {
-            let vec = OverflowPageRef::get_total_payload(
-                pager,
-                &self.bytes[*cell.payload_range()],
-                cell.cell_payload_len() as usize,
-                self.usable_size,
-                overflow_page,
-            )?;
-            self.decode_loop_owned(vec, collector)
-        } else {
-            self.decode_loop_borrowed(&self.bytes[*cell.payload_range()], collector)
-        }
-    }
-    fn decode_loop_owned(
-        &self,
-        bytes: Vec<u8>,
-        collector: &mut Vec<Value<'_>>,
-    ) -> Result<(), SqliteError> {
-        let mut header_cursor = SqliteCursor::new(bytes.as_slice());
-        let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
-        let mut remaining = (header_size as usize) - consumed;
-        let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
-        while remaining > 0 {
-            let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
-            let record_metadata = Tuple::content_size(serial_type);
-            let data = data_cursor.read_to(record_metadata.size as _)?;
-            let decoded = decode_sqltype(data, &record_metadata);
-            collector.push(into_owned(decoded));
-            remaining -= consumed;
-        }
-        Ok(())
-    }
-    fn decode_loop_borrowed(
-        &self,
-        bytes: &'p [u8],
-        collector: &mut Vec<Value<'p>>,
-    ) -> Result<(), SqliteError> {
-        let mut header_cursor = SqliteCursor::new(bytes);
-        let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
-        let mut remaining = (header_size as usize) - consumed;
-        let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
-        while remaining > 0 {
-            let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
-            let record_metadata = Tuple::content_size(serial_type);
-            let data = data_cursor.read_to(record_metadata.size as _)?;
-            let decoded = decode_sqltype(data, &record_metadata);
-            collector.push(into_borrowed(decoded));
-            remaining -= consumed;
-        }
-        Ok(())
-    }
-    pub fn page_type(&self) -> BTreePageType {
-        self.header.page_kind
-    }
-    pub fn header_size(&self) -> u8 {
-        self.header.local_header_size() + self.header_offset
-    }
-    pub fn is_leaf(&self) -> bool {
-        self.header.page_kind.is_leaf()
-    }
-
-    pub fn is_interior(&self) -> bool {
-        self.header.page_kind.is_interior()
-    }
-    pub fn right_most_ptr(&self) -> Option<PageNo> {
-        self.header.right_most_ptr()
-    }
-    pub fn no_of_cells(&self) -> u16 {
-        self.header.no_of_cells
-    }
-
-    pub fn iter<'r, V: crate::vfs::Vfs>(
-        &'r self,
-        pager: &'r mut Pager<V>,
-    ) -> PageIterator<'r, 'p, V> {
-        PageIterator {
-            page: self,
-            pager,
-            index: 0,
-        }
-    }
-    pub fn records<V: crate::vfs::Vfs>(
-        &self,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Vec<Value<'p>>>, SqliteError> {
-        let mut all = Vec::with_capacity(self.no_of_cells() as usize);
-        for cell_idx in 0..self.no_of_cells() {
-            all.push(self.record_of_cell(cell_idx, pager)?);
-        }
-        Ok(all)
-    }
-
-    pub fn cell_key<V: Vfs>(
-        &self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
-        match cell {
-            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
-            BTreeCell::TableInterior(table_interior) => {
-                Ok(table_interior.rowid_boundary.into_sqlite_value())
-            }
-            BTreeCell::IndexInterior(index_interior) => {
-                let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_owned())
-            }
-            BTreeCell::IndexLeaf(index_leaf) => {
-                let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_owned())
-            }
-        }
-    }
-}
-
-// 'p pager lifetime
-pub struct BTreePageMut<'p> {
-    pub page_no: PageNo,
-    pub header_offset: u8,
-    pub header: BTreePageHeader,
-    pub bytes: &'p mut [u8],
-    page_size: usize,
-    usable_size: usize,
-    pub cell_pointers: Vec<u16>,
-    _marker: PhantomData<&'p PageGuard>,
-}
-impl<'p> BTreePageMut<'p> {
-    pub fn new(
-        page_no: PageNo,
-        bytes: &'p mut [u8],
-        page_size: usize,
-        usable_size: usize,
-    ) -> Result<Self, SqliteError> {
-        let header_offset = if page_no == 1 { 100 } else { 0 };
-        let header = BTreePageHeader::parse(bytes, header_offset)?;
-        let mut page = BTreePageMut {
-            page_no,
-            header_offset,
-            header,
-            bytes,
-            page_size,
-            usable_size,
-            cell_pointers: Vec::new(), // todo: This shows significant performance cost in analysis
-            _marker: PhantomData,
-        };
-        page.parse_cell_array_into_page()?;
-        Ok(page)
-    }
-
-    pub fn new_from_raw_bytes(
-        page_no: PageNo,
-        page_kind: BTreePageType,
-        bytes: &'p mut [u8],
-        page_size: usize,
-        usable_size: usize,
-    ) -> Self {
-        let new_header = BTreePageHeader::new(page_kind, usable_size);
-        let header_offset = if page_no == 1 { 100 } else { 0 };
-        let mut page = Self {
-            page_no,
-            page_size,
-            bytes,
-            usable_size,
-            cell_pointers: Vec::new(),
-            header: new_header,
-            header_offset,
-            _marker: PhantomData,
-        };
-        // a recycled frame is not guaranteed to be zeroed, so the cell count
-        // has to be written out too instead of relying on the old bytes
-        page.update_bytes([
-            NoOfCells,
-            CellContentArea,
-            PageKind,
-            FirstFreeBlock,
-            FragCnt,
-        ]);
-        page
-    }
-
-    fn parse_cell_array_into_page(&mut self) -> Result<(), SqliteError> {
-        let header_size = self.header_size();
-        let Self {
-            header,
-            cell_pointers,
-            bytes,
-            ..
-        } = self;
-        let mut cursor = SqliteCursor::with_offset(bytes, header_size as _)?;
-        for _ in 0..header.no_of_cells {
-            let cell_pointer = cursor.read_next_u16()?;
-            cell_pointers.push(cell_pointer);
-        }
-        Ok(())
-    }
-
-    /// Parses the cell at `cell_ptr` directly from the page bytes.
-    ///
-    /// Unlike `BTreePageOps::cell_by_ptr` this does not go through
-    /// `get_page_as_ref`, so it borrows the page only for the duration of the
-    /// call and stays usable while the page is being rebuilt.
-    pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
-        match self.header.page_kind {
-            BTreePageType::InteriorTable => {
-                TableInteriorCell::parse(self.bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableInterior)
-            }
-            BTreePageType::LeafTable => {
-                TableLeafCell::parse(self.bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::TableLeaf)
-            }
-            BTreePageType::InteriorIndex => {
-                IndexInteriorCell::parse(self.bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexInterior)
-            }
-            BTreePageType::LeafIndex => {
-                IndexLeafCell::parse(self.bytes, cell_ptr, self.usable_size)
-                    .map(BTreeCell::IndexLeaf)
-            }
-        }
-    }
-
-    // pub fn cell_span(&self, cell_ptr: u16) -> Result<std::ops::Range<usize>, SqliteError> {
-    //     let start = cell_ptr as usize;
-    //     let cell = self.parse_cell_at(cell_ptr)?;
-    //     let end = if self.header.page_kind == BTreePageType::InteriorTable {
-    //         // left child pointer + rowid varint, no payload
-    //         start
-    //             + LEFT_CHILD_POINTER_SIZE
-    //             + crate::varint::encode_varint(&mut [0u8; 9], cell.row_id())
-    //     } else {
-    //         // payload_range() covers the LOCAL payload only, the overflow page
-    //         // pointer that follows it belongs to the cell as well
-    //         cell.payload_range().end
-    //             + if cell.overflow_page().is_some() {
-    //                 OVERFLOW_POINTER_SIZE
-    //             } else {
-    //                 0
-    //             }
-    //     };
-    //     debug_assert!(
-    //         end > start && end <= self.usable_size,
-    //         "cell span out of page bounds",
-    //     );
-    //     Ok(start..end)
-    // }
-
-    /// The exact byte span the cell occupies on this page.
-    ///
-    /// Cell pointers are stored in KEY order while the bodies are laid out in
-    /// ALLOCATION order, so the distance to the next pointer says nothing about
-    /// a cell's length: the span has to be derived from the cell itself.
-    pub fn cell_span(&self, cell_ptr: u16) -> SqliteResult<std::ops::Range<usize>> {
-        let start = cell_ptr as usize;
-        let cell = self.parse_cell_at(cell_ptr)?;
-        let end = match self.page_type() {
-            BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
-                c.local_payload_range.end
-                    + if cell.overflow_page().is_some() {
-                        OVERFLOW_POINTER_SIZE
-                    } else {
-                        0
-                    }
-            }),
-            BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
-                c.payload.end
-                    + if c.first_overflow_page.is_some() {
-                        OVERFLOW_POINTER_SIZE
-                    } else {
-                        0
-                    }
-            }),
-
-            BTreePageType::InteriorTable => cell.with_table_interior_cell(|c| {
-                start + LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary)
-            }),
-
-            BTreePageType::InteriorIndex => cell.with_index_interior_cell(|c| {
-                /* Start to cell.payload.start covers
-                 *
-                 * LEFT_CHILD_POINTER_SIZE
-                 * encode_varint(&mut [0u8; 9], c.payload_len)
-                 *
-                 */
-                c.payload.end
-                    + if c.first_overflow_page.is_some() {
-                        OVERFLOW_POINTER_SIZE
-                    } else {
-                        0
-                    }
-            }),
-        };
-        Ok(start..end)
-    }
-
-    pub fn cell_bytes_as_ref(&self, cell_index: u16) -> SqliteResult<&[u8]> {
-        let cell_offset = self.as_ref()?.get_cell_offset(cell_index)?;
-        let cell_span = self.cell_span(cell_offset)?;
-        Ok(&self.bytes[cell_span])
-    }
-    pub fn cell_bytes_as_mut(&mut self, cell_index: u16) -> SqliteResult<&mut [u8]> {
-        let cell_offset = self.as_ref()?.get_cell_offset(cell_index)?;
-        let cell_span = self.cell_span(cell_offset)?;
-        Ok(&mut self.bytes[cell_span])
-    }
-
-    // pub fn replace_cell_inplace(
-    //     &mut self,
-    //     cell_offset: u16,
-    //     cell_bytes: &[u8],
-    // ) -> SqliteResult<()> {
-    //     let cell_span = self.cell_span(cell_offset)?;
-    //     debug_assert!(
-    //         (cell_span.end - cell_span.start) == cell_bytes.len(),
-    //         "
-    //         The given cell bytes length does not match the original cell
-    //         "
-    //     );
-    //     self.bytes[cell_span.start..cell_span.end].copy_from_slice(cell_bytes);
-    //     Ok(())
-    // }
-
-    /// Drops all cell bookkeeping so the page can be rebuilt from staged cell
-    /// bodies. Page kind and right most pointer are preserved.
-    ///
-    /// We MUST copy out every cell body we still need BEFORE calling
-    /// this: the following `insert_cell` calls start allocating at
-    /// `usable_size` again and will overwrite the old bodies.
-    pub fn reset_for_rebuild(&mut self) {
-        self.header.no_of_cells = 0;
-        self.header.cell_content_area = self.usable_size as u16;
-        self.cell_pointers.clear();
-        self.header.first_freeblock = 0;
-        self.header.frag_cnt = 0;
-        self.header.right_most_ptr = None;
-        self.update_bytes([
-            NoOfCells,
-            CellContentArea,
-            CellPointers,
-            FragCnt,
-            FirstFreeBlock,
-            RightMostPointer,
-        ]);
-    }
-
-    pub fn insert_cell<B: AsRef<[u8]>>(
-        &mut self,
-        content: &B,
-        cell_idx: CellIndex,
-    ) -> Result<InsertionState, SqliteError> {
-        let content = content.as_ref();
-        if let Some(offset) = self.get_freeblock(content.as_ref().len() as _)? {
-            // Body reuses a freeblock slot (already inside the content area,
-            // CCA must not move) — but the pointer array still needs 2 bytes
-            // from the unallocated gap.
-            let gap = self
-                .header
-                .cell_content_area
-                .saturating_sub(self.header_size() as u16 + self.header.no_of_cells * 2)
-                as usize;
-            if gap < 2 {
-                return Ok(InsertionState::None); // overflow: no room for pointer
-            }
-            return self.insert_cell_at(content, offset as usize, cell_idx, false);
-        }
-        if self.remaining_space() < content.len() + 2 {
-            return Ok(InsertionState::None); // overflow
-        }
-        let offset = self.header.cell_content_area as usize - content.len();
-        self.insert_cell_at(content, offset, cell_idx, true)
-    }
-    fn insert_cell_at(
-        &mut self,
-        content: &[u8],
-        offset: usize,
-        cell_idx: CellIndex,
-        from_top: bool,
-    ) -> SqliteResult<InsertionState> {
-        self.bytes[offset..offset + content.len()].copy_from_slice(content);
-        self.cell_pointers.insert(cell_idx as _, offset as _);
-        self.header.no_of_cells += 1;
-        if from_top {
-            self.header.cell_content_area -= content.len() as u16;
-            self.update_bytes([CellPointers, CellContentArea, NoOfCells]);
-        } else {
-            self.update_bytes([CellPointers, NoOfCells]);
-        }
-        Ok(InsertionState::Inserted)
-    }
-
-    /*
-
-     * Claim `size` bytes from the freelist (first-fit).
-     * - leftover == 0: unlink the whole block.
-     * - 0 < leftover < 4: unlink the block, crumbs go to frag_cnt (too small
-     * to form a freeblock).
-     * - leftover >= 4: carve `size` bytes off the front, the remainder stays
-     * a freeblock at [offset + size] with the old next pointer; prev (or
-     * the header when taking from the head) is relinked to it.
-
-    */
-    pub fn get_freeblock(&mut self, size: u16) -> SqliteResult<Option<u16>> {
-        if self.header.first_freeblock == 0 {
-            return Ok(None);
-        }
-        let mut prev: Option<u16> = None;
-        let mut current = self.header.first_freeblock;
-        while current != 0 {
-            let block = FreeCell::parse(current, self.bytes)?;
-            if block.size >= size {
-                let leftover = block.size - size;
-                if leftover < 4 {
-                    // Unlink the whole block; crumbs (<4) become fragmentation.
-                    match prev {
-                        None => {
-                            self.header.first_freeblock = block.next;
-                            self.update_bytes([FirstFreeBlock]);
-                        }
-                        Some(prev_off) => {
-                            let prev_off = prev_off as usize;
-                            self.bytes[prev_off..prev_off + 2]
-                                .copy_from_slice(&block.next.to_be_bytes());
-                        }
-                    }
-                    if leftover > 0 {
-                        self.header.frag_cnt = self.header.frag_cnt.saturating_add(leftover as u8);
-                        self.update_bytes([FragCnt]);
-                    }
-                } else {
-                    // Split: caller takes [offset, offset + size), remainder
-                    // stays a freeblock at offset + size.
-                    let new_off = current + size;
-                    let new_off_usize = new_off as usize;
-                    self.bytes[new_off_usize..new_off_usize + 2]
-                        .copy_from_slice(&block.next.to_be_bytes());
-                    self.bytes[new_off_usize + 2..new_off_usize + 4]
-                        .copy_from_slice(&leftover.to_be_bytes());
-                    match prev {
-                        None => {
-                            self.header.first_freeblock = new_off;
-                            self.update_bytes([FirstFreeBlock]);
-                        }
-                        Some(prev_off) => {
-                            let prev_off = prev_off as usize;
-                            self.bytes[prev_off..prev_off + 2]
-                                .copy_from_slice(&new_off.to_be_bytes());
-                        }
-                    }
-                }
-                return Ok(Some(block.starting_offset));
-            }
-            prev = Some(current);
-            current = block.next;
-        }
-        Ok(None)
-    }
-    #[expect(clippy::missing_safety_doc)]
-    pub unsafe fn insert_cell_raw(
-        &mut self,
-        content: *const u8,
-        content_len: usize,
-        cell_idx: CellIndex,
-    ) -> Result<InsertionState, SqliteError> {
-        if self.remaining_space() < content_len + 2 {
-            return Ok(InsertionState::None);
-        }
-        let entry_offset = self.header.cell_content_area as usize - content_len;
-        unsafe {
-            std::ptr::copy(
-                content,
-                self.bytes.as_mut_ptr().add(entry_offset),
-                content_len,
-            );
-        }
-        self.cell_pointers.insert(cell_idx as _, entry_offset as _);
-        self.header.cell_content_area -= content_len as u16;
-
-        self.header.no_of_cells += 1;
-        /*
-         * UPDATE INCLUDE:
-         *
-         * UPDATE CELL POINTERS
-         * UPDATE CELL COUNT
-         * UPDATE CELL CONTENT ARE
-         */
-
-        self.update_bytes([CellPointers, NoOfCells, CellContentArea]);
-        Ok(InsertionState::Inserted)
-    }
-
-    pub fn replace_cell(
-        &mut self,
-        cell_idx: CellIndex,
-        content: impl AsRef<[u8]>,
-    ) -> Result<InsertionState, SqliteError> {
-        let content = content.as_ref();
-        if cell_idx as usize >= self.cell_pointers.len() {
-            return Err(SqliteError::Internal(format!(
-                "replace_cell: index {cell_idx} out of bounds (page holds {} cells)",
-                self.cell_pointers.len()
-            )));
-        }
-
-        // cell pointers are in KEY order, not OFFSET order anymore
-        // (random inserts allocate each new cell at the lowest offset),
-        // so derive each cell's real span from its parsed cell
-        let mut cells = Vec::with_capacity(self.cell_pointers.len());
-        for i in 0..self.cell_pointers.len() {
-            if i == cell_idx as usize {
-                cells.push(content.to_vec());
-                continue;
-            }
-            let span = self.cell_span(self.cell_pointers[i])?;
-            cells.push(self.bytes[span].to_vec());
-        }
-
-        // Fit check before touching a single byte. A failed replace used
-        // to die halfway through the rebuild below, leaving a half empty
-        // page behind. None now means untouched, so the caller is free to
-        // split the page and retry.
-        let bodies: usize = cells.iter().map(|c| c.len()).sum();
-        if bodies + cells.len() * 2 + self.header_size() as usize > self.usable_size {
-            return Ok(InsertionState::None);
-        }
-
-        // every body is staged, the page can be rebuilt in place now. this also
-        // reclaims the space of the cell being replaced.
-        // The rebuild wipes the right most pointer: interiors get it back
-        // below (leaves ignore it). Without this every separator update on
-        // a parent zeroes its RMP.
-        let rmp = self.header.right_most_ptr;
-        self.reset_for_rebuild();
-        for (i, cell) in cells.iter().enumerate() {
-            if self.insert_cell(cell, i as _)? == InsertionState::None {
-                return Err(SqliteError::Internal(
-                    "replace_cell: staged rebuild overflowed a fitting page".into(),
-                ));
-            }
-        }
-        if self.header.right_most_ptr != rmp {
-            self.header.right_most_ptr = rmp;
-            self.update_bytes([RightMostPointer]);
-        }
-        Ok(InsertionState::Inserted)
-    }
-
-    pub fn remaining_space(&self) -> usize {
-        self.header.cell_content_area as usize
-            - (self.cell_pointers.len() * 2)
-            - (self.header_size()) as usize
-    }
-
-    /*
-     * UNSAFE TO:
-     *   CALL UNLESS REWRITE THE HEADER
-     *   USE THE HEADER
-     */
-    pub fn clear(&mut self) {
-        self.bytes[self.header_offset as usize..self.usable_size].fill(0);
-    }
-
-    pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
-        if self.header_offset != other.header_offset {
-            return Err(SqliteError::Internal(
-                "copy_data_from between pages with different header offsets".into(),
-            ));
-        }
-        if self.usable_size != other.usable_size || self.bytes.len() < other.usable_size {
-            return Err(SqliteError::Internal(
-                "copy_data_from between pages with different usable sizes".into(),
-            ));
-        }
-        self.bytes[..other.usable_size].copy_from_slice(&other.bytes[..other.usable_size]);
-        // the cached header/cell pointers described the page BEFORE the copy
-        self.header = other.header;
-        self.cell_pointers = other.cell_pointers.clone();
-        Ok(())
-    }
-
-    pub fn insert_freeblock(&mut self, offset: usize, size: usize) -> SqliteResult<()> {
-        debug_assert!(size >= 4, "Freeblock size cannot be less than 4 bytes");
-
-        // CASE [A]: There are no freeblocks yet.
-        if self.header.first_freeblock == 0 {
-            self.bytes[offset..offset + 2].copy_from_slice(&[0, 0]);
-            self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
-
-            let start = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
-            let end = start + FIRST_FREEBLOCK_SIZE;
-
-            self.bytes[start..end].copy_from_slice(&(offset as u16).to_be_bytes());
-
-            return Ok(());
-        }
-
-        let first_cell = FreeCell::parse(self.header.first_freeblock, self.bytes)?;
-
-        // NEW CASE: offset comes before the current first freeblock.
-        // This must be checked BEFORE anything else, since every later
-        // branch assumes [`offset`] only ever increases relative to the
-        // node it's being compared against.
-        if offset + size <= first_cell.starting_offset as usize {
-            let new_end = offset + size;
-
-            // [NEW][FIRST]  (adjacent -> merge)
-            if new_end == first_cell.starting_offset as usize {
-                self.bytes[offset..offset + 2].copy_from_slice(&first_cell.next.to_be_bytes());
-
-                let new_size = size + first_cell.size as usize;
-                self.bytes[offset + 2..offset + 4]
-                    .copy_from_slice(&(new_size as u16).to_be_bytes());
-            } else {
-                // [NEW] ... [FIRST]  (gap -> just link, no merge)
-                self.bytes[offset..offset + 2]
-                    .copy_from_slice(&(first_cell.starting_offset).to_be_bytes());
-
-                self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
-            }
-
-            // Either way NEW becomes the new head of the freelist.
-            let start = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
-            let end = start + FIRST_FREEBLOCK_SIZE;
-            self.bytes[start..end].copy_from_slice(&(offset as u16).to_be_bytes());
-
-            return Ok(());
-        }
-
-        // CASE [B]: There is only one freeblock.
-        if first_cell.next == 0 {
-            // [A][NEW]
-            if first_cell.starting_offset as usize + first_cell.size as usize == offset {
-                let first_cell_offset = first_cell.starting_offset as usize;
-
-                self.bytes[first_cell_offset + 2..first_cell_offset + 4]
-                    .copy_from_slice(&((first_cell.size as usize + size) as u16).to_be_bytes());
-
-                return Ok(());
-            }
-
-            // [A] ... [NEW]
-            // (We already handled offset <= first_cell above, so here
-            // offset is guaranteed to be strictly after A and non-adjacent.)
-            self.bytes[offset..offset + 2].copy_from_slice(&[0, 0]);
-            self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
-            let first_cell_offset = first_cell.starting_offset as usize;
-            self.bytes[first_cell_offset..first_cell_offset + 2]
-                .copy_from_slice(&(offset as u16).to_be_bytes());
-
-            return Ok(());
-        }
-
-        // Multiple freeblocks.
-        let mut prev_cell = first_cell;
-
-        while prev_cell.next != 0 {
-            let current_cell = FreeCell::parse(prev_cell.next, self.bytes)?;
-
-            let current_cell_offset = current_cell.starting_offset as usize;
-            let current_cell_size = current_cell.size as usize;
-
-            let prev_cell_offset = prev_cell.starting_offset as usize;
-            let prev_cell_end = prev_cell_offset + prev_cell.size as usize;
-
-            let new_end = offset + size;
-
-            // [PREV][NEW][CURRENT]
-            if prev_cell_end == offset && new_end == current_cell_offset {
-                let new_size = prev_cell.size as usize + size + current_cell_size;
-
-                // PREV.size = PREV + NEW + CURRENT
-                self.bytes[prev_cell_offset + 2..prev_cell_offset + 4]
-                    .copy_from_slice(&(new_size as u16).to_be_bytes());
-
-                // PREV.next = CURRENT.next
-                self.bytes[prev_cell_offset..prev_cell_offset + 2]
-                    .copy_from_slice(&current_cell.next.to_be_bytes());
-
-                return Ok(());
-            }
-
-            // [PREV][NEW] ... [CURRENT]
-            if prev_cell_end == offset {
-                let new_size = prev_cell.size as usize + size;
-
-                self.bytes[prev_cell_offset + 2..prev_cell_offset + 4]
-                    .copy_from_slice(&(new_size as u16).to_be_bytes());
-
-                return Ok(());
-            }
-
-            // [PREV] ... [NEW][CURRENT]
-            if new_end == current_cell_offset {
-                // NEW.next = CURRENT.next
-                self.bytes[offset..offset + 2].copy_from_slice(&current_cell.next.to_be_bytes());
-
-                // NEW.size = NEW + CURRENT
-                self.bytes[offset + 2..offset + 4]
-                    .copy_from_slice(&((size + current_cell_size) as u16).to_be_bytes());
-
-                // PREV.next = NEW
-                self.bytes[prev_cell_offset..prev_cell_offset + 2]
-                    .copy_from_slice(&(offset as u16).to_be_bytes());
-
-                return Ok(());
-            }
-
-            // [PREV] ... [NEW] ... [CURRENT]
-            // Safe now: we've already ruled out offset <= first_cell up
-            // front, and by loop/list invariant offset > prev_cell_end
-            // whenever we reach this point (nothing between PREV and
-            // CURRENT was a match above). We keep the check explicit
-            // rather than relying purely on that invariant.
-            if offset > prev_cell_end && offset < current_cell_offset {
-                // NEW.next = CURRENT
-                self.bytes[offset..offset + 2]
-                    .copy_from_slice(&(current_cell_offset as u16).to_be_bytes());
-
-                // NEW.size = size
-                self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
-
-                // PREV.next = NEW
-                self.bytes[prev_cell_offset..prev_cell_offset + 2]
-                    .copy_from_slice(&(offset as u16).to_be_bytes());
-
-                return Ok(());
-            }
-
-            prev_cell = current_cell;
-        }
-
-        // We reached the last freeblock.
-        //
-        // [PREV][NEW]
-        if prev_cell.starting_offset as usize + prev_cell.size as usize == offset {
-            let prev_cell_offset = prev_cell.starting_offset as usize;
-
-            let new_size = prev_cell.size as usize + size;
-
-            self.bytes[prev_cell_offset + 2..prev_cell_offset + 4]
-                .copy_from_slice(&(new_size as u16).to_be_bytes());
-
-            return Ok(());
-        }
-
-        // [PREV] ... [NEW]
-        self.bytes[offset..offset + 2].copy_from_slice(&[0, 0]);
-
-        self.bytes[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
-
-        let prev_cell_offset = prev_cell.starting_offset as usize;
-
-        self.bytes[prev_cell_offset..prev_cell_offset + 2]
-            .copy_from_slice(&(offset as u16).to_be_bytes());
-
-        Ok(())
-    }
-
-    pub fn cell_size(&self, cell_index: CellIndex) -> SqliteResult<usize> {
-        let cell_sp = self.cell_span(self.as_ref()?.get_cell_offset(cell_index)?)?;
-        Ok(cell_sp.end - cell_sp.start)
-    }
-    pub fn cell_size_by_offset(&self, offset: u16) -> SqliteResult<usize> {
-        assert!((offset as usize) < self.usable_size);
-        let cell_sp = self.cell_span(offset)?;
-        Ok(cell_sp.end - cell_sp.start)
-    }
-
-    pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
-        let cell_ptr = self.as_ref()?.get_cell_offset(cell_idx)?;
-        let cell_span = self.cell_span(cell_ptr)?;
-        let bytes_len: usize = cell_span.end - cell_span.start;
-        self.insert_freeblock(cell_ptr as _, bytes_len)?;
-        self.remove_cell_pointer_entry(cell_idx)?;
-        self.update_freelist_block_cache()?;
-        Ok(())
-    }
-    fn remove_cell_pointer_entry(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
-        debug_assert!(
-            self.cell_pointers.len() > cell_idx as _,
-            "Cell index out of the cell pointer array"
-        );
-        self.cell_pointers.remove(cell_idx as _);
-        self.header.no_of_cells -= 1;
-        self.update_bytes([PageField::CellPointers, PageField::NoOfCells]);
-        Ok(())
-    }
-
-    pub fn cell_key<V: Vfs>(
-        &self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
-        match cell {
-            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
-            BTreeCell::TableInterior(table_interior) => {
-                Ok(table_interior.rowid_boundary.into_sqlite_value())
-            }
-            BTreeCell::IndexInterior(index_interior) => {
-                let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_owned())
-            }
-            BTreeCell::IndexLeaf(index_leaf) => {
-                let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_owned())
-            }
-        }
-    }
-
-    // TODO: Remove Result<T,E>
-    pub fn as_ref(&'p self) -> Result<BTreePageRef<'p>, SqliteError> {
-        // BTreePageRef::new(self.page_no, self.bytes, self.page_size, self.usable_size)
-        //
-        Ok(BTreePageRef {
-            page_no: self.page_no,
-            header: self.header,
-            header_offset: self.header_offset,
-            bytes: self.bytes,
-            page_size: self.page_size,
-            usable_size: self.usable_size,
-            _marker: PhantomData,
-        })
-    }
 }
 
 pub struct OverflowPageRef<'a> {
@@ -1187,10 +130,10 @@ impl<'a> OverflowPageRef<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FreeCell {
-    starting_offset: u16,
-    next: u16,
-    size: u16,
+pub struct FreeCell {
+    pub starting_offset: u16,
+    pub next: u16,
+    pub size: u16,
 }
 
 impl FreeCell {
@@ -1257,20 +200,20 @@ impl<'a> OverflowPageRef<'a> {
 }
 
 pub struct PageIterator<'r, 'p, V: crate::vfs::Vfs> {
-    page: &'r BTreePageRef<'p>,
+    page: &'r PageRef<'p>,
     pager: &'r mut Pager<V>,
     index: CellIndex,
 }
 
 impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
-    type Item = Vec<Value<'p>>;
+    type Item = Vec<Value<'static>>;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.page.no_of_cells() {
+        if self.index >= self.page.no_of_cells().unwrap_or(0) {
             return None;
         }
         if let Ok(record) = self.page.record_of_cell(self.index, self.pager) {
             self.index += 1;
-            return Some(record);
+            return Some(record.into_iter().map(|v| v.into_owned()).collect());
         }
         None
     }
@@ -1316,314 +259,859 @@ pub fn compute_index_local_payload_size(usable_size: usize, payload_len: usize) 
     }
 }
 
-impl<'p> std::fmt::Debug for BTreePageMut<'p> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BTreePageMut")
-            .field("page_no", &self.page_no)
-            .field("header_offset", &self.header_offset)
-            .field("header", &self.header)
-            .field("bytes", &self.bytes.len())
-            .field("page_size", &self.page_size)
-            .field("usable_size", &self.usable_size)
-            .field("cell_pointers", &self.cell_pointers)
-            .finish()
+pub type PageRef<'a> = BTreePage<&'a [u8]>;
+pub type PageMut<'a> = BTreePage<&'a mut [u8]>;
+
+#[derive(Debug)]
+pub struct BTreePage<B> {
+    page_no: PageNo,
+    header_offset: u8,
+    page_size: usize,
+    usable_size: usize,
+    bytes: B,
+}
+
+impl<B: AsRef<[u8]>> BTreePage<B> {
+    pub fn assert_invariants(&self) -> SqliteResult<()> {
+        let hdr = self.header_size()? as usize;
+        let n = self.no_of_cells()? as usize;
+        let cca = self.cell_content_area()? as usize;
+        assert!(hdr + 2 * n <= cca, "pointer array overruns content area");
+        assert!(cca <= self.usable_size, "content area past usable size");
+        let mut spans: Vec<std::ops::Range<usize>> = Vec::with_capacity(n);
+        for i in 0..n {
+            let p = self.cell_ptr(i as u16)? as usize;
+            assert!(
+                p >= hdr && p < self.usable_size,
+                "cell {} pointer {} outside content area",
+                i,
+                p
+            );
+            spans.push(self.cell_span(p as u16)?);
+        }
+        spans.sort_by_key(|s| s.start);
+        for w in spans.windows(2) {
+            assert!(
+                w[0].end <= w[1].start,
+                "cells overlap: {:?} / {:?}",
+                w[0],
+                w[1]
+            );
+        }
+        if self.page_type()?.is_interior() && n > 0 {
+            assert!(
+                self.right_most_ptr()?.is_some(),
+                "populated interior page without right-most pointer"
+            );
+        }
+        Ok(())
+    }
+    pub fn page_no(&self) -> PageNo {
+        self.page_no
     }
 }
 
-impl<'p> std::fmt::Debug for BTreePageRef<'p> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BTreePageMut")
-            .field("page_no", &self.page_no)
-            .field("header_offset", &self.header_offset)
-            .field("header", &self.header)
-            .field("bytes", &self.bytes.len())
-            .field("page_size", &self.page_size)
-            .field("usable_size", &self.usable_size)
-            .finish()
+impl<B: AsRef<[u8]>> BTreePage<B> {
+    pub fn new(
+        page_no: PageNo,
+        page_size: usize,
+        usable_size: usize,
+        bytes: B,
+    ) -> SqliteResult<Self> {
+        let header_offset = if page_no == 1 { 100 } else { 0 };
+        let this = BTreePage {
+            page_no,
+            page_size,
+            usable_size,
+            header_offset,
+            bytes,
+        };
+        BTreePageType::try_from_byte(this.u8_at(header_offset as _)?)?;
+        Ok(this)
     }
-}
+    fn bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+    pub fn u8_at(&self, off: usize) -> SqliteResult<u8> {
+        self.with_cursor_read_at(off, |cursor| cursor.read_next_u8())
+    }
+    pub fn u16_at(&self, off: usize) -> SqliteResult<u16> {
+        self.with_cursor_read_at(off, |cursor| cursor.read_next_u16())
+    }
+    pub fn u32_at(&self, off: usize) -> SqliteResult<u32> {
+        self.with_cursor_read_at(off, |cursor| cursor.read_next_u32())
+    }
+    pub fn with_cursor_read_at<F, R>(&self, off: usize, f: F) -> SqliteResult<R>
+    where
+        F: FnOnce(&mut SqliteCursor) -> SqliteResult<R>,
+    {
+        let mut cursor = SqliteCursor::with_offset(self.bytes(), off as _)?;
+        f(&mut cursor)
+    }
+    pub fn with_header_offset(&self, off: usize) -> usize {
+        self.header_offset as usize + off
+    }
+    pub fn header_size(&self) -> SqliteResult<u8> {
+        Ok(self.header_offset + self.page_type()?.header_size())
+    }
+    pub fn page_type(&self) -> SqliteResult<BTreePageType> {
+        BTreePageType::try_from_byte(self.u8_at(self.header_offset as _)?)
+    }
+    pub fn no_of_cells(&self) -> SqliteResult<u16> {
+        self.u16_at(self.with_header_offset(CELL_COUNT_OFFSET))
+    }
+    pub fn cell_content_area(&self) -> SqliteResult<u16> {
+        self.u16_at(self.with_header_offset(CELL_CONTENT_AREA_OFFSET))
+    }
+    fn frag_cnt(&self) -> SqliteResult<u8> {
+        self.u8_at(self.with_header_offset(FRAGMENTED_FREE_BYTES_OFFSET))
+    }
+    pub fn right_most_ptr(&self) -> SqliteResult<Option<u32>> {
+        if self.page_type()?.is_interior() {
+            return Ok(Some(
+                self.u32_at(self.with_header_offset(RIGHT_MOST_POINTER_OFFSET))?,
+            ));
+        }
+        Ok(None)
+    }
+    pub fn first_freeblock(&self) -> SqliteResult<u16> {
+        self.u16_at(self.with_header_offset(FIRST_FREEBLOCK_OFFSET))
+    }
 
-pub trait BTreePageOps<'g>: std::fmt::Debug {
-    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError>;
-    fn record_of_cell<V: crate::vfs::Vfs>(
-        &'g self,
-        cell_idx: CellIndex,
+    pub fn cell_ptr(&self, i: u16) -> SqliteResult<u16> {
+        if i >= self.no_of_cells()? {
+            return Err(SqliteError::InvalidCellPointer(i));
+        }
+        self.u16_at((self.header_size()? as u16 + i * 2) as usize)
+    }
+    #[allow(clippy::chunks_exact_to_as_chunks)]
+    pub fn cell_ptrs(&self) -> SqliteResult<impl Iterator<Item = u16> + '_> {
+        let start = self.header_size()? as usize;
+        let no_of_cells = self.no_of_cells()? as usize;
+        Ok(self.bytes()[start..start + no_of_cells * 2]
+            .chunks_exact(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]])))
+    }
+
+    pub fn cell(&self, i: u16) -> SqliteResult<BTreeCell> {
+        let cell_offset = self.cell_ptr(i)?;
+        self.parse_cell_at(cell_offset)
+    }
+    pub fn is_index(&self) -> SqliteResult<bool> {
+        Ok(self.page_type()? == BTreePageType::InteriorIndex
+            || self.page_type()? == BTreePageType::LeafIndex)
+    }
+
+    pub fn freespace(&self) -> SqliteResult<usize> {
+        let freeblocks_size = self.freeblocks_size()?;
+        let total_free_bytes =
+            freeblocks_size + self.frag_cnt()? as usize + self.cell_content_area()? as usize
+                - (self.header_size()? as u16 + self.no_of_cells()? * 2) as usize;
+        Ok(total_free_bytes)
+    }
+    fn freeblocks_size(&self) -> SqliteResult<usize> {
+        if self.first_freeblock()? == 0 {
+            return Ok(0);
+        }
+        let mut cursor = SqliteCursor::with_offset(self.bytes(), self.first_freeblock()? as u64)?;
+        let mut total_size = 0;
+        let mut next_freeblock_offset = cursor.read_next_u16()?;
+        let mut freeblock_size = cursor.read_next_u16()?;
+        total_size += freeblock_size;
+        while next_freeblock_offset != 0 {
+            cursor.set_offset(next_freeblock_offset as _);
+            next_freeblock_offset = cursor.read_next_u16()?;
+            freeblock_size = cursor.read_next_u16()?;
+            total_size += freeblock_size;
+        }
+
+        Ok(total_size as _)
+    }
+    pub fn is_underflow(&self) -> SqliteResult<bool> {
+        Ok(self.freespace()? > self.usable_size * 2 / 3)
+    }
+    pub fn record_of_cell<V: crate::vfs::Vfs>(
+        &self,
+        cell_idx: u16,
         pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'g>>, SqliteError>;
-    fn record_of<V: crate::vfs::Vfs>(
-        &'g self,
+    ) -> Result<Vec<Value<'_>>, SqliteError> {
+        let mut records = Vec::new();
+        let cell = self.cell(cell_idx)?;
+        self.get_cell_record(pager, &cell, &mut records)?;
+        Ok(records)
+    }
+    pub fn record_of<V: crate::vfs::Vfs>(
+        &self,
         cell: &BTreeCell,
         pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'g>>, SqliteError>;
-    fn record_of_cell_into<V: crate::vfs::Vfs>(
-        &'g self,
-        cell_idx: CellIndex,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'g>>,
-    ) -> Result<(), SqliteError>;
-    fn record_of_into<V: crate::vfs::Vfs>(
-        &'g self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'g>>,
-    ) -> Result<(), SqliteError>;
-    fn no_of_cells(&self) -> u16;
-    fn right_most_ptr(&self) -> Option<PageNo>;
-    fn is_interior(&self) -> bool;
-    fn is_leaf(&self) -> bool;
-    fn header_size(&self) -> u8;
-    fn page_type(&self) -> BTreePageType;
-    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError>;
-    fn freespace(&self) -> SqliteResult<usize>;
-    fn is_underflow(&self) -> SqliteResult<bool>;
-}
-
-impl<'a> BTreePageOps<'a> for BTreePageMut<'a> {
-    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
-        let page = self.as_ref()?;
-        page.cell(cell_idx)
+    ) -> Result<Vec<Value<'_>>, SqliteError> {
+        let mut records = Vec::new();
+        self.get_cell_record(pager, cell, &mut records)?;
+        Ok(records)
     }
 
-    fn record_of_cell<V: crate::vfs::Vfs>(
+    pub fn record_of_cell_into<'a, V: crate::vfs::Vfs>(
         &'a self,
-        cell_idx: CellIndex,
+        cell_idx: u16,
         pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'a>>, SqliteError> {
-        let page = self.as_ref()?;
-        page.record_of_cell(cell_idx, pager)
-    }
-    fn record_of<V: crate::vfs::Vfs>(
-        &'a self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'a>>, SqliteError> {
-        let page = self.as_ref()?;
-        page.record_of(cell, pager)
-    }
-    fn record_of_cell_into<'b, V: crate::vfs::Vfs>(
-        &'b self,
-        cell_idx: CellIndex,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'b>>,
+        records: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        let page = self.as_ref()?;
-        // `page.cell` is BTreePageRef's inherent method (unambiguous); `self.cell`
-        // is the trait method, which has no `pager` argument to pin down `F`.
-        let cell = page.cell(cell_idx)?;
-        page.get_cell_record(pager, &cell, records)
+        let cell = self.cell(cell_idx)?;
+        self.get_cell_record(pager, &cell, records)
     }
 
-    fn record_of_into<V: crate::vfs::Vfs>(
+    pub fn record_of_into<'a, V: crate::vfs::Vfs>(
         &'a self,
         cell: &BTreeCell,
         pager: &mut Pager<V>,
         records: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        let page = self.as_ref()?;
-        page.get_cell_record(pager, cell, records)
+        self.get_cell_record(pager, cell, records)
     }
-    fn header_size(&self) -> u8 {
-        self.as_ref()
-            .expect("Fails to create Ref page from Mut page")
-            .header_size()
-    }
-    fn is_interior(&self) -> bool {
-        self.as_ref().unwrap().is_interior()
-    }
-    fn is_leaf(&self) -> bool {
-        self.as_ref().unwrap().is_leaf()
-    }
-    fn no_of_cells(&self) -> u16 {
-        self.as_ref().unwrap().no_of_cells()
-    }
-    fn page_type(&self) -> BTreePageType {
-        self.as_ref().unwrap().page_type()
-    }
-    fn right_most_ptr(&self) -> Option<PageNo> {
-        self.as_ref().unwrap().right_most_ptr()
-    }
-    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
-        self.as_ref()?.cell_by_ptr(cell_offset)
-    }
-    fn freespace(&self) -> SqliteResult<usize> {
-        self.as_ref()?.freespace()
-    }
-    fn is_underflow(&self) -> SqliteResult<bool> {
-        self.as_ref()?.is_underflow()
-    }
-}
-
-impl<'a> BTreePageOps<'a> for BTreePageRef<'a> {
-    fn cell(&self, cell_idx: CellIndex) -> Result<BTreeCell, SqliteError> {
-        self.cell(cell_idx)
-    }
-
-    fn record_of<V: crate::vfs::Vfs>(
+    fn get_cell_record<'a, V: crate::vfs::Vfs>(
         &'a self,
+        pager: &mut Pager<V>,
+        cell: &BTreeCell,
+        collector: &mut Vec<Value<'a>>,
+    ) -> Result<(), SqliteError> {
+        if let Some(overflow_page) = cell.overflow_page() {
+            let vec = OverflowPageRef::get_total_payload(
+                pager,
+                &self.bytes()[*cell.payload_range()],
+                cell.cell_payload_len() as usize,
+                self.usable_size,
+                overflow_page,
+            )?;
+            self.decode_loop_owned(vec, collector)
+        } else {
+            self.decode_loop_borrowed(&self.bytes()[*cell.payload_range()], collector)
+        }
+    }
+    fn decode_loop_owned(
+        &self,
+        bytes: Vec<u8>,
+        collector: &mut Vec<Value<'_>>,
+    ) -> Result<(), SqliteError> {
+        let mut header_cursor = SqliteCursor::new(bytes.as_slice());
+        let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
+        let mut remaining = (header_size as usize) - consumed;
+        let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
+        while remaining > 0 {
+            let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
+            let record_metadata = Tuple::content_size(serial_type);
+            let data = data_cursor.read_to(record_metadata.size as _)?;
+            let decoded = decode_sqltype(data, &record_metadata);
+            collector.push(into_owned(decoded));
+            remaining -= consumed;
+        }
+        Ok(())
+    }
+    fn decode_loop_borrowed<'a>(
+        &self,
+        bytes: &'a [u8],
+        collector: &mut Vec<Value<'a>>,
+    ) -> Result<(), SqliteError> {
+        let mut header_cursor = SqliteCursor::new(bytes);
+        let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
+        let mut remaining = (header_size as usize) - consumed;
+        let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
+        while remaining > 0 {
+            let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
+            let record_metadata = Tuple::content_size(serial_type);
+            let data = data_cursor.read_to(record_metadata.size as _)?;
+            let decoded = decode_sqltype(data, &record_metadata);
+            collector.push(into_borrowed(decoded));
+            remaining -= consumed;
+        }
+        Ok(())
+    }
+    pub fn cell_key<V: Vfs>(
+        &self,
         cell: &BTreeCell,
         pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'a>>, SqliteError> {
-        self.record_of(cell, pager)
-    }
-    fn record_of_cell<V: crate::vfs::Vfs>(
-        &'a self,
-        cell_idx: CellIndex,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'a>>, SqliteError> {
-        self.record_of_cell(cell_idx, pager)
-    }
-    fn record_of_cell_into<V: crate::vfs::Vfs>(
-        &'a self,
-        cell_idx: CellIndex,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'a>>,
-    ) -> Result<(), SqliteError> {
-        self.record_of_cell_into(cell_idx, pager, records)
-    }
-    fn record_of_into<V: crate::vfs::Vfs>(
-        &'a self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'a>>,
-    ) -> Result<(), SqliteError> {
-        self.record_of_into(cell, pager, records)
-    }
-    fn header_size(&self) -> u8 {
-        self.header_size()
-    }
-    fn is_interior(&self) -> bool {
-        self.is_interior()
-    }
-    fn is_leaf(&self) -> bool {
-        self.is_leaf()
-    }
-    fn no_of_cells(&self) -> u16 {
-        self.no_of_cells()
-    }
-    fn page_type(&self) -> BTreePageType {
-        self.page_type()
-    }
-    fn right_most_ptr(&self) -> Option<PageNo> {
-        self.right_most_ptr()
-    }
-    fn cell_by_ptr(&self, cell_offset: u16) -> Result<BTreeCell, SqliteError> {
-        self.cell_by_ptr(cell_offset)
-    }
-
-    fn freespace(&self) -> SqliteResult<usize> {
-        self.freespace()
-    }
-    fn is_underflow(&self) -> SqliteResult<bool> {
-        self.is_underflow()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum PageField {
-    PageKind,
-    NoOfCells,
-    CellContentArea,
-    CellPointers,
-    FragCnt,
-    FirstFreeBlock,
-    RightMostPointer,
-}
-
-impl<'a> BTreePageMut<'a> {
-    fn update_page_kind(&mut self) {
-        let byte = self.header.page_kind.as_byte();
-        let offset = self.header_offset as usize;
-        self.bytes[offset..offset + 1].copy_from_slice(&byte.to_be_bytes());
-    }
-
-    fn update_no_of_cells(&mut self) {
-        let cell_cnt = self.header.no_of_cells;
-        let offset = CELL_COUNT_OFFSET + self.header_offset as usize;
-
-        self.bytes[offset..offset + CELL_COUNT_SIZE].copy_from_slice(&cell_cnt.to_be_bytes());
-    }
-
-    fn update_cell_content_area(&mut self) {
-        let cca = self.header.cell_content_area;
-        let offset = CELL_CONTENT_AREA_OFFSET + self.header_offset as usize;
-
-        self.bytes[offset..offset + CELL_CONTENT_AREA_SIZE].copy_from_slice(&cca.to_be_bytes());
-    }
-
-    fn update_cell_pointers(&mut self) {
-        let mut offset = self.header_size() as usize;
-
-        for ptr in &self.cell_pointers {
-            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
-            offset += 2;
-        }
-    }
-
-    pub fn update_cell_pointers_with(&mut self, cell_pointers: &[u16]) {
-        let mut offset = self.header_size() as usize;
-
-        for ptr in cell_pointers {
-            self.bytes[offset..offset + 2].copy_from_slice(&ptr.to_be_bytes());
-            offset += 2;
-        }
-    }
-
-    fn update_rmp(&mut self) {
-        if self.is_leaf() {
-            return;
-        }
-        let offset = RIGHT_MOST_POINTER_OFFSET + self.header_offset as usize;
-        let rmp = self.header.right_most_ptr.unwrap_or(0);
-        self.bytes[offset..offset + RIGHT_MOST_POINTER_SIZE].copy_from_slice(&rmp.to_be_bytes());
-    }
-
-    pub fn update_bytes<const N: usize>(&mut self, fields: [PageField; N]) {
-        for field in fields {
-            match field {
-                PageField::PageKind => self.update_page_kind(),
-                PageField::NoOfCells => self.update_no_of_cells(),
-                PageField::CellContentArea => self.update_cell_content_area(),
-                PageField::CellPointers => self.update_cell_pointers(),
-                PageField::FragCnt => self.update_frag_cnt(),
-                PageField::FirstFreeBlock => self.update_first_free_block(),
-                PageField::RightMostPointer => self.update_rmp(),
+    ) -> SqliteResult<Value<'static>> {
+        match cell {
+            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
+            BTreeCell::TableInterior(table_interior) => {
+                Ok(table_interior.rowid_boundary.into_sqlite_value())
+            }
+            BTreeCell::IndexInterior(index_interior) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
+            }
+            BTreeCell::IndexLeaf(index_leaf) => {
+                let record = self.record_of(cell, pager)?;
+                Ok(Value::Tuple(record).into_owned())
             }
         }
     }
-    fn update_frag_cnt(&mut self) {
-        let frag_cnt = self.header.frag_cnt;
-        let offset = FRAGMENTED_FREE_BYTES_OFFSET + self.header_offset as usize;
-        self.bytes[offset..offset + FRAGMENTED_FREE_BYTES_SIZE]
-            .copy_from_slice(&frag_cnt.to_be_bytes());
+    pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
+        let start = cell_ptr as usize;
+        // Must be a real assert, not debug_assert: this is exactly where a
+        // corrupted pointer should be caught.
+        sqlite_assert_with_corrupt_err(
+            start >= self.header_size()? as usize && start < self.usable_size,
+            || format!("cell pointer {start} outside content area"),
+        )?;
+        let limit = self.usable_size - start; // bytes available to this cell
+        let bytes = &self.bytes()[start..self.usable_size];
+        let mut cell = match self.page_type()? {
+            BTreePageType::InteriorTable => {
+                TableInteriorCell::parse(bytes, self.usable_size).map(BTreeCell::TableInterior)
+            }
+            BTreePageType::LeafTable => {
+                TableLeafCell::parse(bytes, self.usable_size).map(BTreeCell::TableLeaf)
+            }
+            BTreePageType::InteriorIndex => {
+                IndexInteriorCell::parse(bytes, self.usable_size).map(BTreeCell::IndexInterior)
+            }
+            BTreePageType::LeafIndex => {
+                IndexLeafCell::parse(bytes, self.usable_size).map(BTreeCell::IndexLeaf)
+            }
+        }?;
+        let base = cell_ptr as usize;
+        match &mut cell {
+            BTreeCell::TableLeaf(c) => {
+                c.local_payload_range.start += base;
+                c.local_payload_range.end += base;
+            }
+            BTreeCell::IndexLeaf(c) => {
+                c.payload.start += base;
+                c.payload.end += base;
+            }
+            BTreeCell::IndexInterior(c) => {
+                c.payload.start += base;
+                c.payload.end += base;
+            }
+            BTreeCell::TableInterior(_) => {}
+        }
+        Ok(cell)
     }
-    fn update_first_free_block(&mut self) {
-        let first_free_block = self.header.first_freeblock;
-        let offset = FIRST_FREEBLOCK_OFFSET + self.header_offset as usize;
-        self.bytes[offset..offset + FIRST_FREEBLOCK_SIZE]
-            .copy_from_slice(&first_free_block.to_be_bytes());
+    pub fn cell_span(&self, cell_ptr: u16) -> SqliteResult<std::ops::Range<usize>> {
+        let start = cell_ptr as usize;
+        let cell = self.parse_cell_at(cell_ptr)?;
+        let end = match self.page_type()? {
+            BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
+                c.local_payload_range.end
+                    + if cell.overflow_page().is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
+            }),
+            BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
+                c.payload.end
+                    + if c.first_overflow_page.is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
+            }),
+
+            BTreePageType::InteriorTable => cell.with_table_interior_cell(|c| {
+                start + LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary)
+            }),
+
+            BTreePageType::InteriorIndex => cell.with_index_interior_cell(|c| {
+                /* Start to cell.payload.start covers
+                 *
+                 * LEFT_CHILD_POINTER_SIZE
+                 * encode_varint(&mut [0u8; 9], c.payload_len)
+                 *
+                 */
+                c.payload.end
+                    + if c.first_overflow_page.is_some() {
+                        OVERFLOW_POINTER_SIZE
+                    } else {
+                        0
+                    }
+            }),
+        };
+        Ok(start..end)
+    }
+    pub fn cell_bytes_as_ref(&self, cell_index: u16) -> SqliteResult<&[u8]> {
+        let cell_offset = self.cell_ptr(cell_index)?;
+        let cell_span = self.cell_span(cell_offset)?;
+        Ok(&self.bytes()[cell_span])
+    }
+    pub fn remaining_space(&self) -> SqliteResult<usize> {
+        Ok(self.cell_content_area()? as usize
+            - (self.no_of_cells()? * 2) as usize
+            - (self.header_size()?) as usize)
     }
 
-    // pub fn update_metadata<V>(&mut self, additional_metadata: Option<V>)
-    // where
-    //     F: FnOnce(),
-    // {
-    //     if let Some(f) = additional_metadata {
-    //         f();
-    //     }
+    pub fn is_leaf(&self) -> SqliteResult<bool> {
+        Ok(self.page_type()?.is_leaf())
+    }
 
-    //     self.update_bytes([
-    //         PageField::CellContentArea,
-    //         PageField::CellPointers,
-    //         PageField::NoOfCells,
-    //     ]);
-    // }
+    pub fn is_interior(&self) -> SqliteResult<bool> {
+        Ok(self.page_type()?.is_interior())
+    }
+}
 
-    fn update_freelist_block_cache(&mut self) -> SqliteResult<()> {
-        let offset = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
-        let mut cursor = SqliteCursor::with_offset(&self.bytes, offset as _)?;
+// impl<B:&
+impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
+    pub fn new_from_raw_bytes(
+        page_no: PageNo,
+        page_kind: BTreePageType,
+        mut bytes: B,
+        page_size: usize,
+        usable_size: usize,
+    ) -> SqliteResult<Self> {
+        let header_offset = if page_no == 1 { 100 } else { 0 };
+        let bytes_mut = bytes.as_mut();
+        bytes_mut[header_offset as usize..(header_offset as usize) + 1]
+            .copy_from_slice(&page_kind.as_byte().to_be_bytes());
+        let mut page = Self {
+            page_no,
+            page_size,
+            bytes,
+            usable_size,
+            header_offset,
+        };
+        page.reset_for_rebuild()?;
+        Ok(page)
 
-        self.header.first_freeblock = cursor.read_next_u16()?;
+        // a recycled frame is not guaranteed to be zeroed, so the cell count
+        // has to be written out too instead of relying on the old bytes
+    }
+
+    fn bytes_mut(&mut self) -> &mut [u8] {
+        self.bytes.as_mut()
+    }
+
+    fn set_u8_at(&mut self, o: usize, v: u8) {
+        self.bytes_mut()[o..o + 1].copy_from_slice(&v.to_be_bytes());
+    }
+    fn set_u16_at(&mut self, o: usize, v: u16) {
+        self.bytes_mut()[o..o + 2].copy_from_slice(&v.to_be_bytes());
+    }
+    fn set_u32_at(&mut self, o: usize, v: u32) {
+        self.bytes_mut()[o..o + 4].copy_from_slice(&v.to_be_bytes());
+    }
+    pub fn set_page_type(&mut self, page_type: BTreePageType) -> SqliteResult<()> {
+        let byte = page_type.as_byte();
+        let offset = self
+            .downgrade()?
+            .with_header_offset(BTREE_TYPE_PAGE_OFFSET as _);
+        self.set_u8_at(offset, byte);
+        Ok(())
+    }
+    fn set_no_of_cells(&mut self, n: u16) -> SqliteResult<()> {
+        let o = self.downgrade()?.with_header_offset(CELL_COUNT_OFFSET);
+        self.set_u16_at(o, n);
+        Ok(())
+    }
+    fn set_cell_content_area(&mut self, n: u16) -> SqliteResult<()> {
+        let o = self
+            .downgrade()?
+            .with_header_offset(CELL_CONTENT_AREA_OFFSET);
+        self.set_u16_at(o, n);
+        Ok(())
+    }
+    fn set_frag_cnt(&mut self, n: u8) -> SqliteResult<()> {
+        let o = self
+            .downgrade()?
+            .with_header_offset(FRAGMENTED_FREE_BYTES_OFFSET);
+        self.set_u8_at(o, n);
+        Ok(())
+    }
+    fn set_first_freeblock(&mut self, n: u16) -> SqliteResult<()> {
+        let o = self.downgrade()?.with_header_offset(FIRST_FREEBLOCK_OFFSET);
+        self.set_u16_at(o, n);
+        Ok(())
+    }
+    pub fn set_right_most_ptr(&mut self, r: u32) -> SqliteResult<()> {
+        sqlite_assert_with_runtime_err(self.downgrade()?.page_type()?.is_interior(), || {
+            "SetRightMostPointer called on a leaf".into()
+        })?;
+        let o = self
+            .downgrade()?
+            .with_header_offset(RIGHT_MOST_POINTER_OFFSET);
+        self.set_u32_at(o, r);
+        Ok(())
+    }
+    pub fn reset_for_rebuild(&mut self) -> SqliteResult<()> {
+        self.set_cell_content_area(self.usable_size as _)?;
+        self.set_first_freeblock(0)?;
+        self.set_frag_cnt(0)?;
+        self.set_no_of_cells(0)?;
+        if self.downgrade()?.page_type()?.is_interior() {
+            self.set_right_most_ptr(0)?;
+        }
+        Ok(())
+    }
+
+    fn downgrade(&mut self) -> SqliteResult<PageRef<'_>> {
+        BTreePage::<&[u8]>::new(
+            self.page_no,
+            self.page_size,
+            self.usable_size,
+            &*self.bytes_mut(),
+        )
+    }
+    /*
+
+     * Claim `size` bytes from the freelist (first-fit).
+     * - leftover == 0: unlink the whole block.
+     * - 0 < leftover < 4: unlink the block, crumbs go to frag_cnt (too small
+     * to form a freeblock).
+     * - leftover >= 4: carve `size` bytes off the front, the remainder stays
+     * a freeblock at [offset + size] with the old next pointer; prev (or
+     * the header when taking from the head) is relinked to it.
+
+    */
+    pub fn get_freeblock(&mut self, size: u16) -> SqliteResult<Option<u16>> {
+        let bytes = self.bytes_mut();
+        let page_ref = self.downgrade()?;
+        if page_ref.first_freeblock()? == 0 {
+            return Ok(None);
+        }
+        let mut prev: Option<u16> = None;
+        let mut current = page_ref.first_freeblock()?;
+        while current != 0 {
+            let block = FreeCell::parse(current, page_ref.bytes())?;
+            if block.size >= size {
+                let leftover = block.size - size;
+                if leftover < 4 {
+                    // Unlink the whole block; crumbs (<4) become fragmentation.
+                    match prev {
+                        None => {
+                            self.set_first_freeblock(block.next)?;
+                        }
+                        Some(prev_off) => {
+                            let prev_off = prev_off as usize;
+                            self.bytes_mut()[prev_off..prev_off + 2]
+                                .copy_from_slice(&block.next.to_be_bytes());
+                        }
+                    }
+                    if leftover > 0 {
+                        let new_frag_cnt =
+                            self.downgrade()?.frag_cnt()?.saturating_add(leftover as _);
+                        self.set_frag_cnt(new_frag_cnt)?;
+                    }
+                } else {
+                    // Split: caller takes [offset, offset + size), remainder
+                    // stays a freeblock at offset + size.
+                    let new_off = current + size;
+                    let new_off_usize = new_off as usize;
+                    self.bytes_mut()[new_off_usize..new_off_usize + 2]
+                        .copy_from_slice(&block.next.to_be_bytes());
+                    self.bytes_mut()[new_off_usize + 2..new_off_usize + 4]
+                        .copy_from_slice(&leftover.to_be_bytes());
+                    match prev {
+                        None => {
+                            self.set_first_freeblock(new_off)?;
+                        }
+                        Some(prev_off) => {
+                            let prev_off = prev_off as usize;
+                            self.bytes_mut()[prev_off..prev_off + 2]
+                                .copy_from_slice(&new_off.to_be_bytes());
+                        }
+                    }
+                }
+                return Ok(Some(block.starting_offset));
+            }
+            prev = Some(current);
+            current = block.next;
+        }
+        Ok(None)
+    }
+    pub fn insert_cell<T: AsRef<[u8]>>(
+        &mut self,
+        content: &T,
+        cell_idx: CellIndex,
+    ) -> Result<InsertionState, SqliteError> {
+        let content = content.as_ref();
+        let gap = self.downgrade()?.cell_content_area()?.saturating_sub(
+            self.downgrade()?.header_size()? as u16 + self.downgrade()?.no_of_cells()? * 2,
+        ) as usize;
+        if gap >= 2 {
+            if let Some(offset) = self.get_freeblock(content.as_ref().len() as _)? {
+                return self.insert_cell_at(content, offset as usize, cell_idx, false);
+            }
+        }
+        if self.downgrade()?.remaining_space()? < content.len() + 2 {
+            return Ok(InsertionState::None); // overflow
+        }
+        let offset = self.downgrade()?.cell_content_area()? as usize - content.len();
+        self.insert_cell_at(content, offset, cell_idx, true)
+    }
+    fn insert_cell_at(
+        &mut self,
+        content: &[u8],
+        offset: usize,
+        i: u16,
+        from_top: bool,
+    ) -> SqliteResult<InsertionState> {
+        self.bytes_mut()[offset..offset + content.len()].copy_from_slice(content);
+        let arr = self.downgrade()?.header_size()? as u16;
+        let n = self.downgrade()?.no_of_cells()?;
+        let (from, to) = ((arr + 2 * i) as usize, (arr + 2 * n) as usize);
+        self.bytes_mut().copy_within(from..to, from + 2);
+        self.set_u16_at(from, offset as u16);
+        self.set_no_of_cells(n + 1)?;
+        if from_top {
+            let cca = self.downgrade()?.cell_content_area()? as usize;
+            self.set_cell_content_area((cca - content.len()) as _)?;
+        }
+        Ok(InsertionState::Inserted)
+    }
+    pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
+        if self.usable_size != other.usable_size || self.bytes_mut().len() < other.usable_size {
+            return Err(SqliteError::Internal(
+                "copy_data_from between pages with different usable sizes".into(),
+            ));
+        }
+        let (old_ho, new_ho) = (other.header_offset as usize, self.header_offset as usize);
+        self.bytes_mut()[new_ho..other.usable_size]
+            .copy_from_slice(&other.bytes.as_ref()[old_ho..other.usable_size]);
+        let delta = new_ho as isize - old_ho as isize;
+        if delta != 0 {
+            let arr = self.downgrade()?.header_size()? as usize;
+            let n = self.downgrade()?.no_of_cells()?;
+            for i in 0..n {
+                let p = self.cell_ptr(i)?;
+                self.set_u16_at(arr + 2 * i as usize, (p as isize + delta) as u16);
+            }
+        }
+        Ok(())
+    }
+    pub fn as_ref(&self) -> SqliteResult<PageRef<'_>> {
+        BTreePage::<&[u8]>::new(
+            self.page_no,
+            self.page_size,
+            self.usable_size,
+            self.bytes.as_ref(),
+        )
+    }
+    pub fn as_mut_view(&mut self) -> SqliteResult<PageRef<'_>> {
+        self.downgrade()
+    }
+    pub fn insert_freeblock(&mut self, offset: usize, size: usize) -> SqliteResult<()> {
+        let hdr = self.downgrade()?.header_size()? as usize;
+        sqlite_assert_with_corrupt_err(offset >= hdr && offset + size <= self.usable_size, || {
+            format!(
+                "freeblock [{offset}, {}) outside content area",
+                offset + size
+            )
+        })?;
+        debug_assert!(size >= 4, "Freeblock size cannot be less than 4 bytes");
+
+        // CASE [A]: There are no freeblocks yet.
+        if self.downgrade()?.first_freeblock()? == 0 {
+            self.bytes_mut()[offset..offset + 2].copy_from_slice(&[0, 0]);
+            self.bytes_mut()[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+
+            let start = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
+            let end = start + FIRST_FREEBLOCK_SIZE;
+
+            self.bytes_mut()[start..end].copy_from_slice(&(offset as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        let first_cell = FreeCell::parse(self.downgrade()?.first_freeblock()?, self.bytes_mut())?;
+
+        // NEW CASE: offset comes before the current first freeblock.
+        // This must be checked BEFORE anything else, since every later
+        // branch assumes [`offset`] only ever increases relative to the
+        // node it's being compared against.
+        if offset + size <= first_cell.starting_offset as usize {
+            let new_end = offset + size;
+
+            // [NEW][FIRST]  (adjacent -> merge)
+            if new_end == first_cell.starting_offset as usize {
+                self.bytes_mut()[offset..offset + 2]
+                    .copy_from_slice(&first_cell.next.to_be_bytes());
+
+                let new_size = size + first_cell.size as usize;
+                self.bytes_mut()[offset + 2..offset + 4]
+                    .copy_from_slice(&(new_size as u16).to_be_bytes());
+            } else {
+                // [NEW] ... [FIRST]  (gap -> just link, no merge)
+                self.bytes_mut()[offset..offset + 2]
+                    .copy_from_slice(&(first_cell.starting_offset).to_be_bytes());
+
+                self.bytes_mut()[offset + 2..offset + 4]
+                    .copy_from_slice(&(size as u16).to_be_bytes());
+            }
+
+            // Either way NEW becomes the new head of the freelist.
+            let start = self.header_offset as usize + FIRST_FREEBLOCK_OFFSET;
+            let end = start + FIRST_FREEBLOCK_SIZE;
+            self.bytes_mut()[start..end].copy_from_slice(&(offset as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        // CASE [B]: There is only one freeblock.
+        if first_cell.next == 0 {
+            // [A][NEW]
+            if first_cell.starting_offset as usize + first_cell.size as usize == offset {
+                let first_cell_offset = first_cell.starting_offset as usize;
+
+                self.bytes_mut()[first_cell_offset + 2..first_cell_offset + 4]
+                    .copy_from_slice(&((first_cell.size as usize + size) as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [A] ... [NEW]
+            // (We already handled offset <= first_cell above, so here
+            // offset is guaranteed to be strictly after A and non adjacent.)
+            self.bytes_mut()[offset..offset + 2].copy_from_slice(&[0, 0]);
+            self.bytes_mut()[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+            let first_cell_offset = first_cell.starting_offset as usize;
+            self.bytes_mut()[first_cell_offset..first_cell_offset + 2]
+                .copy_from_slice(&(offset as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        // Multiple freeblocks.
+        let mut prev_cell = first_cell;
+
+        while prev_cell.next != 0 {
+            let current_cell = FreeCell::parse(prev_cell.next, self.bytes_mut())?;
+
+            let current_cell_offset = current_cell.starting_offset as usize;
+            let current_cell_size = current_cell.size as usize;
+
+            let prev_cell_offset = prev_cell.starting_offset as usize;
+            let prev_cell_end = prev_cell_offset + prev_cell.size as usize;
+
+            let new_end = offset + size;
+
+            // [PREV][NEW][CURRENT]
+            if prev_cell_end == offset && new_end == current_cell_offset {
+                let new_size = prev_cell.size as usize + size + current_cell_size;
+
+                // PREV.size = PREV + NEW + CURRENT
+                self.bytes_mut()[prev_cell_offset + 2..prev_cell_offset + 4]
+                    .copy_from_slice(&(new_size as u16).to_be_bytes());
+
+                // PREV.next = CURRENT.next
+                self.bytes_mut()[prev_cell_offset..prev_cell_offset + 2]
+                    .copy_from_slice(&current_cell.next.to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [PREV][NEW] ... [CURRENT]
+            if prev_cell_end == offset {
+                let new_size = prev_cell.size as usize + size;
+
+                self.bytes_mut()[prev_cell_offset + 2..prev_cell_offset + 4]
+                    .copy_from_slice(&(new_size as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [PREV] ... [NEW][CURRENT]
+            if new_end == current_cell_offset {
+                // NEW.next = CURRENT.next
+                self.bytes_mut()[offset..offset + 2]
+                    .copy_from_slice(&current_cell.next.to_be_bytes());
+
+                // NEW.size = NEW + CURRENT
+                self.bytes_mut()[offset + 2..offset + 4]
+                    .copy_from_slice(&((size + current_cell_size) as u16).to_be_bytes());
+
+                // PREV.next = NEW
+                self.bytes_mut()[prev_cell_offset..prev_cell_offset + 2]
+                    .copy_from_slice(&(offset as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            // [PREV] ... [NEW] ... [CURRENT]
+            // Safe now: we've already ruled out offset <= first_cell up
+            // front, and by loop/list invariant offset > prev_cell_end
+            // whenever we reach this point (nothing between PREV and
+            // CURRENT was a match above). We keep the check explicit
+            // rather than relying purely on that invariant.
+            if offset > prev_cell_end && offset < current_cell_offset {
+                // NEW.next = CURRENT
+                self.bytes_mut()[offset..offset + 2]
+                    .copy_from_slice(&(current_cell_offset as u16).to_be_bytes());
+
+                // NEW.size = size
+                self.bytes_mut()[offset + 2..offset + 4]
+                    .copy_from_slice(&(size as u16).to_be_bytes());
+
+                // PREV.next = NEW
+                self.bytes_mut()[prev_cell_offset..prev_cell_offset + 2]
+                    .copy_from_slice(&(offset as u16).to_be_bytes());
+
+                return Ok(());
+            }
+
+            prev_cell = current_cell;
+        }
+
+        // We reached the last freeblock.
+        //
+        // [PREV][NEW]
+        if prev_cell.starting_offset as usize + prev_cell.size as usize == offset {
+            let prev_cell_offset = prev_cell.starting_offset as usize;
+
+            let new_size = prev_cell.size as usize + size;
+
+            self.bytes_mut()[prev_cell_offset + 2..prev_cell_offset + 4]
+                .copy_from_slice(&(new_size as u16).to_be_bytes());
+
+            return Ok(());
+        }
+
+        // [PREV] ... [NEW]
+        self.bytes_mut()[offset..offset + 2].copy_from_slice(&[0, 0]);
+
+        self.bytes_mut()[offset + 2..offset + 4].copy_from_slice(&(size as u16).to_be_bytes());
+
+        let prev_cell_offset = prev_cell.starting_offset as usize;
+
+        self.bytes_mut()[prev_cell_offset..prev_cell_offset + 2]
+            .copy_from_slice(&(offset as u16).to_be_bytes());
 
         Ok(())
+    }
+    pub fn cell_size(&mut self, i: u16) -> SqliteResult<usize> {
+        let s = self.downgrade()?;
+        let cell_sp = s.cell_span(s.cell_ptr(i)?)?;
+        Ok(cell_sp.end - cell_sp.start)
+    }
+    pub fn cell_size_by_offset(&mut self, offset: u16) -> SqliteResult<usize> {
+        assert!((offset as usize) < self.usable_size);
+        let cell_sp = self.downgrade()?.cell_span(offset)?;
+        Ok(cell_sp.end - cell_sp.start)
+    }
+    pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
+        let s = self.downgrade()?;
+        let cell_ptr = s.cell_ptr(cell_idx)?;
+        let cell_span = s.cell_span(cell_ptr)?;
+        let bytes_len: usize = cell_span.end - cell_span.start;
+        let n = s.no_of_cells()?;
+        self.insert_freeblock(cell_ptr as _, bytes_len)?;
+        self.remove_cell_pointer_entry(cell_idx)?;
+        self.set_no_of_cells(n - 1)?;
+        Ok(())
+    }
+    fn remove_cell_pointer_entry(&mut self, i: u16) -> SqliteResult<()> {
+        let n = self.downgrade()?.no_of_cells()? as usize;
+        debug_assert!(n > i as usize, "Cell index out of the cell pointer array");
+        // header_size() already includes header_offset — do not add it again.
+        let arr = self.downgrade()?.header_size()? as usize;
+        let (from, to) = (arr + 2 * (i as usize + 1), arr + 2 * n);
+        self.bytes_mut().copy_within(from..to, from - 2);
+        Ok(())
+    }
+    pub fn replace_cell(
+        &mut self,
+        i: u16,
+        content: impl AsRef<[u8]>,
+    ) -> SqliteResult<InsertionState> {
+        self.remove_cell(i)?;
+        self.insert_cell(&content, i)
     }
 }
