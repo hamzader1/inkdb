@@ -5,7 +5,7 @@ use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
 
 use crate::varint::encode_varint;
-use std::range::Range;
+use std::ops::Range;
 
 #[derive(Debug)]
 pub enum BTreeCell {
@@ -90,7 +90,6 @@ impl BTreeCell {
         }
     }
 }
-// TODO: REMOVE FUCKING OFFSET HANDLING BY THE FUCKING CELL
 impl TableInteriorCell {
     pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::new(bytes);
@@ -115,7 +114,7 @@ impl TableLeafCell {
         let current_pos = cursor.stream_pos() as usize;
         let local_payload_size =
             compute_table_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_range = Range::from(current_pos..current_pos + local_payload_size);
+        let local_payload_range = (current_pos..current_pos + local_payload_size);
         let mut overflow_page: Option<u32> = None;
         if local_payload_size < payload_len as usize {
             cursor.move_forward_by(local_payload_size as _)?;
@@ -156,7 +155,7 @@ impl IndexInteriorCell {
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size = Range::from(current_pos..current_pos + payload_size);
+        let local_payload_size = (current_pos..current_pos + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             cursor.move_forward_by(payload_size as _)?;
@@ -189,7 +188,7 @@ impl IndexLeafCell {
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size = Range::from(current_pos..current_pos + payload_size);
+        let local_payload_size = (current_pos..current_pos + payload_size);
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             cursor.move_forward_by(payload_size as _)?;
@@ -220,11 +219,11 @@ impl BTreeCell {
             _ => unreachable!(),
         }
     }
-    pub fn payload_range(&self) -> &Range<usize> {
+    pub fn payload_range(&self) -> Range<usize> {
         match self {
-            BTreeCell::IndexInterior(x) => x.payload_range(),
-            BTreeCell::IndexLeaf(x) => x.payload_range(),
-            BTreeCell::TableLeaf(x) => x.payload_range(),
+            BTreeCell::IndexInterior(x) => x.payload_range().clone(),
+            BTreeCell::IndexLeaf(x) => x.payload_range().clone(),
+            BTreeCell::TableLeaf(x) => x.payload_range().clone(),
             _ => unreachable!(), // we never reach here, we check before calling
         }
     }
