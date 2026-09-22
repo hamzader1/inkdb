@@ -329,7 +329,13 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         BTreePageType::try_from_byte(this.u8_at(header_offset as _)?)?;
         Ok(this)
     }
-    fn bytes(&self) -> &[u8] {
+    pub fn usable_size(&self) -> usize {
+        self.usable_size
+    }
+    pub fn page_size(&self) -> usize {
+        self.page_size
+    }
+    pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
     }
     pub fn u8_at(&self, off: usize) -> SqliteResult<u8> {
@@ -570,16 +576,16 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let base = cell_ptr as usize;
         match &mut cell {
             BTreeCell::TableLeaf(c) => {
-                c.local_payload_range.start += base;
-                c.local_payload_range.end += base;
+                c.payload_range.start += base;
+                c.payload_range.end += base;
             }
             BTreeCell::IndexLeaf(c) => {
-                c.payload.start += base;
-                c.payload.end += base;
+                c.payload_range.start += base;
+                c.payload_range.end += base;
             }
             BTreeCell::IndexInterior(c) => {
-                c.payload.start += base;
-                c.payload.end += base;
+                c.payload_range.start += base;
+                c.payload_range.end += base;
             }
             BTreeCell::TableInterior(_) => {}
         }
@@ -590,7 +596,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let cell = self.parse_cell_at(cell_ptr)?;
         let end = match self.page_type()? {
             BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
-                c.local_payload_range.end
+                c.payload_range.end
                     + if cell.overflow_page().is_some() {
                         OVERFLOW_POINTER_SIZE
                     } else {
@@ -598,7 +604,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
                     }
             }),
             BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
-                c.payload.end
+                c.payload_range.end
                     + if c.first_overflow_page.is_some() {
                         OVERFLOW_POINTER_SIZE
                     } else {
@@ -617,7 +623,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
                  * encode_varint(&mut [0u8; 9], c.payload_len)
                  *
                  */
-                c.payload.end
+                c.payload_range.end
                     + if c.first_overflow_page.is_some() {
                         OVERFLOW_POINTER_SIZE
                     } else {

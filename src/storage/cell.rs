@@ -33,20 +33,20 @@ pub struct TableInteriorCell {
 pub struct TableLeafCell {
     pub payload_len: u64,
     pub row_id: u64,
-    pub local_payload_range: Range<usize>,
+    pub payload_range: Range<usize>,
     pub first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexInteriorCell {
     pub left_child: PageNo,
     pub payload_len: u64,
-    pub payload: Range<usize>,
+    pub payload_range: Range<usize>,
     pub first_overflow_page: Option<PageNo>,
 }
 #[derive(Debug)]
 pub struct IndexLeafCell {
     pub payload_len: u64,
-    pub payload: Range<usize>,
+    pub payload_range: Range<usize>,
     pub first_overflow_page: Option<PageNo>,
 }
 impl BTreeCell {
@@ -128,14 +128,14 @@ impl TableLeafCell {
         let cell = Self {
             payload_len,
             row_id,
-            local_payload_range,
+            payload_range: local_payload_range,
             first_overflow_page: overflow_page,
         };
         Ok(cell)
     }
 
     pub fn payload_range(&self) -> &Range<usize> {
-        &self.local_payload_range
+        &self.payload_range
     }
 }
 
@@ -168,7 +168,7 @@ impl IndexInteriorCell {
         let cell = Self {
             left_child,
             payload_len,
-            payload: local_payload_size,
+            payload_range: local_payload_size,
             first_overflow_page: overflow_page,
         };
 
@@ -176,7 +176,7 @@ impl IndexInteriorCell {
     }
 
     pub fn payload_range(&self) -> &Range<usize> {
-        &self.payload
+        &self.payload_range
     }
 }
 
@@ -200,14 +200,14 @@ impl IndexLeafCell {
         }
         let cell = Self {
             payload_len,
-            payload: local_payload_size,
+            payload_range: local_payload_size,
             first_overflow_page: overflow_page,
         };
 
         Ok(cell)
     }
     pub fn payload_range(&self) -> &Range<usize> {
-        &self.payload
+        &self.payload_range
     }
 }
 
