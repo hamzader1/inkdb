@@ -824,14 +824,14 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         let gap = self.downgrade()?.cell_content_area()?.saturating_sub(
             self.downgrade()?.header_size()? as u16 + self.downgrade()?.no_of_cells()? * 2,
         ) as usize;
-        if gap >= 2 {
-            if let Some(offset) = self.get_freeblock(content.as_ref().len() as _)? {
-                let result = self.insert_cell_at(content, offset as usize, cell_idx, false);
-                if matches!(result, Ok(InsertionState::Inserted)) {
-                    // self.debug_check_child_pointers();
-                }
-                return result;
+        if gap >= 2
+            && let Some(offset) = self.get_freeblock(content.as_ref().len() as _)?
+        {
+            let result = self.insert_cell_at(content, offset as usize, cell_idx, false);
+            if matches!(result, Ok(InsertionState::Inserted)) {
+                // self.debug_check_child_pointers();
             }
+            return result;
         }
         if self.downgrade()?.remaining_space()? < content.len() + 2 {
             return Ok(InsertionState::None); // overflow
