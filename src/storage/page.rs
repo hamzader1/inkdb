@@ -477,14 +477,14 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         if let Some(overflow_page) = cell.overflow_page() {
             let vec = OverflowPageRef::get_total_payload(
                 pager,
-                &self.bytes()[*cell.payload_range()],
+                &self.bytes()[cell.payload_range()],
                 cell.cell_payload_len() as usize,
                 self.usable_size,
                 overflow_page,
             )?;
             self.decode_loop_owned(vec, collector)
         } else {
-            self.decode_loop_borrowed(&self.bytes()[*cell.payload_range()], collector)
+            self.decode_loop_borrowed(&self.bytes()[cell.payload_range()], collector)
         }
     }
     fn decode_loop_owned(
@@ -547,13 +547,11 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     }
     pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
         let start = cell_ptr as usize;
-        // Must be a real assert, not debug_assert: this is exactly where a
-        // corrupted pointer should be caught.
         sqlite_assert_with_corrupt_err(
             start >= self.header_size()? as usize && start < self.usable_size,
             || format!("cell pointer {start} outside content area"),
         )?;
-        let limit = self.usable_size - start; // bytes available to this cell
+        // let limit = self.usable_size - start; // bytes available to this cell
         let bytes = &self.bytes()[start..self.usable_size];
         let mut cell = match self.page_type()? {
             BTreePageType::InteriorTable => {
@@ -828,15 +826,59 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         ) as usize;
         if gap >= 2 {
             if let Some(offset) = self.get_freeblock(content.as_ref().len() as _)? {
-                return self.insert_cell_at(content, offset as usize, cell_idx, false);
+                let result = self.insert_cell_at(content, offset as usize, cell_idx, false);
+                if matches!(result, Ok(InsertionState::Inserted)) {
+                    // self.debug_check_child_pointers();
+                }
+                return result;
             }
         }
         if self.downgrade()?.remaining_space()? < content.len() + 2 {
             return Ok(InsertionState::None); // overflow
         }
         let offset = self.downgrade()?.cell_content_area()? as usize - content.len();
-        self.insert_cell_at(content, offset, cell_idx, true)
+        let result = self.insert_cell_at(content, offset, cell_idx, true);
+        if matches!(result, Ok(InsertionState::Inserted)) {
+            // self.debug_check_child_pointers();
+        }
+        result
     }
+
+    // fn debug_check_child_pointers(&self) {
+    //     let Ok(n) = self.no_of_cells() else {
+    //         return;
+    //     };
+    //     let Ok(page_type) = self.page_type() else {
+    //         return;
+    //     };
+    //     if !page_type.is_interior() {
+    //         return;
+    //     }
+    //     let mut children = Vec::with_capacity(n as usize + 1);
+    //     for i in 0..n {
+    //         if let Ok(cell) = self.cell(i) {
+    //             children.push((i, cell.left_child()));
+    //         }
+    //     }
+    //     if let Ok(Some(rmp)) = self.right_most_ptr() {
+    //         if rmp != 0 {
+    //             children.push((n, rmp));
+    //         }
+    //     }
+    //     for i in 0..children.len() {
+    //         for j in i + 1..children.len() {
+    //             if children[i].1 == children[j].1 {
+    //                 eprintln!(
+    //                     "DUP_CHILD page={} slots={},{} child={}",
+    //                     self.page_no(),
+    //                     children[i].0,
+    //                     children[j].0,
+    //                     children[i].1
+    //                 );
+    //             }
+    //         }
+    //     }
+    // }
     fn insert_cell_at(
         &mut self,
         content: &[u8],
@@ -1111,7 +1153,42 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         i: u16,
         content: impl AsRef<[u8]>,
     ) -> SqliteResult<InsertionState> {
+        let content = content.as_ref();
+        let n = self.no_of_cells()? as usize;
+        if i as usize >= n {
+            return Err(SqliteError::Internal(format!(
+                "replace_cell: index {i} out of bounds (page holds {n} cells)"
+            )));
+        }
+        // Fit check before touching anything: callers split and retry on
+        // None, which is only safe if the page is byte-identical after a
+        // refusal. A failed replace must never eat the old cell.
+        let mut bodies = content.len();
+        for j in 0..n {
+            if j != i as usize {
+                bodies += self.cell_bytes_as_ref(j as u16)?.len();
+            }
+        }
+        if bodies + n * 2 + self.header_size()? as usize > self.usable_size {
+            return Ok(InsertionState::None);
+        }
+        let old = self.cell_bytes_as_ref(i)?.to_vec();
         self.remove_cell(i)?;
-        self.insert_cell(&content, i)
+        match self.insert_cell(&content, i)? {
+            InsertionState::Inserted => {
+                // self.debug_check_child_pointers();
+                Ok(InsertionState::Inserted)
+            }
+            InsertionState::None => {
+                // Exact fit was proven above, so this means fragmentation
+                // lied. Put the old body back: None must mean untouched.
+                match self.insert_cell(&old, i)? {
+                    InsertionState::Inserted => Ok(InsertionState::None),
+                    _ => Err(SqliteError::Corrupt(
+                        "replace_cell: page refused its own old cell".into(),
+                    )),
+                }
+            }
+        }
     }
 }
