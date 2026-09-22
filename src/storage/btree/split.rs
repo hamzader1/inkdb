@@ -6,6 +6,7 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::SqlType;
 use crate::record::Value;
+use crate::storage::btree::binary_search_interior;
 use crate::storage::cell::{BTreeCell, Encode, IndexInteriorCell, TableInteriorCell};
 use crate::storage::page::{BTreePageType, InsertionState};
 use crate::storage::page::{PageMut as BTreePageMut, PageRef as BTreePageRef};
@@ -201,10 +202,8 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             let mut parent_page = self.page_as_mut(path.page_no, &mut parent_guard)?;
 
             let page_as_ref = parent_page.as_ref()?;
-            let cell_idx = self
-                .cursor
-                .binary_search_interior(&page_as_ref, self.pager, &promoted_key)?
-                .cell_index();
+            let cell_idx =
+                binary_search_interior(&page_as_ref, self.pager, &promoted_key)?.cell_index();
             match parent_page.insert_cell(&promoted_cell_payload, cell_idx)? {
                 InsertionState::Inserted => Ok(SplitMetadata::new(
                     new_page_no,

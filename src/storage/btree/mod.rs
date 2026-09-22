@@ -4,6 +4,8 @@ pub mod insert;
 pub mod rebalance;
 pub mod split;
 
+use std::cmp::Ordering;
+
 pub use cursor::{BTreeCursor, CursorState, Path, RestorePosition, SeekResult};
 
 use crate::SqliteResult;
@@ -12,10 +14,14 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::cell::BTreeCell;
+use crate::util::sqlite_assert_with_corrupt_err;
+use crate::vfs::Vfs;
 
-use super::page::PageMut as BTreePageMut;
+use self::cursor::SearchResult;
+
 pub use super::page::PageRef;
 pub use super::page::PageRef as BTreePageRef;
+use super::page::{BTreePage, BTreePageType, PageMut as BTreePageMut};
 
 pub type CellIndex = u16;
 
@@ -208,4 +214,146 @@ impl From<&Vec<Path>> for ActivePath {
             cell_idx: *cell_idx,
         }
     }
+}
+
+pub(crate) fn binary_search_leaf<B: AsRef<[u8]>, V: Vfs>(
+    page: &BTreePage<B>,
+    pager: &mut Pager<V>,
+    target: &Value<'_>,
+) -> Result<(bool, CellIndex), SqliteError> {
+    sqlite_assert_with_corrupt_err(page.is_leaf()?, || {
+        "This navigation path works only for leaves".into()
+    })?;
+
+    let cell_cnt = page.no_of_cells()?;
+    let mut l = 0;
+    let mut r = cell_cnt;
+    let mut found = None;
+    while l < r {
+        let m: u16 = l + ((r - l) / 2);
+
+        let value = if page.page_type()? == BTreePageType::LeafTable {
+            Value::Integer(page.cell(m)?.row_id() as _)
+        } else {
+            let entry = page.record_of_cell(m, pager)?;
+            let (ord, full) = compare_index_entry(&entry, target)?;
+            if ord == Ordering::Equal {
+                if full {
+                    return Ok((true, m));
+                }
+                found = Some(m);
+                r = m;
+                continue;
+            }
+            if ord == Ordering::Greater {
+                r = m;
+            } else {
+                l = m + 1;
+            }
+            continue;
+        };
+
+        if &value == target {
+            found = Some(m);
+            r = m;
+        } else if &value > target {
+            r = m;
+        } else {
+            l = m + 1;
+        }
+    }
+
+    if let Some(m) = found {
+        return Ok((true, m));
+    }
+    Ok((false, l))
+}
+
+pub(crate) fn binary_search_interior<B: AsRef<[u8]>, V: Vfs>(
+    page: &BTreePage<B>,
+    pager: &mut Pager<V>,
+    target: &Value,
+) -> Result<SearchResult, SqliteError> {
+    sqlite_assert_with_corrupt_err(page.is_interior()?, || {
+        "Navigation path of this works only with interior pages".into()
+    })?;
+
+    let cell_count = page.no_of_cells()?;
+    let is_table = page.page_type()? == BTreePageType::InteriorTable;
+
+    let mut l = 0;
+    let mut r = cell_count;
+    let mut saw_eq = false;
+
+    while l < r {
+        let m = l + (r - l) / 2;
+        let cell = page.cell(m)?;
+
+        if is_table {
+            let row_id = Value::Integer(cell.row_id() as _);
+
+            if &row_id >= target {
+                r = m;
+            } else {
+                l = m + 1;
+            }
+        } else {
+            let entry = page.record_of(&cell, pager)?;
+            let (ord, _full) = compare_index_entry(&entry, target)?;
+            if ord == Ordering::Equal {
+                saw_eq = true;
+                r = m;
+            } else if ord == Ordering::Greater {
+                r = m;
+            } else {
+                l = m + 1;
+            }
+        }
+    }
+
+    if l < cell_count {
+        return Ok(SearchResult::Descend {
+            child: page.cell(l)?.left_child(),
+            cell_index: l,
+            exact: saw_eq,
+        });
+    }
+
+    // Past the end: every key compared less-than, so no equality seen.
+    Ok(SearchResult::Descend {
+        child: page.right_most_ptr()?.unwrap(),
+        cell_index: cell_count,
+        exact: false,
+    })
+}
+
+pub(crate) fn compare_index_entry(
+    entry: &[Value],
+    target: &Value,
+) -> Result<(Ordering, bool), SqliteError> {
+    let keys = match target {
+        Value::Tuple(cols) => cols,
+        _ => {
+            return Err(SqliteError::Internal(
+                "index seek target must be a tuple of key columns".into(),
+            ));
+        }
+    };
+    if keys.len() > entry.len() {
+        return Err(SqliteError::Internal(format!(
+            "index seek target has {} columns but entries hold {}",
+            keys.len(),
+            entry.len()
+        )));
+    }
+    for (stored, wanted) in entry.iter().zip(keys.iter()) {
+        if stored == wanted {
+            continue;
+        }
+        if stored > wanted {
+            return Ok((Ordering::Greater, false));
+        }
+        return Ok((Ordering::Less, false));
+    }
+    Ok((Ordering::Equal, keys.len() == entry.len()))
 }

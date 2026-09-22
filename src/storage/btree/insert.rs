@@ -1,5 +1,7 @@
 use super::cursor::{BTreeCursor, Path};
-use super::{ActivePath, BTree, CellIndex, SplitMetadata};
+use super::{
+    ActivePath, BTree, CellIndex, SplitMetadata, binary_search_interior, binary_search_leaf,
+};
 use crate::SqliteError;
 use crate::SqliteResult;
 use crate::pager::guard::PageGuard;
@@ -77,10 +79,9 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let is_index = right_page.as_ref()?.is_index()?;
         if let Some(path) = self.cursor.stack.pop() {
             let parent_page_as_ref = self.page_as_ref(path.page_no, path.guard())?;
-            let index = self
-                .cursor
-                .binary_search_interior(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
-                .cell_index();
+            let index =
+                binary_search_interior(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
+                    .cell_index();
             // At this point we are not longer dealing with Leaves
             let left_page_payload = if is_index {
                 Encode::encode_index_interior_cell(
@@ -289,10 +290,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         };
         let mut page_guard = self.pager.get_mut(target_page)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
-        let cell_idx = self
-            .cursor
-            .binary_search_interior(&page_mut, self.pager, key)?
-            .cell_index();
+        let cell_idx = binary_search_interior(&page_mut, self.pager, key)?.cell_index();
         // A refused insert here would silently drop a divider and orphan
         // a whole subtree. The page was just split so it should fit; if it
         // does not, stop instead of continuing with a broken tree.
@@ -317,7 +315,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         };
         let mut page_guard = self.pager.get_mut(target_page)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
-        let (_, cell_idx) = self.cursor.binary_search_leaf(&page_mut, self.pager, key)?;
+        let (_, cell_idx) = binary_search_leaf(&page_mut, self.pager, key)?;
         if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
             return Err(SqliteError::Internal(format!(
                 "leaf cell does not fit in page {target_page} right after its split"
