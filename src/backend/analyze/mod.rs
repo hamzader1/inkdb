@@ -115,9 +115,14 @@ impl Analyze {
             Ast::TruncateTableAst(t_stmt) => {
                 let table = Self::get_table(sqlite_master, &t_stmt.table_name)?;
                 let root_page = table.root_page;
+                let indexes = Self::indexes_related_to(sqlite_master, &t_stmt.table_name);
                 Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
                     root_page,
-                    indexes: None, // temp for now
+                    indexes: if indexes.is_empty() {
+                        None
+                    } else {
+                        Some(indexes)
+                    },
                 }))
             }
             Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, sqlite_master),
@@ -138,5 +143,14 @@ impl Analyze {
             }
         };
         Ok(table)
+    }
+    pub fn indexes_related_to(sqlite_master: &SqliteMaster, table_name: &str) -> Vec<u32> {
+        let mut v = Vec::new();
+        for index in sqlite_master.indexes.values() {
+            if index.table == table_name {
+                v.push(index.root_page)
+            }
+        }
+        v
     }
 }

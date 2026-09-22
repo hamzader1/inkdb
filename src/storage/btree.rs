@@ -1,7 +1,7 @@
 use super::cell::BTreeCell;
 use super::cell::Encode;
-use super::page::InsertionState;
 use super::page::BTreePage;
+use super::page::InsertionState;
 use super::page::PageMut as BTreePageMut;
 use super::page::PageRef as BTreePageRef;
 use std::cmp::Ordering;
@@ -867,6 +867,18 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 // indexes the old divider is a real entry, so it stays as
                 // the divider for the new right page and only the left
                 // divider becomes the fresh boundary.
+                //
+                // The slot found by key must be the divider of the page we
+                // just split. If it is not, the tree was already wrong and
+                // rewriting this slot would only spread the damage.
+                let old_child = parent_page_as_mut.cell(index)?.left_child();
+                if old_child != split_metadata.left_page {
+                    return Err(SqliteError::Corrupt(format!(
+                        "leaf split: parent {} slot {index} points at {old_child}, expected split page {}",
+                        parent_page_as_mut.page_no(),
+                        split_metadata.left_page
+                    )));
+                }
                 let (right_page_payload, right_divider_key) = if is_index {
                     let old_cell = parent_page_as_mut.cell(index)?;
                     let old_key = parent_page_as_mut
@@ -900,8 +912,19 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     }
                     InsertionState::None => {
                         // Parent too full to grow this divider in place.
-                        // Split it first, then route both dividers into
-                        // the fresh layout by their own keys.
+                        // replace_cell refused, so the OLD divider is still
+                        // at `index` and still points at left_page. If it
+                        // survived the split below it would sit next to the
+                        // fresh (left_page, boundary) cell as a second
+                        // pointer to the same page. Worse, if split_interior
+                        // picked it as the promoted cell, left_page would
+                        // become the new left half's right-most pointer and
+                        // both fresh dividers would land beside it. Either
+                        // way integrity_check reports "2nd reference to
+                        // page". Remove it first: nothing routes through the
+                        // parent while split_interior only shuffles cells,
+                        // and both children get fresh dividers right after.
+                        parent_page_as_mut.remove_cell(index)?;
                         let meta = self.split_interior(parent_page_as_mut.page_no())?;
                         let left_key = split_metadata.boundary.into_owned();
                         self.insert_key_to_interior(&left_key, left_page_payload, meta.clone())?;
@@ -966,11 +989,19 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     &split_metadata.boundary_bytes.unwrap(),
                 )
             };
-            root.insert_cell(&left_child_payload, 0)?;
+            if root.insert_cell(&left_child_payload, 0)? == InsertionState::None {
+                return Err(SqliteError::Internal(
+                    "root split: divider does not fit in a fresh root".into(),
+                ));
+            }
+            // Route by the divider the root actually holds. For tables that
+            // equals `key`. For indexes the divider was cut out of the left
+            // leaf, so `key` is one entry lower and an insert falling
+            // between the two would go right while lookups go left.
             Ok(SplitMetadata::new(
                 new_left_page_no,
                 right_page.page_no(),
-                key,
+                split_metadata.boundary,
                 right_max,
             ))
         }
@@ -1143,10 +1174,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
         }
-        if interior_page.right_most_ptr()? != old_rmp {
-            if let Some(rmp) = old_rmp {
-                interior_page.set_right_most_ptr(rmp)?;
-            }
+        if interior_page.right_most_ptr()? != old_rmp
+            && let Some(rmp) = old_rmp
+        {
+            interior_page.set_right_most_ptr(rmp)?;
         }
         // PROMOTE KEY STAGE
 
@@ -1240,7 +1271,14 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             .cursor
             .binary_search_interior(&page_mut, self.pager, key)?
             .cell_index();
-        page_mut.insert_cell(&payload, cell_idx)?;
+        // A refused insert here would silently drop a divider and orphan
+        // a whole subtree. The page was just split so it should fit; if it
+        // does not, stop instead of continuing with a broken tree.
+        if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
+            return Err(SqliteError::Internal(format!(
+                "divider does not fit in page {target_page} right after its split"
+            )));
+        }
         Ok(())
     }
     pub fn insert_key_to_leaf<T: AsRef<[u8]>>(
@@ -1257,7 +1295,11 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         let mut page_guard = self.pager.get_mut(target_page)?;
         let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
         let (_, cell_idx) = self.cursor.binary_search_leaf(&page_mut, self.pager, key)?;
-        page_mut.insert_cell(&payload, cell_idx)?;
+        if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
+            return Err(SqliteError::Internal(format!(
+                "leaf cell does not fit in page {target_page} right after its split"
+            )));
+        }
         Ok(())
     }
     pub fn page_as_ref(
@@ -1335,7 +1377,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
     pub fn current_page_header_unchecked(&mut self) -> Result<u16, SqliteError> {
         let (pn, _) = self.cursor.last_visited_entry_unchecked();
 
-        self.with_page_ref(pn, |page| Ok(page.no_of_cells()?))
+        self.with_page_ref(pn, |page| page.no_of_cells())
     }
 
     // Delete one entry by its full key. Tables hold every row in a leaf
@@ -1370,7 +1412,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             let is_underflow = self.with_page_mut::<_, bool>(page_no, |page| {
                 page.remove_cell(cell_idx)?;
                 debug_assert!(page.assert_invariants().is_ok());
-                Ok(page.is_underflow()?)
+                page.is_underflow()
             })?;
             if page_no != self.root_page && is_underflow {
                 self.fix_page_underflow(page_no)?;
@@ -1440,6 +1482,14 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
             let (page_no2, cell_idx2) = self.cursor.last_visited_entry_unchecked();
+            // split_interior may have promoted this very divider one level
+            // up. Its left child is then the fresh left half, not the child
+            // it carried before, so the repaint has to keep whatever child
+            // the relocated cell holds now. Reusing the stale child would
+            // orphan the new half and reference the old child twice.
+            let child_now =
+                self.with_page_ref(page_no2, |p| Ok(p.cell(cell_idx2)?.left_child()))?;
+            let new_divider = Encode::encode_index_interior_cell(child_now, &pred_bytes);
             if self.with_page_mut(page_no2, |parent| {
                 parent.replace_cell(cell_idx2, &new_divider)
             })? == InsertionState::None
@@ -1980,10 +2030,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                     ));
                 }
             }
-            if sibling_page.right_most_ptr()? != sibling_rmp {
-                if let Some(rmp) = sibling_rmp {
-                    sibling_page.set_right_most_ptr(rmp)?;
-                }
+            if sibling_page.right_most_ptr()? != sibling_rmp
+                && let Some(rmp) = sibling_rmp
+            {
+                sibling_page.set_right_most_ptr(rmp)?;
             }
             return Ok(());
         }
@@ -2207,9 +2257,6 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             return Ok(());
         }
 
-        // Interior mirror of try_borrow_right_v2: parent separator moves down
-        // to the FRONT of the right page, sibling's last cell moves up.
-        // Right share must keep >=1 cell, left share needs >=2 (promoted + remainder).
         if split_at < 2 || split_at > total_cells - 1 {
             return Err(SqliteError::Internal(
                 "cannot redistribute interior: split leaves no promotable cell".into(),
@@ -2285,23 +2332,39 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 "redistribute interior: parent separator does not fit".into(),
             ));
         }
+
+        //
+        let leftover_sib_in_right = sibling_len
+            .saturating_sub(split_at)
+            .min(new_current_cells.len());
         current_page.reset_for_rebuild()?;
-        if current_page.insert_cell(&new_cell_for_right, 0 as _)? == InsertionState::None {
-            return Err(SqliteError::Internal(
-                "redistribute interior: parent separator does not fit".into(),
-            ));
-        }
-        for (i, bytes) in new_current_cells.iter().enumerate() {
-            if current_page.insert_cell(bytes, (i + 1) as _)? == InsertionState::None {
+        let mut slot = 0usize;
+        for bytes in &new_current_cells[..leftover_sib_in_right] {
+            if current_page.insert_cell(bytes, slot as _)? == InsertionState::None {
                 return Err(SqliteError::Internal(
                     "redistribute interior: right share does not fit".into(),
                 ));
             }
+            slot += 1;
         }
-        if current_page.right_most_ptr()? != current_rmp {
-            if let Some(rmp) = current_rmp {
-                current_page.set_right_most_ptr(rmp)?;
+        if current_page.insert_cell(&new_cell_for_right, slot as _)? == InsertionState::None {
+            return Err(SqliteError::Internal(
+                "redistribute interior: parent separator does not fit".into(),
+            ));
+        }
+        slot += 1;
+        for bytes in &new_current_cells[leftover_sib_in_right..] {
+            if current_page.insert_cell(bytes, slot as _)? == InsertionState::None {
+                return Err(SqliteError::Internal(
+                    "redistribute interior: right share does not fit".into(),
+                ));
             }
+            slot += 1;
+        }
+        if current_page.right_most_ptr()? != current_rmp
+            && let Some(rmp) = current_rmp
+        {
+            current_page.set_right_most_ptr(rmp)?;
         }
 
         Ok(())
@@ -2318,11 +2381,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
         if right_page.page_no() == abandoned {
             return Err(SqliteError::Corrupt("merge of a page into itself".into()));
         }
-        // Callers pool the parent separator into all_cells for index trees
-        // and for interior pages, so the entry moves down instead of being
-        // dropped. Table leaf callers keep the old copy semantics and pass
-        // only leaf cells. The merged page keeps the right page right most
-        // pointer, otherwise the next seek follows a zeroed pointer.
+
         let merged_rmp = right_page.right_most_ptr()?;
         right_page.reset_for_rebuild()?;
         for (i, bytes) in all_cells_as_bytes.iter().enumerate() {
@@ -2332,10 +2391,10 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
                 ));
             }
         }
-        if right_page.right_most_ptr()? != merged_rmp {
-            if let Some(rmp) = merged_rmp {
-                right_page.set_right_most_ptr(rmp)?;
-            }
+        if right_page.right_most_ptr()? != merged_rmp
+            && let Some(rmp) = merged_rmp
+        {
+            right_page.set_right_most_ptr(rmp)?;
         }
         parent_page.remove_cell(separator_index)?;
         if parent_page.is_underflow()? {
