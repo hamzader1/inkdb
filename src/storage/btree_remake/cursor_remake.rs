@@ -333,15 +333,24 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
-            let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf()? {
+            let page = AnyPage::parse(
+                page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                guard.bytes(),
+            )?;
+            page_no = {
+                let child = match page {
+                    AnyPage::IndexLeaf(_) | AnyPage::TableLeaf(_) => {
+                        self.add_path(page_no, 0, guard);
+                        return Ok(());
+                    }
+                    AnyPage::IndexInterior(p) => p.cell(0)?.left_child(),
+                    AnyPage::TableInterior(p) => p.cell(0)?.left_child(),
+                };
                 self.add_path(page_no, 0, guard);
-                self.state = CursorState::At;
-                return Ok(());
-            }
-            let child = page.cell(0)?.left_child();
-            self.add_path(page_no, 0, guard);
-            page_no = child;
+                child
+            };
         }
     }
     pub fn first(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
