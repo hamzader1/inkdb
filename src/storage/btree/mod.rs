@@ -34,7 +34,7 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
         page_no,
         pager.page_size(),
         pager.usable_size(),
-        guard.bytes_as_ref(),
+        guard.bytes(),
     )
 }
 
@@ -123,7 +123,7 @@ impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
             page_no,
             self.pager.page_size(),
             self.pager.usable_size(),
-            guard.bytes_as_ref(),
+            guard.bytes(),
         )
     }
 

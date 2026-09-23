@@ -480,11 +480,11 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
 
     pub fn get_cell_record_v2<V: Vfs, C>(
         &self,
-        cell: C,
+        cell: &C,
         pager: &mut Pager<V>,
     ) -> SqliteResult<Vec<Value<'_>>>
     where
-        C: Cell + HasPayload,
+        C: HasPayload,
     {
         let mut collector = Vec::new();
         let cell_payload = cell.payload_range();

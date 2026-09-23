@@ -520,7 +520,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             page_no,
             pager.page_size(),
             pager.usable_size(),
-            page_guard.bytes_as_ref(),
+            page_guard.bytes(),
         )?;
         f(&page)
     }
