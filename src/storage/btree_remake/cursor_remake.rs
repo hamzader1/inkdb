@@ -90,7 +90,13 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn save_position(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
         if let Some(last_entry) = self.stack.last() {
             let guard = pager.get(last_entry.page_no)?;
-            let page = page_as_ref_with_pager(last_entry.page_no, &guard, pager)?;
+            // let inner = page_as_ref_with_pager(last_entry.page_no, &guard, pager)?;
+            let page = AnyPage::parse(
+                last_entry.page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                guard.bytes(),
+            )?;
             if last_entry.cell_idx >= page.no_of_cells()? {
                 // Past the end
                 // No key to save
@@ -100,8 +106,8 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 return Ok(());
             }
             self.saved_yielded = last_entry.yielded;
-            let cell = page.cell(last_entry.cell_idx)?;
-            let key = page.cell_key(&cell, pager)?;
+            let i = last_entry.cell_idx;
+            let key = page.cell_key(i, pager)?;
             self.saved_key = Some(key);
             self.stack.clear();
         }
@@ -128,10 +134,17 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         }
         let (page_no, cell_idx) = (path.page_no, path.cell_idx);
         let guard = pager.get(page_no)?;
-        let page = page_as_ref_with_pager(page_no, &guard, pager)?;
+        let page = AnyPage::parse(
+            page_no,
+            pager.page_size(),
+            pager.usable_size(),
+            guard.bytes(),
+        )?;
         if cell_idx < page.no_of_cells()? {
-            let cell = page.cell(cell_idx)?;
-            if page.cell_key(&cell, pager)? == key {
+            let i = cell_idx;
+            let cell_key = page.cell_key(i, pager)?;
+
+            if cell_key == key {
                 return Ok(RestorePosition::Exact);
             }
         }
