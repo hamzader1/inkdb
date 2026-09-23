@@ -1,9 +1,13 @@
+use std::ops::Deref;
+
 use crate::SqliteResult;
 use crate::errors::SqliteError;
-use crate::pager::pager::PageNo;
+use crate::pager::pager::{PageNo, Pager};
+use crate::record::Value;
 use crate::storage::cell::{IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use crate::storage::page::{BTreePage, LEFT_CHILD_POINTER_SIZE, OVERFLOW_POINTER_SIZE};
 use crate::varint::encode_varint;
+use crate::vfs::Vfs;
 
 pub struct TableInterior;
 pub struct TableLeaf;
@@ -181,6 +185,7 @@ pub struct TypedPage<B, K: PageKind> {
     _kind: std::marker::PhantomData<fn() -> K>,
 }
 
+// Interiors
 impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K>
 where
     K::Cell: HasChild,
@@ -189,8 +194,9 @@ where
         Ok(self.cell(i)?.left_child())
     }
     pub(crate) fn rmp(&self) -> SqliteResult<u32> {
-        let rmp = self.inner.right_most_ptr()?;
-        Ok(rmp.unwrap())
+        self.inner.right_most_ptr()?.ok_or_else(|| {
+            SqliteError::Internal("interior page has no right-most pointer".into())
+        })
     }
 }
 impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K> {
@@ -207,6 +213,24 @@ where
     pub(crate) fn row_id(&self, i: u16) -> SqliteResult<u64> {
         let cell_offset = self.inner.cell_ptr(i)? as usize;
         Ok(K::Cell::parse(&self.inner.bytes()[cell_offset..], self.inner.usable_size())?.row_id())
+    }
+    fn row_id_key(&self, i: u16) -> SqliteResult<Value<'static>> {
+        Ok(Value::Integer(self.cell(i)?.row_id() as _))
+    }
+}
+
+impl<B: AsRef<[u8]>, K: PageKind + IndexKind> TypedPage<B, K>
+where
+    K::Cell: HasPayload,
+{
+    fn index_payload_key<V: Vfs>(
+        &self,
+        i: u16,
+        pager: &mut Pager<V>,
+    ) -> SqliteResult<Value<'static>> {
+        let cell = &self.cell(i)?;
+        let record = self.inner.get_cell_record_v2(cell, pager)?;
+        Ok(Value::Tuple(record).into_owned())
     }
 }
 
@@ -242,6 +266,34 @@ impl<B: AsRef<[u8]>> AnyPage<B> {
             other => Err(SqliteError::InvalidPageType(other)),
         }
     }
+    pub(crate) fn cell_key<V: Vfs>(
+        &self,
+        i: u16,
+        pager: &mut Pager<V>,
+    ) -> SqliteResult<Value<'static>> {
+        let key = {
+            match self {
+                AnyPage::TableInterior(p) => p.row_id_key(i)?,
+                AnyPage::TableLeaf(p) => p.row_id_key(i)?,
+                AnyPage::IndexInterior(p) => p.index_payload_key(i, pager)?,
+                AnyPage::IndexLeaf(p) => p.index_payload_key(i, pager)?,
+            }
+        };
+        Ok(key)
+    }
+
+    /// The cell count is the same question for every kind, so it is the one page fact a
+    /// caller may read without naming the kind. It is spelled out here instead of being
+    /// inherited through `Deref`, which would hand out the untyped `BTreePage` API
+    /// (`cell`, `is_index`, `right_most_ptr`) and let `BTreeCell` back into the code.
+    pub(crate) fn no_of_cells(&self) -> SqliteResult<u16> {
+        match self {
+            AnyPage::TableInterior(p) => p.no_of_cells(),
+            AnyPage::TableLeaf(p) => p.no_of_cells(),
+            AnyPage::IndexInterior(p) => p.no_of_cells(),
+            AnyPage::IndexLeaf(p) => p.no_of_cells(),
+        }
+    }
 }
 impl<B: AsRef<[u8]>, K: PageKind> std::ops::Deref for TypedPage<B, K> {
     type Target = BTreePage<B>;
@@ -249,3 +301,7 @@ impl<B: AsRef<[u8]>, K: PageKind> std::ops::Deref for TypedPage<B, K> {
         &self.inner
     }
 }
+
+pub trait IndexKind: PageKind {}
+impl IndexKind for IndexInterior {}
+impl IndexKind for IndexLeaf {}

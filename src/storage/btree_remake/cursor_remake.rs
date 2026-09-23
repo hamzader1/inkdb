@@ -12,7 +12,10 @@ use crate::vfs::Vfs;
 
 use self::IndexSearchResult::{EqualPrefix, NotFound};
 
-use super::kind::{AnyPage, Cell, HasPayload, HasRowId, PageKind, TypedPage};
+use super::kind::{
+    AnyPage, Cell, HasPayload, HasRowId, IndexInterior, IndexKind, PageKind, TableInterior,
+    TypedPage,
+};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CursorState {
@@ -127,8 +130,15 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             // A saved interior divider was already yielded once, so park it
             // as yielded again. Otherwise the caller would visit it twice.
             let guard = pager.get(path.page_no)?;
-            let page = page_as_ref_with_pager(path.page_no, &guard, pager)?;
-            if !page.is_leaf()? {
+            let any = AnyPage::parse(
+                path.page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                guard.bytes(),
+            )?;
+            // only an interior page can hold a divider that was already handed out,
+            // so a leaf must never be parked as yielded
+            if !matches!(any, AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_)) {
                 path.yielded = true;
             }
         }
@@ -276,46 +286,54 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             }
         }
     }
-    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
                 cell_idx,
                 guard,
-                yielded: yeilded,
+                yielded,
             } = path;
-
+            // the guard from the path is reused: fetching the page again would pin it twice
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf()? {
-                if cell_idx + 1 < page.no_of_cells()? {
-                    self.stack.push(Path::new(page_no, cell_idx + 1, guard));
-                    self.state = CursorState::At;
-                    return Ok(());
-                }
-            } else {
-                if page.page_type()? == BTreePageType::InteriorIndex
-                    && !yeilded
-                    && cell_idx < page.no_of_cells()?
-                {
+            let any = AnyPage::parse(
+                page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                page.bytes(),
+            )?;
+            let max = any.no_of_cells()?;
+
+            let step = match &any {
+                AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_) => leaf_next_step(cell_idx, max),
+                AnyPage::IndexInterior(p) => index_interior_next_step(p, cell_idx, max, yielded)?,
+                AnyPage::TableInterior(p) => table_interior_next_step(p, cell_idx, max)?,
+            };
+
+            match step {
+                Step::PopParent => continue,
+                Step::Stay { idx, yielded } => {
                     self.stack.push(Path {
                         page_no,
-                        cell_idx,
+                        cell_idx: idx,
                         guard,
-                        yielded: true,
+                        yielded,
                     });
                     self.state = CursorState::At;
                     return Ok(());
-                } else if cell_idx + 1 == page.no_of_cells()? {
-                    let child = page.right_most_ptr()?.ok_or(SqliteError::Internal(format!(
-                        "cursor next: interior page {page_no} has no right-most child"
-                    )))?;
-                    self.add_path(page_no, cell_idx + 1, guard);
-                    self.descend_to_first(pager, child)?;
-                    self.state = CursorState::At;
-                    return Ok(());
-                } else if cell_idx + 1 < page.no_of_cells()? {
-                    let child = page.cell(cell_idx + 1)?.left_child();
-                    self.add_path(page_no, cell_idx + 1, guard);
+                }
+                Step::Descend {
+                    child,
+                    push_idx,
+                    push_yielded,
+                } => {
+                    // push_idx, not cell_idx: the path records where we are coming back to
+                    self.stack.push(Path {
+                        page_no,
+                        cell_idx: push_idx,
+                        guard,
+                        yielded: push_yielded,
+                    });
                     self.descend_to_first(pager, child)?;
                     self.state = CursorState::At;
                     return Ok(());
@@ -325,6 +343,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         self.state = CursorState::AfterLast;
         Ok(())
     }
+
     pub fn descend_to_first(
         &mut self,
         pager: &mut Pager<V>,
@@ -355,19 +374,8 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     }
     pub fn first(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         self.clear_path();
-        let mut page_no = self.root;
-        loop {
-            let guard = pager.get(page_no)?;
-            let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf()? {
-                self.add_path(page_no, 0, guard);
-                self.state = CursorState::At;
-                return Ok(());
-            }
-            let child = page.cell(0)?.left_child();
-            self.add_path(page_no, 0, guard);
-            page_no = child;
-        }
+        let root = self.root;
+        self.descend_to_first(pager, root)
     }
 
     pub fn prev(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
@@ -376,77 +384,59 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 page_no,
                 cell_idx,
                 guard,
-                yielded: yeilded,
+                yielded,
             } = path;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf()? {
-                if cell_idx > 0 {
-                    self.add_path(page_no, cell_idx - 1, guard);
-                    self.state = CursorState::At;
-                    return Ok(());
-                }
-            } else if page.page_type()? == BTreePageType::InteriorIndex {
-                if yeilded {
-                    if cell_idx < page.no_of_cells()? {
-                        let child = page.cell(cell_idx)?.left_child();
-                        self.stack.push(Path::new(page_no, cell_idx, guard));
-                        self.descend_to_last(pager, child)?;
-                        self.state = CursorState::At;
-                        return Ok(());
-                    }
+            let any = AnyPage::parse(
+                page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                page.bytes(),
+            )?;
+
+            let step = match &any {
+                AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_) => leaf_prev_step(cell_idx),
+                AnyPage::IndexInterior(p) => index_interior_prev_step(p, cell_idx, yielded)?,
+                AnyPage::TableInterior(p) => table_interior_prev_step(p, cell_idx)?,
+            };
+
+            match step {
+                Step::PopParent => continue,
+                Step::Stay { idx, yielded } => {
                     self.stack.push(Path {
                         page_no,
-                        cell_idx: cell_idx - 1,
+                        cell_idx: idx,
                         guard,
-                        yielded: true,
+                        yielded,
                     });
                     self.state = CursorState::At;
                     return Ok(());
                 }
-                if cell_idx == 0 {
-                    continue;
+                Step::Descend {
+                    child,
+                    push_idx,
+                    push_yielded,
+                } => {
+                    self.stack.push(Path {
+                        page_no,
+                        cell_idx: push_idx,
+                        guard,
+                        yielded: push_yielded,
+                    });
+                    self.descend_to_last(pager, child)?;
+                    self.state = CursorState::At;
+                    return Ok(());
                 }
-                self.stack.push(Path {
-                    page_no,
-                    cell_idx: cell_idx - 1,
-                    guard,
-                    yielded: true,
-                });
-                self.state = CursorState::At;
-                return Ok(());
-            } else if cell_idx > 0 {
-                let child = page.cell(cell_idx - 1)?.left_child();
-                self.add_path(page_no, cell_idx - 1, guard);
-                self.descend_to_last(pager, child)?;
-                self.state = CursorState::At;
-                return Ok(());
             }
         }
         self.state = CursorState::BeforeFirst;
         Ok(())
     }
+
     pub fn last(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
         self.clear_path();
-        let mut page_no = self.root;
-        loop {
-            let guard = pager.get(page_no)?;
-            let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf()? {
-                let cell_idx = if page.no_of_cells()? == 0 {
-                    0
-                } else {
-                    page.no_of_cells()? - 1
-                };
-                self.add_path(page_no, cell_idx, guard);
-                self.state = CursorState::At;
-                return Ok(());
-            }
-            let child = page.right_most_ptr()?.ok_or(SqliteError::Internal(format!(
-                "cursor last: interior page {page_no} has no right-most child"
-            )))?;
-            self.add_path(page_no, page.no_of_cells()?, guard);
-            page_no = child;
-        }
+        let root = self.root;
+        self.descend_to_last(pager, root)
     }
     fn descend_to_last(
         &mut self,
@@ -529,7 +519,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         if let Some(page) = self.current_page_as_ref(pager)?
             && let Some(cell) = self.current::<K>(pager)?
         {
-            let record = page.get_cell_record_v2(cell, pager)?;
+            let record = page.get_cell_record_v2(&cell, pager)?;
             return Ok(Some(record.into_iter().map(|v| v.into_owned()).collect()));
         }
         Ok(None)
@@ -557,7 +547,140 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         self.last_visited_entry().expect("Path stack is empty")
     }
 }
-// fn foo() {}
+
+enum Step {
+    PopParent,
+    Stay {
+        idx: CellIndex,
+        yielded: bool,
+    },
+    /// Keep this page in the path and descend into `child`. `next` follows it with
+    /// `descend_to_first`, `prev` with `descend_to_last`.
+    Descend {
+        child: PageNo,
+        push_idx: CellIndex,
+        push_yielded: bool,
+    },
+}
+
+fn leaf_prev_step(cell_idx: CellIndex) -> Step {
+    if cell_idx > 0 {
+        Step::Stay {
+            idx: cell_idx - 1,
+            yielded: false,
+        }
+    } else {
+        Step::PopParent
+    }
+}
+fn leaf_next_step(cell_index: u16, max: u16) -> Step {
+    if cell_index == max {
+        return Step::PopParent;
+    }
+    Step::Stay {
+        idx: cell_index + 1,
+        yielded: false,
+    }
+}
+
+fn table_interior_prev_step(
+    p: &TypedPage<&[u8], TableInterior>,
+    cell_idx: CellIndex,
+) -> SqliteResult<Step> {
+    if cell_idx == 0 {
+        return Ok(Step::PopParent);
+    }
+    Ok(Step::Descend {
+        child: p.cell(cell_idx - 1)?.left_child(),
+        push_idx: cell_idx - 1,
+        push_yielded: false,
+    })
+}
+fn table_interior_next_step(
+    p: &TypedPage<&[u8], TableInterior>,
+    cell_index: u16,
+    max: u16,
+) -> SqliteResult<Step> {
+    if cell_index == max {
+        return Ok(Step::PopParent);
+    }
+    // the last child lives in the header, not in a cell: cell(max) is out of range
+    if cell_index + 1 == max {
+        return Ok(Step::Descend {
+            child: p.rmp()?,
+            push_idx: max,
+            push_yielded: false,
+        });
+    }
+    Ok(Step::Descend {
+        child: p.cell(cell_index + 1)?.left_child(),
+        push_idx: cell_index + 1,
+        push_yielded: false,
+    })
+}
+
+fn index_interior_prev_step(
+    p: &TypedPage<&[u8], IndexInterior>,
+    cell_idx: CellIndex,
+    yielded: bool,
+) -> SqliteResult<Step> {
+    if yielded {
+        if cell_idx < p.no_of_cells()? {
+            return Ok(Step::Descend {
+                child: p.cell(cell_idx)?.left_child(),
+                push_idx: cell_idx,
+                push_yielded: false,
+            });
+        }
+        return Ok(Step::Stay {
+            idx: cell_idx - 1,
+            yielded: true,
+        });
+    }
+    // not returned yet: it *is* the previous entry, so yield it and stop here
+    if cell_idx == 0 {
+        return Ok(Step::PopParent);
+    }
+    Ok(Step::Stay {
+        idx: cell_idx - 1,
+        yielded: true,
+    })
+}
+fn index_interior_next_step(
+    p: &TypedPage<&[u8], IndexInterior>,
+    cell_index: u16,
+    max: u16,
+    yielded: bool,
+) -> SqliteResult<Step> {
+    // `cell_index == max` means the cursor sits on this page's right-most pointer, which
+    // has no entry of its own: the walk continues upward instead of panicking
+    if cell_index >= max {
+        return Ok(Step::PopParent);
+    }
+    // an entry that has not been handed out yet is the next position, and we are
+    // climbing back up to it, so its left subtree is already behind us
+    if !yielded {
+        return Ok(Step::Stay {
+            idx: cell_index,
+            yielded: true,
+        });
+    }
+    // no more cells.
+    // go to RMP
+    if cell_index + 1 == max {
+        return Ok(Step::Descend {
+            child: p.rmp()?,
+            push_idx: max,
+            push_yielded: false,
+        });
+    }
+    // case where we still have more to visit
+    Ok(Step::Descend {
+        child: p.cell(cell_index + 1)?.left_child(),
+        push_idx: cell_index + 1,
+        push_yielded: false,
+    })
+}
 
 fn search_row_ids<B: AsRef<[u8]>, K: PageKind, V: Vfs>(
     page: &TypedPage<B, K>,
@@ -583,7 +706,7 @@ where
     }
     Ok((false, l))
 }
-fn search_indexes<B: AsRef<[u8]>, K: PageKind, V: Vfs>(
+fn search_indexes<B: AsRef<[u8]>, K: IndexKind, V: Vfs>(
     page: &TypedPage<B, K>,
     pager: &mut Pager<V>,
     target: &Value,
@@ -604,7 +727,7 @@ where
     while l < r {
         let m = l + (r - l) / 2;
         let cell = page.cell(m)?;
-        let entry = page.get_cell_record_v2(cell, pager)?;
+        let entry = page.get_cell_record_v2(&cell, pager)?;
         let (ord, full) = compare_index_entry(&entry, target)?;
         if ord == Ordering::Equal {
             if full {
