@@ -457,15 +457,24 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         loop {
             let guard = pager.get(page_no)?;
             let page = page_as_ref_with_pager(page_no, &guard, pager)?;
-            if page.is_leaf()? {
-                self.add_path(page_no, page.no_of_cells()? - 1, guard);
-                self.state = CursorState::At;
-                return Ok(());
-            }
-            let child = page.right_most_ptr()?.ok_or(SqliteError::Internal(format!(
-                "cursor descend_to_last: interior page {page_no} has no right-most child"
-            )))?;
-            self.add_path(page_no, page.no_of_cells()?, guard);
+            let no_of_cells = page.no_of_cells()?;
+            let any = AnyPage::parse(
+                page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                page.bytes(),
+            )?;
+
+            let child = match &any {
+                AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_) => {
+                    self.add_path(page_no, no_of_cells.saturating_sub(1), guard);
+                    self.state = CursorState::At;
+                    return Ok(());
+                }
+                AnyPage::TableInterior(p) => p.rmp()?,
+                AnyPage::IndexInterior(p) => p.rmp()?,
+            };
+            self.add_path(page_no, no_of_cells, guard);
             page_no = child;
         }
     }
