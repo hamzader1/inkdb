@@ -27,7 +27,7 @@ impl<V: Vfs> TableScan<V> {
             page_no,
             pager.page_size(),
             pager.usable_size(),
-            guard.bytes_as_ref(),
+            guard.bytes(),
         )?;
         let empty = page.no_of_cells()? == 0;
 
