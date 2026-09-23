@@ -13,5 +13,8 @@ chrono = { version = "0.4", features = ["serde"], optional = true }
 default = []
 debug = ["ink-debug", "chrono"]
 
+[dev-dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+
 [workspace]
 members = ["ink-debug"]
