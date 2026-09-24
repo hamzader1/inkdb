@@ -12,4 +12,3 @@ profile.*
 docs2
 .backup
 *.sh
-src/storage/btree_old
