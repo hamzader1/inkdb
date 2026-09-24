@@ -1,5 +1,5 @@
 use super::btree::CellIndex;
-use super::btree_remake::kind::{Cell, HasPayload};
+use super::btree::kind::{Cell, HasPayload};
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::SqliteResult;

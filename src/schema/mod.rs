@@ -2,7 +2,7 @@ use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
-use crate::storage::btree::BTreeCursor;
+use crate::storage::btree::{BTreeCursor, TableLeaf};
 use crate::{errors::SqliteError, sql::ast::Constraint};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -116,7 +116,7 @@ impl SqliteMaster {
         };
         let mut btree_cursor = BTreeCursor::new(1);
         btree_cursor.first(pager)?;
-        while let Some(record) = btree_cursor.current_record(pager)? {
+        while let Some(record) = btree_cursor.current_record::<TableLeaf>(pager)? {
             sqlite_master.parse_record(&record)?;
             btree_cursor.next(pager)?;
         }
