@@ -27,7 +27,7 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
             eprintln!("walk: page {pn} unreadable");
             continue;
         };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes_as_ref()) else {
+        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else {
             eprintln!("walk: page {pn} bad header");
             continue;
         };
@@ -76,7 +76,7 @@ fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32)
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
     let guard = db.pager.get(pp).unwrap();
-    let page = BTreePage::new(pp, ps, us, guard.bytes_as_ref()).unwrap();
+    let page = BTreePage::new(pp, ps, us, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
     eprintln!("dump parent {pp}: kind={:?} cells={n} rmp={:?}", page.page_type().unwrap(), page.right_most_ptr().unwrap());
     for i in 0..n {
@@ -99,7 +99,7 @@ fn dump_page_keys(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pn: u
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
     let guard = db.pager.get(pn).unwrap();
-    let page = BTreePage::new(pn, ps, us, guard.bytes_as_ref()).unwrap();
+    let page = BTreePage::new(pn, ps, us, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
     eprintln!("dump page {pn}: kind={:?} cells={n} rmp={:?}", page.page_type().unwrap(), page.right_most_ptr().unwrap());
     for i in [0, n.saturating_sub(1)] {

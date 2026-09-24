@@ -22,7 +22,7 @@ fn walk_table_refs(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>) -> V
             break;
         }
         let Ok(guard) = db.pager.get(pn) else { continue };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes_as_ref()) else { continue };
+        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else { continue };
         let Ok(t) = page.page_type() else { continue };
         if t.is_leaf() {
             continue;
@@ -75,7 +75,7 @@ fn walk_index_refs(
             break;
         }
         let Ok(guard) = db.pager.get(pn) else { continue };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes_as_ref()) else { continue };
+        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else { continue };
         let Ok(t) = page.page_type() else { continue };
         if t.is_leaf() {
             continue;

@@ -42,7 +42,7 @@ fn u32_at(bytes: &[u8], off: usize) -> u32 {
 /// Number of pages the file claims to hold.
 fn file_page_count(db: &mut Database<DiskVfs>) -> u32 {
     let guard = db.pager.get(1).expect("page 1");
-    u32_at(guard.bytes_as_ref(), DATABASE_SIZE_IN_PAGES_OFFSET)
+    u32_at(guard.bytes(), DATABASE_SIZE_IN_PAGES_OFFSET)
 }
 
 /// Every page owned by the freelist, plus a check that the chain agrees with
@@ -51,7 +51,7 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
     let usable = db.pager.usable_size();
     let (head, total) = {
         let guard = db.pager.get(1).expect("page 1");
-        let bytes = guard.bytes_as_ref();
+        let bytes = guard.bytes();
         (
             u32_at(bytes, FIRST_FREELIST_TRUNK_PAGE_OFFSET),
             u32_at(bytes, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET),
@@ -80,7 +80,7 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
                     break;
                 }
             };
-            let bytes = guard.bytes_as_ref();
+            let bytes = guard.bytes();
             (u32_at(bytes, 0), u32_at(bytes, 4))
         };
         let max_leaves = usable.saturating_sub(8) / 4;
@@ -92,7 +92,7 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
         for slot in 0..leaves {
             let leaf = {
                 let guard = db.pager.get(current).expect("trunk re-read");
-                u32_at(guard.bytes_as_ref(), 8 + 4 * slot as usize)
+                u32_at(guard.bytes(), 8 + 4 * slot as usize)
             };
             if leaf == 0 || !free.insert(leaf) {
                 problems.push(format!(
@@ -150,7 +150,7 @@ fn audit_page(
                 return empty;
             }
         };
-        guard.bytes_as_ref().to_vec()
+        guard.bytes().to_vec()
     };
     let page = match BTreePage::new(page_no, page_size, usable, &bytes[..]) {
         Ok(p) => p,
