@@ -8,7 +8,7 @@ use crate::vfs::Vfs;
 
 use super::cursor::BTreeCursor;
 use super::kind::{AnyPage, IndexLeaf, TableLeaf, TypedPage};
-use super::policy::{CellPolicy, Consumed, Divider, InteriorPolicy, LeafKind, ParentSlot, Split};
+use super::ops::{CellOps, Consumed, Divider, InteriorOps, LeafKind, ParentSlot, Split};
 use super::typed_mut::{AnyPageMut, parse_ref};
 
 pub struct BTree<'a, V: Vfs> {
@@ -154,7 +154,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         Ok(())
     }
 
-    fn parent_slot<P: InteriorPolicy>(
+    fn parent_slot<P: InteriorOps>(
         &mut self,
         parent_no: PageNo,
         child: PageNo,
@@ -195,7 +195,7 @@ fn not_a_leaf(page_no: PageNo) -> SqliteError {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    fn split_page<K: CellPolicy>(&mut self, page_no: PageNo) -> SqliteResult<Split> {
+    fn split_page<K: CellOps>(&mut self, page_no: PageNo) -> SqliteResult<Split> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
@@ -279,7 +279,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         })
     }
 
-    fn grow_root<K: CellPolicy, R: InteriorPolicy>(
+    fn grow_root<K: CellOps, R: InteriorOps>(
         &mut self,
         split: &Split,
     ) -> SqliteResult<Split> {
@@ -351,7 +351,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    fn insert_divider<P: InteriorPolicy>(
+    fn insert_divider<P: InteriorOps>(
         &mut self,
         parent_no: PageNo,
         idx: CellIndex,
@@ -448,7 +448,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         Ok(())
     }
 
-    fn place_cell<K: CellPolicy>(
+    fn place_cell<K: CellOps>(
         &mut self,
         split: &Split,
         key: &Value,

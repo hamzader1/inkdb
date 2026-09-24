@@ -8,12 +8,12 @@ use super::insert::{BTree, guard_not_mutable};
 use super::kind::{
     AnyPage, IndexInterior, IndexLeaf, PageKind, TableInterior, TableLeaf, TypedPage,
 };
-use super::policy::RebalancePolicy;
+use super::ops::RebalanceOps;
 use super::typed_mut::parse_ref;
 use crate::storage::btree::CellIndex;
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    pub(crate) fn rebalance<K: RebalancePolicy>(
+    pub(crate) fn rebalance<K: RebalanceOps>(
         &mut self,
         left_page: PageNo,
         right_page: PageNo,
@@ -74,7 +74,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         )
     }
 
-    fn merge<K: RebalancePolicy>(
+    fn merge<K: RebalanceOps>(
         &mut self,
         pool: &[Vec<u8>],
         left_page: PageNo,
@@ -121,7 +121,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn redistribute<K: RebalancePolicy>(
+    fn redistribute<K: RebalanceOps>(
         &mut self,
         pool: &[Vec<u8>],
         left_page: PageNo,

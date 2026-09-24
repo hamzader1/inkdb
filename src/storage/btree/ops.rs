@@ -63,7 +63,7 @@ pub enum ParentSlot {
     },
 }
 
-pub trait CellPolicy: PageKind + Sized {
+pub trait CellOps: PageKind + Sized {
     fn slot_for<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
@@ -89,14 +89,14 @@ pub trait CellPolicy: PageKind + Sized {
     ) -> SqliteResult<Promotion>;
 }
 
-pub trait InteriorPolicy: RebalancePolicy {
+pub trait InteriorOps: RebalanceOps {
     fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> SqliteResult<PageNo>;
 
     fn right_divider(old_cell: &[u8], old_key: Value<'static>, right_bound: Divider) -> Divider;
 }
 
-pub trait LeafKind: RebalancePolicy {
-    type Parent: InteriorPolicy;
+pub trait LeafKind: RebalanceOps {
+    type Parent: InteriorOps;
 }
 
 pub struct Redistribute {
@@ -105,7 +105,7 @@ pub struct Redistribute {
     pub left_rmp: Option<PageNo>,
 }
 
-pub trait RebalancePolicy: CellPolicy {
+pub trait RebalanceOps: CellOps {
     fn pull_down(
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,
@@ -122,7 +122,7 @@ pub trait RebalancePolicy: CellPolicy {
     ) -> SqliteResult<Redistribute>;
 }
 
-impl CellPolicy for TableInterior {
+impl CellOps for TableInterior {
     fn slot_for<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
@@ -164,7 +164,7 @@ impl CellPolicy for TableInterior {
     }
 }
 
-impl InteriorPolicy for TableInterior {
+impl InteriorOps for TableInterior {
     fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> SqliteResult<PageNo> {
         Ok(page.cell(i)?.left_child)
     }
@@ -174,7 +174,7 @@ impl InteriorPolicy for TableInterior {
     }
 }
 
-impl CellPolicy for TableLeaf {
+impl CellOps for TableLeaf {
     fn slot_for<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
@@ -218,7 +218,7 @@ impl LeafKind for TableLeaf {
     type Parent = TableInterior;
 }
 
-impl CellPolicy for IndexInterior {
+impl CellOps for IndexInterior {
     fn slot_for<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
@@ -268,7 +268,7 @@ impl CellPolicy for IndexInterior {
     }
 }
 
-impl InteriorPolicy for IndexInterior {
+impl InteriorOps for IndexInterior {
     fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> SqliteResult<PageNo> {
         Ok(page.cell(i)?.left_child)
     }
@@ -281,7 +281,7 @@ impl InteriorPolicy for IndexInterior {
     }
 }
 
-impl CellPolicy for IndexLeaf {
+impl CellOps for IndexLeaf {
     fn slot_for<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
@@ -334,7 +334,7 @@ impl LeafKind for IndexLeaf {
     type Parent = IndexInterior;
 }
 
-impl RebalancePolicy for TableLeaf {
+impl RebalanceOps for TableLeaf {
     fn pull_down(
         _sep_cell: &[u8],
         _left_rmp: Option<PageNo>,
@@ -363,7 +363,7 @@ impl RebalancePolicy for TableLeaf {
     }
 }
 
-impl RebalancePolicy for IndexLeaf {
+impl RebalanceOps for IndexLeaf {
     fn pull_down(
         sep_cell: &[u8],
         _left_rmp: Option<PageNo>,
@@ -391,7 +391,7 @@ impl RebalancePolicy for IndexLeaf {
     }
 }
 
-impl RebalancePolicy for TableInterior {
+impl RebalanceOps for TableInterior {
     fn pull_down(
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,
@@ -430,7 +430,7 @@ impl RebalancePolicy for TableInterior {
     }
 }
 
-impl RebalancePolicy for IndexInterior {
+impl RebalanceOps for IndexInterior {
     fn pull_down(
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,

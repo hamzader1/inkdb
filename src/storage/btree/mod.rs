@@ -5,7 +5,7 @@ pub mod tree;
 pub mod delete;
 pub mod insert;
 pub mod kind;
-pub mod policy;
+pub mod ops;
 pub mod rebalance;
 pub mod typed_mut;
 
