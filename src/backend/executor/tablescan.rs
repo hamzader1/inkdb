@@ -1,6 +1,6 @@
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::storage::btree::{BTreeCursor, RestorePosition};
+use crate::storage::btree::{BTreeCursor, RestorePosition, TableLeaf};
 use crate::storage::page::PageRef as BTreePageRef;
 use crate::vfs::Vfs;
 
@@ -44,12 +44,12 @@ impl<V: Vfs> TableScan<V> {
             return Ok(None);
         }
         self.guard.restore(pager, &mut self.cursor)?;
-        let Some(cell) = self.cursor.current(pager)? else {
+        let Some(cell) = self.cursor.current::<TableLeaf>(pager)? else {
             self.is_done = true;
             return Ok(None);
         };
-        let row_id = cell.row_id();
-        let Some(record) = self.cursor.current_record(pager)? else {
+        let row_id = cell.row_id;
+        let Some(record) = self.cursor.current_record::<TableLeaf>(pager)? else {
             self.is_done = true;
             return Ok(None);
         };
@@ -87,7 +87,7 @@ impl<V: Vfs> TableScan<V> {
 //         let Some(cell) = cursor.current(pager)? else {
 //             return Ok(None);
 //         };
-//         let row_id = cell.row_id();
+//         let row_id = cell.row_id;
 //         let Some(record) = cursor.current_record(pager)? else {
 //             return Ok(None);
 //         };

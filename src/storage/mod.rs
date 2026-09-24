@@ -1,5 +1,4 @@
 pub mod btree;
-pub mod btree_remake;
 pub mod cell;
 pub mod freelist;
 pub mod page;

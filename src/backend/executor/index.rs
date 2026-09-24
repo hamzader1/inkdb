@@ -11,7 +11,7 @@ use crate::{
     record::{Value, tuple::Tuple},
     sql::parser::ExprArena,
     storage::{
-        btree::{BTree, BTreeCursor, RestorePosition, SeekResult},
+        btree::{BTree, BTreeCursor, IndexLeaf, RestorePosition, SeekResult, TableLeaf},
         cell::Encode,
     },
     vfs::Vfs,
@@ -120,7 +120,7 @@ impl<V: Vfs> IndexExactMatch<V> {
             return Ok(None);
         }
 
-        let Some(mut index_record) = self.cursor.current_record(pager)? else {
+        let Some(mut index_record) = self.cursor.current_record::<IndexLeaf>(pager)? else {
             self.is_done = true;
             return Ok(None);
         };
@@ -146,7 +146,7 @@ impl<V: Vfs> IndexExactMatch<V> {
         }
         let relation_record = relation_btree
             .cursor
-            .current_record(pager)?
+            .current_record::<TableLeaf>(pager)?
             .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
             .iter()
             .map(|v| v.into_owned())
@@ -187,7 +187,7 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
     fn next(&mut self, btree: &mut BTree<V>, key: Vec<Value>) -> SqliteResult<()> {
         btree.seek(&Value::Tuple(key.clone()))?;
         if self.is_unique
-            && let Some(record) = btree.current_record()?
+            && let Some(record) = btree.current_record::<IndexLeaf>()?
             && record[0] == key[0]
         {
             return Err(SqliteError::Runtime(format!(
@@ -229,7 +229,7 @@ impl<V: Vfs> IndexRangeScan<V> {
             }
             Bound::Excluded(ref i) => {
                 cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.into_owned()]))?;
-                while let Some(record) = cursor.current_record(pager)?
+                while let Some(record) = cursor.current_record::<IndexLeaf>(pager)?
                     && &record[0] == i
                 {
                     cursor.next(pager)?;
@@ -266,7 +266,7 @@ impl<V: Vfs> IndexRangeScan<V> {
             return Ok(None);
         }
 
-        let Some(mut index_record) = self.cursor.current_record(pager)? else {
+        let Some(mut index_record) = self.cursor.current_record::<IndexLeaf>(pager)? else {
             self.is_done = true;
             return Ok(None);
         };
@@ -287,7 +287,7 @@ impl<V: Vfs> IndexRangeScan<V> {
         }
         let relation_record = relation_btree
             .cursor
-            .current_record(pager)?
+            .current_record::<TableLeaf>(pager)?
             .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
             .iter()
             .map(|v| v.into_owned())
