@@ -54,8 +54,8 @@ fn read_page(db: &PathBuf, page_no: u32) -> Vec<u8> {
 fn get_returns_zeros_and_validates() {
     let (mut pager, path) = test_pager("get", 4, 4);
     let g = pager.get(1).unwrap();
-    assert_eq!(g.bytes_as_ref().len(), PS);
-    assert!(g.bytes_as_ref().iter().all(|b| *b == 0));
+    assert_eq!(g.bytes().len(), PS);
+    assert!(g.bytes().iter().all(|b| *b == 0));
     drop(g);
     assert!(pager.get(0).is_err());
     assert!(pager.get(5).is_err());
@@ -97,7 +97,7 @@ fn rollback_restores_previous_content() {
     pager.rollback().unwrap();
     assert!(!pager.in_transaction());
     let g = pager.get(2).unwrap();
-    assert!(g.bytes_as_ref().iter().all(|b| *b == 0x11));
+    assert!(g.bytes().iter().all(|b| *b == 0x11));
     drop(g);
     drop(pager);
     let raw = read_page(&path, 2);

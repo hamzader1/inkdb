@@ -12,7 +12,7 @@ fn dump_tree(
         let Ok(g) = pager.get(p) else {
             continue;
         };
-        let bytes = g.bytes_as_ref().to_vec();
+        let bytes = g.bytes().to_vec();
         let t = bytes[if p == 1 { 100 } else { 0 }];
         out.push((p, bytes));
         if t == 2 || t == 5 {
@@ -111,12 +111,12 @@ fn btree_index_split_roundtrip() {
         {
             let g = pager.get(root).unwrap();
             let pg =
-                inkdb::storage::page::BTreePage::new(root, 4096, 4096, g.bytes_as_ref()).unwrap();
+                inkdb::storage::page::BTreePage::new(root, 4096, 4096, g.bytes()).unwrap();
             if pg.page_type().unwrap() as u8 == 2 || pg.page_type().is_err() {
                 let r = pg.right_most_ptr();
                 static LASTH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let mut h: u64 = 0;
-                for b in g.bytes_as_ref()[..16].iter() {
+                for b in g.bytes()[..16].iter() {
                     h = h.wrapping_shl(8) | (*b as u64);
                 }
                 let prev = LASTH.swap(h, std::sync::atomic::Ordering::SeqCst);
@@ -124,7 +124,7 @@ fn btree_index_split_roundtrip() {
                     eprintln!(
                         "HDR-CHANGE row={} {:x?} (rmp={:?})",
                         i,
-                        &g.bytes_as_ref()[..16],
+                        &g.bytes()[..16],
                         r
                     );
                 }
