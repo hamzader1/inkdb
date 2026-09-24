@@ -1,324 +1,474 @@
-use super::cursor::{BTreeCursor, Path};
-use super::{
-    ActivePath, BTree, CellIndex, SplitMetadata, binary_search_interior, binary_search_leaf,
-};
-use crate::SqliteError;
 use crate::SqliteResult;
-use crate::pager::guard::PageGuard;
+use crate::errors::SqliteError;
 use crate::pager::pager::{PageNo, Pager};
-use crate::record::SqlType;
 use crate::record::Value;
-use crate::storage::cell::{BTreeCell, Encode, IndexInteriorCell, TableInteriorCell};
-use crate::storage::page::{BTreePageType, InsertionState};
-use crate::storage::page::{PageMut as BTreePageMut, PageRef as BTreePageRef};
-use crate::util::sqlite_assert_with_corrupt_err;
-use std::fmt::Debug;
+use crate::storage::btree::CellIndex;
+use crate::storage::page::{BTreePage, InsertionState};
+use crate::vfs::Vfs;
 
-use crate::SqliteCursor;
-use crate::storage::page::compute_table_local_payload_size;
+use super::cursor::BTreeCursor;
+use super::kind::{AnyPage, IndexLeaf, TableLeaf, TypedPage};
+use super::policy::{CellPolicy, Consumed, Divider, InteriorPolicy, LeafKind, ParentSlot, Split};
+use super::typed_mut::{AnyPageMut, parse_ref};
 
-impl<'a, V: crate::vfs::Vfs> BTree<'a, V> {
-    pub fn insert(&mut self, key: &Value, content: &mut Vec<u8>) -> Result<(), SqliteError> {
+pub struct BTree<'a, V: Vfs> {
+    pub root_page: PageNo,
+    pub pager: &'a mut Pager<V>,
+    pub cursor: BTreeCursor<V>,
+}
+
+impl<'a, V: Vfs> BTree<'a, V> {
+    pub fn new(root_page: PageNo, pager: &'a mut Pager<V>) -> Self {
+        Self {
+            root_page,
+            pager,
+            cursor: BTreeCursor::new(root_page),
+        }
+    }
+}
+
+impl<'a, V: Vfs> BTree<'a, V> {
+    pub fn insert_value(&mut self, key: &Value, cell_bytes: &[u8]) -> SqliteResult<()> {
         self.cursor.seek(self.pager, key)?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
-        let mut page_guard = self.pager.get_mut(page_no)?;
-        let mut page = self.page_as_mut(page_no, &mut page_guard)?;
-        // self.fix_overlow(&mut content)?;
-        if let InsertionState::Inserted = page.insert_cell(&content, cell_idx)? {
-            debug_assert!(page.assert_invariants().is_ok());
-            return Ok(());
-        } else {
-            let meta = self.balance(page_no)?;
-            self.insert_key_to_leaf(key, content, meta)?;
-        }
-        Ok(())
-    }
 
-    pub fn fix_overlow(&mut self, content: &mut Vec<u8>) -> Result<(), SqliteError> {
-        let usable_size = self.pager.usable_size();
-        if content.len() <= self.pager.usable_size() {
-            return Ok(());
-        }
-        // TODO TEMPORARY FOR TABLE BTREE ONLY
-        let local_payload_len = compute_table_local_payload_size(usable_size, content.len());
-        let overflow_data = content.split_off(local_payload_len);
-        let first_overflow_page = self.allocate_page()?;
-        content.extend_from_slice(&u32::to_be_bytes(first_overflow_page));
-
-        let mut cursor = SqliteCursor::new(&overflow_data);
-        let mut curr_page = first_overflow_page;
-        let mut remaining = overflow_data.len();
-        while remaining > 0 {
-            let mut guard = self.pager.get_mut(curr_page)?;
-            let page_bytes = guard.bytes_as_mut().unwrap();
-            let bytes_to_write = remaining.min(usable_size - 4);
-            let slice = &mut page_bytes[..usable_size];
-            cursor.read_next_exact(&mut slice[4..4 + bytes_to_write])?;
-            remaining -= bytes_to_write;
-            if remaining == 0 {
-                curr_page = 0;
-            } else {
-                curr_page = self.allocate_page()?;
-            }
-            slice[0..4].copy_from_slice(&u32::to_be_bytes(curr_page));
-        }
-        Ok(())
-    }
-
-    pub fn balance(&mut self, page_no: PageNo) -> Result<SplitMetadata, SqliteError> {
-        let split_metadata = self.split_leaf(page_no)?; // THE TWO LEAVES WE WANT TO RETURN
-
-        self.cursor.stack.pop(); // WE POP LEAF, WE ARE AT PARENT
-        // LEFT PAGE
-        let mut left_page_guard = self.pager.get_mut(split_metadata.left_page)?;
-        let mut left_page = self.page_as_mut(split_metadata.left_page, &mut left_page_guard)?;
-        // RIGHT PAGE
-        let mut right_page_guard = self.pager.get_mut(split_metadata.right_page)?;
-        let right_page = self.page_as_mut(split_metadata.right_page, &mut right_page_guard)?;
-
-        let is_index = right_page.as_ref()?.is_index()?;
-        if let Some(path) = self.cursor.stack.pop() {
-            let parent_page_as_ref = self.page_as_ref(path.page_no, path.guard())?;
-            let index =
-                binary_search_interior(&parent_page_as_ref, self.pager, &split_metadata.boundary)?
-                    .cell_index();
-            // At this point we are not longer dealing with Leaves
-            let left_page_payload = if is_index {
-                Encode::encode_index_interior_cell(
-                    left_page.page_no(),
-                    split_metadata.boundary_bytes.as_ref().unwrap(),
-                )
-            } else {
-                Encode::encode_table_interior_cell(
-                    left_page.page_no(),
-                    split_metadata.boundary.cast_int()? as _,
-                )
-            };
-            let right_page_payload = if is_index {
-                Encode::encode_index_interior_cell(
-                    right_page.page_no(),
-                    split_metadata.right_max_bytes.as_ref().unwrap(),
-                )
-            } else {
-                Encode::encode_table_interior_cell(
-                    right_page.page_no(),
-                    split_metadata.right_max.cast_int()? as _,
-                )
-            };
-
-            let mut guard = self.pager.get_mut(path.page_no)?;
-            let mut parent_page_as_mut = self.page_as_mut(path.page_no, &mut guard)?;
-
-            let was_rightmost =
-                parent_page_as_mut.right_most_ptr()? == Some(split_metadata.left_page);
-
-            if was_rightmost {
-                // the divider becomes the parent's new last cell and the
-                // right-most pointer is re-pointed at the new right page
-                match parent_page_as_mut.insert_cell(&left_page_payload, index)? {
-                    InsertionState::Inserted => {
-                        parent_page_as_mut.set_right_most_ptr(split_metadata.right_page)?;
-                        Ok(split_metadata)
-                    }
-                    InsertionState::None => {
-                        let meta = self.split_interior(parent_page_as_mut.page_no())?;
-                        let key = split_metadata.boundary.into_owned();
-                        self.insert_key_to_interior(&key, left_page_payload, meta.clone())?;
-                        let mut guard = self.pager.get_mut(meta.right_page)?;
-                        let mut page = self.page_as_mut(meta.right_page, &mut guard)?;
-                        page.set_right_most_ptr(split_metadata.right_page)?;
-                        Ok(split_metadata)
-                    }
+        let fits = {
+            let mut guard = self.pager.get_mut(page_no)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let page_size = self.pager.page_size();
+            let usable = self.pager.usable_size();
+            let mut page = AnyPageMut::parse(page_no, page_size, usable, bytes)?;
+            match &mut page {
+                AnyPageMut::TableLeaf(p) => {
+                    p.insert_cell(&cell_bytes, cell_idx)? == InsertionState::Inserted
                 }
-            } else {
-                // The split page was not the rightmost child, so an old
-                // divider already points at it. For tables the divider is a
-                // routing copy and the right page gets its own max. For
-                // indexes the old divider is a real entry, so it stays as
-                // the divider for the new right page and only the left
-                // divider becomes the fresh boundary.
-                //
-                // The slot found by key must be the divider of the page we
-                // just split. If it is not, the tree was already wrong and
-                // rewriting this slot would only spread the damage.
-                let old_child = parent_page_as_mut.cell(index)?.left_child();
-                if old_child != split_metadata.left_page {
-                    return Err(SqliteError::Corrupt(format!(
-                        "leaf split: parent {} slot {index} points at {old_child}, expected split page {}",
-                        parent_page_as_mut.page_no(),
-                        split_metadata.left_page
-                    )));
+                AnyPageMut::IndexLeaf(p) => {
+                    p.insert_cell(&cell_bytes, cell_idx)? == InsertionState::Inserted
                 }
-                let (right_page_payload, right_divider_key) = if is_index {
-                    let old_cell = parent_page_as_mut.cell(index)?;
-                    let old_key = parent_page_as_mut
-                        .cell_key(&old_cell, self.pager)?
-                        .into_owned();
-                    let old_cell_bytes = parent_page_as_mut.cell_bytes_as_ref(index)?.to_vec();
-                    (
-                        Encode::encode_index_interior_cell(
-                            split_metadata.right_page,
-                            &old_cell_bytes[4..],
-                        ),
-                        old_key,
-                    )
-                } else {
-                    (right_page_payload, split_metadata.right_max.clone())
-                };
-                match parent_page_as_mut.replace_cell(index, &left_page_payload)? {
-                    InsertionState::Inserted => {
-                        match parent_page_as_mut.insert_cell(&right_page_payload, index + 1)? {
-                            InsertionState::Inserted => Ok(split_metadata),
-                            InsertionState::None => {
-                                let meta = self.split_interior(parent_page_as_mut.page_no())?;
-                                self.insert_key_to_interior(
-                                    &right_divider_key,
-                                    right_page_payload,
-                                    meta,
-                                )?;
-                                Ok(split_metadata)
-                            }
-                        }
-                    }
-                    InsertionState::None => {
-                        // Parent too full to grow this divider in place.
-                        // replace_cell refused, so the OLD divider is still
-                        // at `index` and still points at left_page. If it
-                        // survived the split below it would sit next to the
-                        // fresh (left_page, boundary) cell as a second
-                        // pointer to the same page. Worse, if split_interior
-                        // picked it as the promoted cell, left_page would
-                        // become the new left half's right-most pointer and
-                        // both fresh dividers would land beside it. Either
-                        // way integrity_check reports "2nd reference to
-                        // page". Remove it first: nothing routes through the
-                        // parent while split_interior only shuffles cells,
-                        // and both children get fresh dividers right after.
-                        parent_page_as_mut.remove_cell(index)?;
-                        let meta = self.split_interior(parent_page_as_mut.page_no())?;
-                        let left_key = split_metadata.boundary.into_owned();
-                        self.insert_key_to_interior(&left_key, left_page_payload, meta.clone())?;
-                        self.insert_key_to_interior(&right_divider_key, right_page_payload, meta)?;
-                        Ok(split_metadata)
-                    }
-                }
+                _ => return Err(not_a_leaf(page_no)),
             }
-        } else {
-            let new_left_page_no = self.allocate_page()?;
-            let mut new_left_page_guard = self.pager.get_mut(new_left_page_no)?;
-            let mut new_left_page = BTreePageMut::new_from_raw_bytes(
-                new_left_page_no,
-                left_page.page_type()?,
-                new_left_page_guard.bytes_as_mut_unchecked(),
-                self.pager.page_size(),
-                self.pager.usable_size(),
-            )?;
-            new_left_page.copy_data_from(&left_page)?;
-            //
-            // rebuild metadata
-            let new_left_n = new_left_page.no_of_cells()?;
-            if new_left_n == 0 {
-                return Err(SqliteError::Internal(
-                    "root split with an empty left leaf".into(),
-                ));
-            }
-            let key = new_left_page.cell_key(
-                &new_left_page.parse_cell_at(new_left_page.cell_ptr(new_left_n - 1)?)?,
-                self.pager,
-            )?;
-            let right_n = right_page.no_of_cells()?;
-            if right_n == 0 {
-                return Err(SqliteError::Internal(
-                    "root split with an empty right leaf".into(),
-                ));
-            }
-            let right_max = right_page.cell_key(
-                &right_page.parse_cell_at(right_page.cell_ptr(right_n - 1)?)?,
-                self.pager,
-            )?;
-
-            let mut root = BTreePageMut::new_from_raw_bytes(
-                left_page.page_no(),
-                if is_index {
-                    BTreePageType::InteriorIndex
-                } else {
-                    BTreePageType::InteriorTable
-                },
-                left_page_guard.bytes_as_mut_unchecked(),
-                self.pager.page_size(),
-                self.pager.usable_size(),
-            )?;
-
-            root.set_right_most_ptr(right_page.page_no())?;
-
-            let left_child_payload = if !is_index {
-                Encode::encode_table_interior_cell(new_left_page_no, key.cast_int()? as _)
-            } else {
-                Encode::encode_index_interior_cell(
-                    new_left_page_no,
-                    &split_metadata.boundary_bytes.unwrap(),
-                )
-            };
-            if root.insert_cell(&left_child_payload, 0)? == InsertionState::None {
-                return Err(SqliteError::Internal(
-                    "root split: divider does not fit in a fresh root".into(),
-                ));
-            }
-            // Route by the divider the root actually holds. For tables that
-            // equals `key`. For indexes the divider was cut out of the left
-            // leaf, so `key` is one entry lower and an insert falling
-            // between the two would go right while lookups go left.
-            Ok(SplitMetadata::new(
-                new_left_page_no,
-                right_page.page_no(),
-                split_metadata.boundary,
-                right_max,
-            ))
-        }
-    }
-
-    pub fn insert_key_to_interior<T: AsRef<[u8]>>(
-        &mut self,
-        key: &Value,
-        payload: T,
-        meta: SplitMetadata,
-    ) -> Result<(), SqliteError> {
-        let target_page = if *key <= meta.boundary {
-            meta.left_page
-        } else {
-            meta.right_page
         };
-        let mut page_guard = self.pager.get_mut(target_page)?;
-        let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
-        let cell_idx = binary_search_interior(&page_mut, self.pager, key)?.cell_index();
-        // A refused insert here would silently drop a divider and orphan
-        // a whole subtree. The page was just split so it should fit; if it
-        // does not, stop instead of continuing with a broken tree.
-        if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
-            return Err(SqliteError::Internal(format!(
-                "divider does not fit in page {target_page} right after its split"
+        if fits {
+            return Ok(());
+        }
+
+        let page_size = self.pager.page_size();
+        let usable = self.pager.usable_size();
+        let guard = self.pager.get(page_no)?;
+        match AnyPage::parse(page_no, page_size, usable, guard.bytes())? {
+            AnyPage::TableLeaf(_) => self.split_then_place::<TableLeaf>(page_no, key, cell_bytes),
+            AnyPage::IndexLeaf(_) => self.split_then_place::<IndexLeaf>(page_no, key, cell_bytes),
+            _ => Err(not_a_leaf(page_no)),
+        }
+    }
+
+    /* Debug aid: the root's children must all be the same kind. Prints the layout and stops at
+     * the first insert that breaks it.
+     * todo: remove this
+
+    fn debug_check_root_children(&mut self, touched: PageNo, when: &str) {
+        if std::env::var("INKDB_CHECK_ROOT").is_err() {
+            return;
+        }
+        let page_size = self.pager.page_size();
+        let usable = self.pager.usable_size();
+        let root = self.root_page;
+        let Ok(guard) = self.pager.get(root) else {
+            return;
+        };
+        let Ok(page) = BTreePage::<&[u8]>::new(root, page_size, usable, guard.bytes()) else {
+            return;
+        };
+        let Ok(t) = page.page_type() else { return };
+        if t.is_leaf() {
+            return;
+        }
+        let n = page.no_of_cells().unwrap_or(0);
+        let mut kinds: Vec<(u16, PageNo, u8)> = Vec::new();
+        for i in 0..n {
+            let Ok(cell) = page.cell(i) else { continue };
+            let child = match &cell {
+                crate::storage::cell::BTreeCell::IndexInterior(c) => c.left_child,
+                crate::storage::cell::BTreeCell::TableInterior(c) => c.left_child,
+                _ => continue,
+            };
+            let k = {
+                let g = self.pager.get(child).ok();
+                let t = g.as_ref().and_then(|g| {
+                    BTreePage::<&[u8]>::new(child, page_size, usable, g.bytes())
+                        .ok()
+                        .and_then(|p| p.page_type().ok())
+                });
+                t.map(|t| t as u8).unwrap_or(0)
+            };
+            kinds.push((i, child, k));
+        }
+        if let Ok(Some(r)) = page.right_most_ptr() {
+            let k = {
+                let g = self.pager.get(r).ok();
+                let t = g.as_ref().and_then(|g| {
+                    BTreePage::<&[u8]>::new(r, page_size, usable, g.bytes())
+                        .ok()
+                        .and_then(|p| p.page_type().ok())
+                });
+                t.map(|t| t as u8).unwrap_or(0)
+            };
+            kinds.push((n, r, k));
+        }
+        let first_kind = kinds.first().map(|x| x.2).unwrap_or(0);
+        if kinds.iter().any(|x| x.2 != first_kind) {
+            eprintln!(
+                "ROOT MIX after insert into {touched} ({when}), root {root} type {:?}",
+                t
+            );
+            for (slot, child, k) in kinds.iter() {
+                eprintln!("   slot {slot} -> page {child} kind {k:#x}");
+            }
+            panic!("root children mixed after {when}");
+        }
+    }
+    */
+
+    fn split_then_place<K: LeafKind>(
+        &mut self,
+        page_no: PageNo,
+        key: &Value,
+        cell_bytes: &[u8],
+    ) -> SqliteResult<()> {
+        let split = self.split_page::<K>(page_no)?;
+
+        self.cursor.stack.pop();
+        let parent = self.cursor.stack.pop();
+        let split = match parent {
+            None => self.grow_root::<K, K::Parent>(&split)?,
+            Some(path) => {
+                let parent_no = path.page_no;
+                drop(path);
+                let (idx, slot) =
+                    self.parent_slot::<K::Parent>(parent_no, split.left_page, &split.divider)?;
+                self.insert_divider::<K::Parent>(parent_no, idx, slot, &split)?;
+                split
+            }
+        };
+        self.place_cell::<K>(&split, key, cell_bytes)?;
+        Ok(())
+    }
+
+    fn parent_slot<P: InteriorPolicy>(
+        &mut self,
+        parent_no: PageNo,
+        child: PageNo,
+        divider: &Divider,
+    ) -> SqliteResult<(CellIndex, ParentSlot)> {
+        let key = divider.key();
+        let guard = self.pager.get(parent_no)?;
+        let page = parse_ref::<P, V>(parent_no, &guard, self.pager)?;
+        let idx = P::slot_for(&page, self.pager, &key)?;
+
+        if page.right_most_ptr()? == Some(child) {
+            return Ok((idx, ParentSlot::RightMost));
+        }
+
+        let cell = page.cell_bytes_as_ref(idx)?.to_vec();
+        if P::child_of(&page, idx)? != child {
+            return Err(SqliteError::Corrupt(format!(
+                "split: parent {parent_no} slot {idx} does not point at page {child}"
             )));
         }
+        let key = P::key_of(&page, idx, self.pager)?;
+        Ok((
+            idx,
+            ParentSlot::Existing {
+                cell: cell.into(),
+                key,
+            },
+        ))
+    }
+}
+
+pub(crate) fn guard_not_mutable() -> SqliteError {
+    SqliteError::Internal("btree: page guard is not mutable".into())
+}
+
+fn not_a_leaf(page_no: PageNo) -> SqliteError {
+    SqliteError::Corrupt(format!("insert: page {page_no} is not a leaf"))
+}
+
+impl<'a, V: Vfs> BTree<'a, V> {
+    fn split_page<K: CellPolicy>(&mut self, page_no: PageNo) -> SqliteResult<Split> {
+        let page_size = self.pager.page_size();
+        let usable = self.pager.usable_size();
+
+        let (cells, split_at, promo, old_rmp) = {
+            let guard = self.pager.get(page_no)?;
+            let page = parse_ref::<K, V>(page_no, &guard, self.pager)?;
+            let n = page.no_of_cells()?;
+            if n < 2 {
+                return Err(SqliteError::Internal(format!(
+                    "split: page {page_no} holds {n} cell(s)"
+                )));
+            }
+            let split_at = (n / 2) as usize;
+            let promo = K::promote(&page, split_at as u16, self.pager)?;
+            let mut cells: Vec<Vec<u8>> = Vec::with_capacity(n as usize);
+            for i in 0..n {
+                cells.push(page.cell_bytes_as_ref(i)?.to_vec());
+            }
+            (cells, split_at, promo, page.right_most_ptr()?)
+        };
+
+        if promo.consumed == Consumed::LastOfLeft && split_at < 2 {
+            return Err(SqliteError::Internal(format!(
+                "split: page {page_no} has too few cells to promote one"
+            )));
+        }
+        let (left_cells, right_cells): (&[Vec<u8>], &[Vec<u8>]) = match promo.consumed {
+            Consumed::None => (&cells[..split_at], &cells[split_at..]),
+            Consumed::LastOfLeft => (&cells[..split_at - 1], &cells[split_at..]),
+            Consumed::FirstOfRight => (&cells[..split_at], &cells[split_at + 1..]),
+        };
+
+        /*
+         write: the right half goes to a fresh page, the left half stays where it was
+        */
+        let right_page = self.pager.allocate_new_page()?;
+        {
+            let mut guard = self.pager.get_mut(right_page)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let mut page = TypedPage::<&mut [u8], K>::fresh(right_page, page_size, usable, bytes)?;
+            for (i, cell) in right_cells.iter().enumerate() {
+                if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
+                    return Err(SqliteError::Internal(format!(
+                        "split: right half of page {page_no} does not fit in page {right_page}"
+                    )));
+                }
+            }
+            if let Some(rmp) = old_rmp {
+                page.set_right_most_ptr(rmp)?;
+            }
+        }
+        {
+            let mut guard = self.pager.get_mut(page_no)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let mut page = TypedPage::<&mut [u8], K>::parse_mut(page_no, page_size, usable, bytes)?;
+            page.reset_for_rebuild()?;
+            for (i, cell) in left_cells.iter().enumerate() {
+                if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
+                    return Err(SqliteError::Internal(format!(
+                        "split: left half of page {page_no} does not fit"
+                    )));
+                }
+            }
+            if let Some(rmp) = promo.left_rmp {
+                page.set_right_most_ptr(rmp)?;
+            }
+        }
+
+        let right_bound = {
+            let guard = self.pager.get(right_page)?;
+            let page = parse_ref::<K, V>(right_page, &guard, self.pager)?;
+            let last = page.no_of_cells()?.saturating_sub(1);
+            K::divider_of_cell(&page, last, self.pager)?
+        };
+
+        Ok(Split {
+            left_page: page_no,
+            right_page,
+            divider: promo.divider,
+            right_bound,
+        })
+    }
+
+    fn grow_root<K: CellPolicy, R: InteriorPolicy>(
+        &mut self,
+        split: &Split,
+    ) -> SqliteResult<Split> {
+        let page_size = self.pager.page_size();
+        let usable = self.pager.usable_size();
+        let old_root = split.left_page;
+
+        /*
+         * This hurts performance
+         * read: whatever the left half currently holds
+         *
+        let (cells, rmp) = {
+            let guard = self.pager.get(old_root)?;
+            let page = parse_ref::<K, V>(old_root, &guard, self.pager)?;
+            let n = page.no_of_cells()?;
+            let mut cells: Vec<Vec<u8>> = Vec::with_capacity(n as usize);
+            for i in 0..n {
+                cells.push(page.cell_bytes_as_ref(i)?.to_vec());
+            }
+            (cells, page.right_most_ptr()?)
+        };
+
+        */
+
+        let new_left = self.pager.allocate_new_page()?;
+        {
+            let mut guard = self.pager.get_mut(new_left)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let mut page = TypedPage::<&mut [u8], K>::fresh(new_left, page_size, usable, bytes)?;
+            let old_left_guard = self.pager.get(old_root)?;
+            let old_left_page = parse_ref::<K, V>(old_root, &old_left_guard, self.pager)?;
+            for i in 0..old_left_page.no_of_cells()? {
+                let cell = old_left_page.cell_bytes_as_ref(i as _)?;
+                if page.insert_cell(&cell, i as CellIndex)? == InsertionState::None {
+                    return Err(SqliteError::Internal(format!(
+                        "grow_root: left half does not fit in page {new_left}"
+                    )));
+                }
+            }
+            if let Some(rmp) = old_left_page.right_most_ptr()? {
+                page.set_right_most_ptr(rmp)?;
+            }
+        }
+
+        let before_cells = {
+            let g = self.pager.get(old_root)?;
+            BTreePage::<&[u8]>::new(old_root, page_size, usable, g.bytes())?.no_of_cells()?
+        };
+        {
+            let divider_cell = split.divider.cell_for(new_left);
+            let mut guard = self.pager.get_mut(old_root)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let mut page = TypedPage::<&mut [u8], R>::fresh(old_root, page_size, usable, bytes)?;
+            if page.insert_cell(&divider_cell, 0)? == InsertionState::None {
+                return Err(SqliteError::Internal(
+                    "grow_root: divider does not fit in a fresh root".into(),
+                ));
+            }
+            page.set_right_most_ptr(split.right_page)?;
+        }
+
+        Ok(Split {
+            left_page: new_left,
+            right_page: split.right_page,
+            divider: split.divider.clone(),
+            right_bound: split.right_bound.clone(),
+        })
+    }
+}
+
+impl<'a, V: Vfs> BTree<'a, V> {
+    fn insert_divider<P: InteriorPolicy>(
+        &mut self,
+        parent_no: PageNo,
+        idx: CellIndex,
+        slot: ParentSlot,
+        split: &Split,
+    ) -> SqliteResult<()> {
+        enum Plan {
+            MoveHeader,
+            KeepOld {
+                right_cell: Vec<u8>,
+                right_key: Value<'static>,
+            },
+        }
+
+        let page_size = self.pager.page_size();
+        let usable = self.pager.usable_size();
+        let left_cell = split.divider.cell_for(split.left_page);
+        let left_key = split.divider.key();
+
+        let plan = match &slot {
+            ParentSlot::RightMost => Plan::MoveHeader,
+            ParentSlot::Existing { cell, key } => {
+                let right = P::right_divider(cell, key.clone(), split.right_bound.clone());
+                Plan::KeepOld {
+                    right_cell: right.cell_for(split.right_page),
+                    right_key: right.key(),
+                }
+            }
+        };
+
+        let mut pending: Vec<(Value<'static>, Vec<u8>)> = Vec::new();
+        {
+            let mut guard = self.pager.get_mut(parent_no)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let mut page =
+                TypedPage::<&mut [u8], P>::parse_mut(parent_no, page_size, usable, bytes)?;
+            match &plan {
+                Plan::MoveHeader => {
+                    if page.insert_cell(&left_cell, idx)? == InsertionState::Inserted {
+                        page.set_right_most_ptr(split.right_page)?;
+                        return Ok(());
+                    }
+                    pending.push((left_key.clone(), left_cell.clone()));
+                }
+                Plan::KeepOld {
+                    right_cell,
+                    right_key,
+                } => {
+                    page.remove_cell(idx)?;
+                    if page.insert_cell(&left_cell, idx)? == InsertionState::Inserted {
+                        if page.insert_cell(right_cell, idx + 1)? == InsertionState::Inserted {
+                            return Ok(());
+                        }
+                        pending.push((right_key.clone(), right_cell.clone()));
+                    } else {
+                        pending.push((left_key.clone(), left_cell.clone()));
+                        pending.push((right_key.clone(), right_cell.clone()));
+                    }
+                }
+            }
+        }
+
+        let parent_split = self.split_page::<P>(parent_no)?;
+        let grandparent = self.cursor.stack.pop();
+        match grandparent {
+            None => {
+                let grown = self.grow_root::<P, P>(&parent_split)?;
+                for (key, bytes) in pending {
+                    self.place_cell::<P>(&grown, &key, &bytes)?;
+                }
+            }
+            Some(path) => {
+                let gp_no = path.page_no;
+                drop(path);
+                let (gp_idx, gp_slot) =
+                    self.parent_slot::<P>(gp_no, parent_split.left_page, &parent_split.divider)?;
+                self.insert_divider::<P>(gp_no, gp_idx, gp_slot, &parent_split)?;
+                for (key, bytes) in pending {
+                    self.place_cell::<P>(&parent_split, &key, &bytes)?;
+                }
+            }
+        }
+        if matches!(&plan, Plan::MoveHeader) {
+            let mut guard = self.pager.get_mut(parent_split.right_page)?;
+            let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+            let mut page = TypedPage::<&mut [u8], P>::parse_mut(
+                parent_split.right_page,
+                page_size,
+                usable,
+                bytes,
+            )?;
+            page.set_right_most_ptr(split.right_page)?;
+        }
         Ok(())
     }
 
-    pub fn insert_key_to_leaf<T: AsRef<[u8]>>(
+    fn place_cell<K: CellPolicy>(
         &mut self,
+        split: &Split,
         key: &Value,
-        payload: T,
-        meta: SplitMetadata,
-    ) -> Result<(), SqliteError> {
-        let target_page = if *key <= meta.boundary {
-            meta.left_page
+        cell_bytes: &[u8],
+    ) -> SqliteResult<()> {
+        let page_size = self.pager.page_size();
+        let usable = self.pager.usable_size();
+        let target = if *key <= split.divider.key() {
+            split.left_page
         } else {
-            meta.right_page
+            split.right_page
         };
-        let mut page_guard = self.pager.get_mut(target_page)?;
-        let mut page_mut = self.page_as_mut(target_page, &mut page_guard)?;
-        let (_, cell_idx) = binary_search_leaf(&page_mut, self.pager, key)?;
-        if page_mut.insert_cell(&payload, cell_idx)? == InsertionState::None {
+
+        let mut guard = self.pager.get_mut(target)?;
+        let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
+        let mut page = TypedPage::<&mut [u8], K>::parse_mut(target, page_size, usable, bytes)?;
+        let idx = K::slot_for(&page, self.pager, key)?;
+        if page.insert_cell(&cell_bytes, idx)? == InsertionState::None {
             return Err(SqliteError::Internal(format!(
-                "leaf cell does not fit in page {target_page} right after its split"
+                "split: cell does not fit in page {target} right after its split"
             )));
         }
         Ok(())
