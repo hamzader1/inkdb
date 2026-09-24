@@ -1,4 +1,5 @@
 use super::btree::CellIndex;
+use super::btree_remake::kind::{Cell, HasPayload};
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::SqliteResult;
@@ -167,7 +168,7 @@ impl<'a> OverflowPageRef<'a> {
         total_collected_payload.extend_from_slice(local_payload_bytes);
         while remaining > 0 {
             let page = pager.get(current_page)?;
-            let buffer = page.bytes_as_ref();
+            let buffer = page.bytes();
             let overflow_page = OverflowPageRef::new(&buffer, usable_size as _)?;
             let bytes_to_read: usize = remaining.min(overflow_page.data.len());
             total_collected_payload.extend_from_slice(&overflow_page.data[..bytes_to_read]);
@@ -329,7 +330,13 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         BTreePageType::try_from_byte(this.u8_at(header_offset as _)?)?;
         Ok(this)
     }
-    fn bytes(&self) -> &[u8] {
+    pub fn usable_size(&self) -> usize {
+        self.usable_size
+    }
+    pub fn page_size(&self) -> usize {
+        self.page_size
+    }
+    pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
     }
     pub fn u8_at(&self, off: usize) -> SqliteResult<u8> {
@@ -440,6 +447,8 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         self.get_cell_record(pager, &cell, &mut records)?;
         Ok(records)
     }
+
+    // pub fn record_of_cell_v2<V:Vfs, C>(&self,
     pub fn record_of<V: crate::vfs::Vfs>(
         &self,
         cell: &BTreeCell,
@@ -468,6 +477,33 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     ) -> Result<(), SqliteError> {
         self.get_cell_record(pager, cell, records)
     }
+
+    pub fn get_cell_record_v2<V: Vfs, C>(
+        &self,
+        cell: &C,
+        pager: &mut Pager<V>,
+    ) -> SqliteResult<Vec<Value<'_>>>
+    where
+        C: HasPayload,
+    {
+        let mut collector = Vec::new();
+        let cell_payload = cell.payload_range();
+        let ovp = cell.overflow_page();
+        if let Some(overflow_page) = ovp {
+            let vec = OverflowPageRef::get_total_payload(
+                pager,
+                &self.bytes()[cell_payload],
+                cell.payload_len() as _,
+                self.usable_size,
+                overflow_page,
+            )?;
+            self.decode_loop_owned(vec, &mut collector)?;
+        } else {
+            self.decode_loop_borrowed(&self.bytes()[cell.payload_range()], &mut collector)?;
+        }
+        Ok(collector)
+    }
+
     fn get_cell_record<'a, V: crate::vfs::Vfs>(
         &'a self,
         pager: &mut Pager<V>,
@@ -570,16 +606,16 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let base = cell_ptr as usize;
         match &mut cell {
             BTreeCell::TableLeaf(c) => {
-                c.local_payload_range.start += base;
-                c.local_payload_range.end += base;
+                c.payload_range.start += base;
+                c.payload_range.end += base;
             }
             BTreeCell::IndexLeaf(c) => {
-                c.payload.start += base;
-                c.payload.end += base;
+                c.payload_range.start += base;
+                c.payload_range.end += base;
             }
             BTreeCell::IndexInterior(c) => {
-                c.payload.start += base;
-                c.payload.end += base;
+                c.payload_range.start += base;
+                c.payload_range.end += base;
             }
             BTreeCell::TableInterior(_) => {}
         }
@@ -590,7 +626,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let cell = self.parse_cell_at(cell_ptr)?;
         let end = match self.page_type()? {
             BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
-                c.local_payload_range.end
+                c.payload_range.end
                     + if cell.overflow_page().is_some() {
                         OVERFLOW_POINTER_SIZE
                     } else {
@@ -598,7 +634,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
                     }
             }),
             BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
-                c.payload.end
+                c.payload_range.end
                     + if c.first_overflow_page.is_some() {
                         OVERFLOW_POINTER_SIZE
                     } else {
@@ -617,7 +653,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
                  * encode_varint(&mut [0u8; 9], c.payload_len)
                  *
                  */
-                c.payload.end
+                c.payload_range.end
                     + if c.first_overflow_page.is_some() {
                         OVERFLOW_POINTER_SIZE
                     } else {
@@ -824,14 +860,14 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         let gap = self.downgrade()?.cell_content_area()?.saturating_sub(
             self.downgrade()?.header_size()? as u16 + self.downgrade()?.no_of_cells()? * 2,
         ) as usize;
-        if gap >= 2 {
-            if let Some(offset) = self.get_freeblock(content.as_ref().len() as _)? {
-                let result = self.insert_cell_at(content, offset as usize, cell_idx, false);
-                if matches!(result, Ok(InsertionState::Inserted)) {
-                    // self.debug_check_child_pointers();
-                }
-                return result;
+        if gap >= 2
+            && let Some(offset) = self.get_freeblock(content.as_ref().len() as _)?
+        {
+            let result = self.insert_cell_at(content, offset as usize, cell_idx, false);
+            if matches!(result, Ok(InsertionState::Inserted)) {
+                // self.debug_check_child_pointers();
             }
+            return result;
         }
         if self.downgrade()?.remaining_space()? < content.len() + 2 {
             return Ok(InsertionState::None); // overflow

@@ -34,7 +34,7 @@ impl PageGuard {
             _marker: PhantomData,
         }
     }
-    pub fn bytes_as_ref(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         unsafe { self.bytes.as_ref() }
     }
     pub fn bytes_as_mut(&mut self) -> Option<&mut [u8]> {
