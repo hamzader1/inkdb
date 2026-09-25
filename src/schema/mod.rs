@@ -1,3 +1,7 @@
+use crate::SqliteResult;
+use crate::backend::analyze::IndexMetadata;
+use crate::errors::SqliteError::Runtime;
+use crate::errors::{CorruptError, RuntimeError};
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::lexer::Lexer;
@@ -55,12 +59,7 @@ pub static SQLITE_MASTER: LazyLock<Table> = LazyLock::new(|| Table {
 });
 impl Table {
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
-        for (i, col) in self.columns.iter().enumerate() {
-            if col.name == col_name {
-                return Some(i);
-            }
-        }
-        None
+        self.columns.iter().position(|c| c.name == col_name)
     }
     pub fn get_col_name(&self, idx: usize) -> Option<&Column> {
         self.columns.get(idx)
@@ -70,18 +69,11 @@ impl Table {
     }
 
     pub fn has_int_primary_key(&self) -> bool {
-        for col in self.columns.iter() {
-            if col.affinity == Affinity::Int
-                && let Some(ref constraits) = col.constraints
-                && constraits
-                    .iter()
-                    .find(|constraint| **constraint == Constraint::PrimaryKey)
-                    .is_some()
-            {
-                return true;
-            }
-        }
-        false
+        self.columns.iter().any(|col| {
+            col.constraints
+                .iter()
+                .any(|cts| cts.contains(&Constraint::PrimaryKey))
+        })
     }
 }
 
@@ -124,11 +116,48 @@ impl SqliteMaster {
         Ok(sqlite_master)
     }
 
+    pub(crate) fn indexes_on(&self, table_name: &str) -> SqliteResult<Option<Vec<IndexMetadata>>> {
+        let table = self
+            .tables
+            .get(table_name)
+            .ok_or(SqliteError::runtime(format!(
+                "Table {} does not exists",
+                table_name
+            )))?;
+        let mut indexes_of_t: Option<Vec<IndexMetadata>> = None;
+        for index in self.indexes.values() {
+            // let Some(indexes_of_t) = indexes_of_t
+            if index.table == table_name {
+                let column_idx =
+                    table
+                        .get_col_idx(&index.columns[0])
+                        .ok_or(SqliteError::runtime(format!(
+                            "Column {} does not exist on table {}",
+                            index.columns[0], table_name
+                        )))?;
+
+                if indexes_of_t.is_none() {
+                    indexes_of_t = Some(Vec::new())
+                };
+                let Some(ref mut indexes_of_t) = indexes_of_t else {
+                    unreachable!()
+                };
+                indexes_of_t.push(IndexMetadata {
+                    index_root_page: index.root_page,
+                    col_idx: column_idx,
+                    is_unique: index.unique,
+                });
+            }
+        }
+        Ok(indexes_of_t)
+    }
+
     fn parse_record(&mut self, record: &[Value]) -> Result<(), SqliteError> {
         if record.len() != 5 {
-            return Err(SqliteError::Corrupt(
-                "sqlite_master record must have 5 columns".into(),
-            ));
+            return Err(CorruptError::CatalogRecord {
+                columns: record.len(),
+            }
+            .into());
         }
         // Only 'table' and 'index' rows carry DDL we can parse. Views,
         // triggers, and internal rows (e.g. sqlite_autoindex_*) are skipped.
