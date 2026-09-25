@@ -43,21 +43,6 @@ pub const SERIAL_TEXT_MIN: u8 = 13;
 const MAX_SAFE_INT: i64 = 9_007_199_254_740_992; //  2^53
 const MIN_SAFE_INT: i64 = -9_007_199_254_740_992; // -2^53
 
-// EXPERIMENTAL
-pub trait SqlType {
-    fn into_sqlite_value<'a>(self) -> Value<'a>;
-}
-#[macro_export]
-macro_rules! impl_ints {
-    ($($t:ty),*) => {
-        $(impl SqlType for $t {
-            fn into_sqlite_value<'a>(self) -> Value<'a> {
-                Value::Integer(self as i64)
-            }
-        })*
-    };
-}
-impl_ints!(i8, i16, i32, i64, u8, u16, u32, u64);
 #[derive(Debug)]
 pub struct RecordMetadata {
     pub serial_type: u8,
@@ -82,23 +67,42 @@ pub enum Value<'a> {
 }
 
 impl<'a> Value<'a> {
-    pub fn into_static(&self) -> Value<'static> {
+    pub fn to_owned_static(&self) -> Value<'static> {
         match self {
             Value::Text(x) => Value::Text(Cow::Owned(x.as_ref().to_string())),
             Value::Blob(x) => Value::Blob(Cow::Owned(x.as_ref().to_owned())),
             Value::Float(f) => Value::Float(*f),
             Value::Integer(n) => Value::Integer(*n),
             Value::Null => Value::Null,
-            Value::Tuple(t) => Value::Tuple(t.iter().map(|inner| inner.into_static()).collect()),
+            Value::Tuple(t) => {
+                Value::Tuple(t.iter().map(|inner| inner.to_owned_static()).collect())
+            }
         }
     }
 }
 
-impl<'a> Value<'a> {
-    pub fn text(txt: &str) -> Self {
-        Self::Text(Cow::Owned(txt.into()))
+impl From<i64> for Value<'static> {
+    fn from(value: i64) -> Self {
+        Value::Integer(value)
     }
 }
+impl From<u64> for Value<'static> {
+    fn from(value: u64) -> Self {
+        Value::Integer(value as _)
+    }
+}
+
+impl<'a> From<&'a str> for Value<'static> {
+    fn from(value: &'a str) -> Self {
+        Self::Text(Cow::Owned(value.into()))
+    }
+}
+impl From<String> for Value<'static> {
+    fn from(value: String) -> Self {
+        Self::Text(Cow::Owned(value))
+    }
+}
+
 /*
    SQLite serial type codes:
    0       -> NULL
@@ -223,7 +227,7 @@ impl<'a> Div for Value<'a> {
         match (self, rhs) {
             (Self::Integer(a), Self::Integer(b)) => {
                 if b == 0 {
-                    return Self::Integer(0);
+                    return Self::Null;
                 }
 
                 Self::Integer(a / b)
