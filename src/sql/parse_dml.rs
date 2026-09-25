@@ -38,7 +38,7 @@ impl Parser {
 
         Ok(Ast::SelectStmtAst(SelectStmt {
             table_name,
-            arena: self.arena.clone(),
+            arena: self.arena.take(),
             columns,
             where_clause,
             limit,
@@ -85,10 +85,11 @@ impl Parser {
                 }
             }
             values.push(current_values);
-            self.eat(RightParen);
+            self.expect(RightParen)?;
             if !self.eat(Comma) {
                 break;
             }
+            self.expect(Semicolon)?;
         }
 
         Ok(Ast::InsertStmtAst(InsertStmt {
@@ -105,7 +106,7 @@ impl Parser {
         let mut arena = None;
         if self.eat(Where) {
             where_clause = Some(self.parse_expression()?);
-            arena = Some(self.arena.clone());
+            arena = Some(self.arena.take());
         }
         Ok(Ast::DeleteStmtAst(DeleteStmt {
             table_name,

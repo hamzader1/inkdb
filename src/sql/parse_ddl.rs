@@ -40,7 +40,7 @@ impl Parser {
         }
         self.expect(RightParen)?;
         Ok(Ast::CreateTableAst(CreateTable {
-            query: Rc::clone(&self.query),
+            query: std::mem::take(&mut self.query),
             name,
             columns,
         }))
@@ -65,7 +65,7 @@ impl Parser {
         }
         self.expect(RightParen)?;
         Ok(Ast::CreateIndexAst(CreateIndex {
-            query: self.query.clone(),
+            query: std::mem::take(&mut self.query),
             unique,
             name,
             table,

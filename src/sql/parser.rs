@@ -26,6 +26,11 @@ impl ExprArena {
         self.nodes.push(expr);
         self.nodes.len() - 1
     }
+    pub fn take(&mut self) -> ExprArena {
+        Self {
+            nodes: std::mem::take(&mut self.nodes),
+        }
+    }
 }
 pub struct Parser {
     pub query: Rc<str>,
