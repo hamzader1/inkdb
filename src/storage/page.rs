@@ -63,10 +63,6 @@ impl BTreePageType {
         }
     }
 
-    pub fn try_from_byte(byte: u8) -> SqliteResult<BTreePageType> {
-        Self::get(byte).ok_or(SqliteError::InvalidPageType(byte))
-    }
-
     pub fn is_leaf(&self) -> bool {
         matches!(self, Self::LeafIndex | Self::LeafTable)
     }
@@ -87,6 +83,13 @@ impl BTreePageType {
             Self::InteriorIndex | Self::InteriorTable => INTERIOR_BTREE_PAGE_HEADER_SIZE,
             _ => LEAF_BTREE_PAGE_HEADER_SIZE,
         }
+    }
+}
+
+impl TryFrom<u8> for BTreePageType {
+    type Error = SqliteError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::get(value).ok_or(SqliteError::InvalidPageType(value))
     }
 }
 
@@ -326,7 +329,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             header_offset,
             bytes,
         };
-        BTreePageType::try_from_byte(this.u8_at(header_offset as _)?)?;
+        BTreePageType::try_from(this.u8_at(header_offset as _)?)?;
         Ok(this)
     }
     pub fn usable_size(&self) -> usize {
@@ -361,7 +364,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         Ok(self.header_offset + self.page_type()?.header_size())
     }
     pub fn page_type(&self) -> SqliteResult<BTreePageType> {
-        BTreePageType::try_from_byte(self.u8_at(self.header_offset as _)?)
+        BTreePageType::try_from(self.u8_at(self.header_offset as _)?)
     }
     pub fn no_of_cells(&self) -> SqliteResult<u16> {
         self.u16_at(self.with_header_offset(CELL_COUNT_OFFSET))

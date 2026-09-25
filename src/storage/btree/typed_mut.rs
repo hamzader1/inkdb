@@ -64,7 +64,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: PageKind> TypedPage<B, K> {
         usable_size: usize,
         bytes: B,
     ) -> SqliteResult<Self> {
-        let page_type = BTreePageType::try_from_byte(K::BYTE)?;
+        let page_type = BTreePageType::try_from(K::BYTE)?;
         let page =
             BTreePage::new_from_raw_bytes(page_no, page_type, bytes, page_size, usable_size)?;
         Ok(TypedPage::wrap(page))

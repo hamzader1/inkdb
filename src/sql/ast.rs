@@ -1,3 +1,4 @@
+use crate::errors::SqliteError;
 use crate::record::Value;
 
 use super::parser::ExprArena;
@@ -135,11 +136,9 @@ impl<'a> TryFrom<&Value<'a>> for Affinity {
             Value::Float(_) => Ok(Affinity::Float),
             Value::Text(_) => Ok(Affinity::Text),
             Value::Blob(_) => Ok(Affinity::Blob),
-            _ => {
-                return Err(SqliteError::Runtime(
-                    "Null cannot be used as column affinity".into(),
-                ));
-            }
+            _ => Err(SqliteError::Runtime(
+                "Null cannot be used as column affinity".into(),
+            )),
         }
     }
 }
