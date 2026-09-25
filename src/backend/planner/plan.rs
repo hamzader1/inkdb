@@ -158,6 +158,11 @@ impl<V: Vfs> Plan<V> {
                 CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<V>> { Box::new(SafeScan) })),
             )
             .optimize()?;
+            if let Plan::Filter(f) = &mut child
+                && let Plan::TableScan(scan) = f.child_mut()
+            {
+                scan.set_predicate(predict);
+            }
         }
         if let Some(limit) = resolved_query.limit {
             let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;
