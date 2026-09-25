@@ -903,7 +903,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             cells_len.push(cell.len());
         }
 
-        self.reset_for_rebuild()?;
+        self.set_cell_content_area(self.usable_size as _)?;
+        self.set_first_freeblock(0)?;
+        self.set_frag_cnt(0)?;
+        self.set_no_of_cells(0)?;
         let mut start = 0;
         for (i, &len) in cells_len.iter().enumerate() {
             let bytes = &cells[start..len + start];
