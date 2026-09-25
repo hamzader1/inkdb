@@ -126,15 +126,20 @@ pub enum Affinity {
     Int,
     Blob,
 }
-// TODO: Handle NULL
-impl<'a> From<&Value<'a>> for Affinity {
-    fn from(value: &Value) -> Self {
+
+impl<'a> TryFrom<&Value<'a>> for Affinity {
+    type Error = SqliteError;
+    fn try_from(value: &Value<'a>) -> Result<Self, Self::Error> {
         match value {
-            Value::Integer(_) => Affinity::Int,
-            Value::Float(_) => Affinity::Float,
-            Value::Text(_) => Affinity::Text,
-            Value::Blob(_) => Affinity::Blob,
-            _ => unreachable!(),
+            Value::Integer(_) => Ok(Affinity::Int),
+            Value::Float(_) => Ok(Affinity::Float),
+            Value::Text(_) => Ok(Affinity::Text),
+            Value::Blob(_) => Ok(Affinity::Blob),
+            _ => {
+                return Err(SqliteError::Runtime(
+                    "Null cannot be used as column affinity".into(),
+                ));
+            }
         }
     }
 }
