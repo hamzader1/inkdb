@@ -13,10 +13,11 @@ use super::scan_guard::ScanGuard;
 #[derive(Debug)]
 pub struct TableScan<V: Vfs> {
     pub cursor: BTreeCursor<V>,
-    is_done: bool,
     pub guard: Box<dyn ScanGuard<V>>,
     predicate: Option<usize>,
     rows_rejected: u64,
+    is_init: bool,
+    is_done: bool,
 }
 impl<V: Vfs> TableScan<V> {
     pub fn new(
@@ -25,22 +26,13 @@ impl<V: Vfs> TableScan<V> {
         scan_plan: Box<dyn ScanGuard<V>>,
     ) -> Result<Self, SqliteError> {
         let mut cursor = BTreeCursor::new(root_page);
-        cursor.first(pager)?;
-        let (page_no, _) = cursor.last_visited_entry_unchecked();
-        let guard = pager.get(page_no)?;
-        let page = BTreePageRef::new(
-            page_no,
-            pager.page_size(),
-            pager.usable_size(),
-            guard.bytes(),
-        )?;
-        let empty = page.no_of_cells()? == 0;
 
         Ok(Self {
             cursor,
-            is_done: empty,
+            is_done: false,
             guard: scan_plan,
             predicate: None,
+            is_init: false,
             rows_rejected: 0,
         })
     }
@@ -63,6 +55,22 @@ impl<V: Vfs> TableScan<V> {
         pager: &mut Pager<V>,
         arena: Option<&ExprArena>,
     ) -> Result<Option<Row>, SqliteError> {
+        if !self.is_init {
+            self.cursor.first(pager)?;
+            let (page_no, _) = self.cursor.last_visited_entry_unchecked();
+            let guard = pager.get(page_no)?;
+            let page = BTreePageRef::new(
+                page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                guard.bytes(),
+            )?;
+            let empty = page.no_of_cells()? == 0;
+            if empty {
+                self.is_done = true;
+            }
+            self.is_init = true;
+        }
         while !self.is_done {
             self.guard.restore(pager, &mut self.cursor)?;
             let Some(cell) = self.cursor.current::<TableLeaf>(pager)? else {
