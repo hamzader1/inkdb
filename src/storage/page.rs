@@ -857,27 +857,55 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         cell_idx: CellIndex,
     ) -> Result<InsertionState, SqliteError> {
         let content = content.as_ref();
-        let gap = self.downgrade()?.cell_content_area()?.saturating_sub(
-            self.downgrade()?.header_size()? as u16 + self.downgrade()?.no_of_cells()? * 2,
-        ) as usize;
+        let page = self.downgrade()?;
+        let gap = page
+            .cell_content_area()?
+            .saturating_sub(page.header_size()? as u16 + page.no_of_cells()? * 2)
+            as usize;
         if gap >= 2
             && let Some(offset) = self.get_freeblock(content.as_ref().len() as _)?
         {
-            let result = self.insert_cell_at(content, offset as usize, cell_idx, false);
-            if matches!(result, Ok(InsertionState::Inserted)) {
-                // self.debug_check_child_pointers();
-            }
-            return result;
+            self.insert_cell_at(content, offset as usize, cell_idx, false)?;
+            // if matches!(result, Ok(InsertionState::Inserted)) {
+            //     // self.debug_check_child_pointers();
+            // }
+            return Ok(InsertionState::Inserted);
         }
-        if self.downgrade()?.remaining_space()? < content.len() + 2 {
+        let page = self.downgrade()?;
+        // +2: its cell pointer
+        if page.remaining_space()? < content.len() + 2 {
+            // we need to defrage
+            if page.freespace()? >= content.len() + 2 {
+                self.defragment()?;
+                return self.insert_cell(&content, cell_idx);
+            }
             return Ok(InsertionState::None); // overflow
         }
         let offset = self.downgrade()?.cell_content_area()? as usize - content.len();
-        let result = self.insert_cell_at(content, offset, cell_idx, true);
-        if matches!(result, Ok(InsertionState::Inserted)) {
-            // self.debug_check_child_pointers();
+        self.insert_cell_at(content, offset, cell_idx, true)?;
+        // if matches!(result, Ok(InsertionState::Inserted)) {
+        //     // self.debug_check_child_pointers();
+        // }
+        Ok(InsertionState::Inserted)
+    }
+    fn defragment(&mut self) -> SqliteResult<()> {
+        let page = self.as_ref()?;
+        let mut cells = Vec::new();
+        let mut cells_len = Vec::new();
+        for i in 0..page.no_of_cells()? {
+            let cell = page.cell_bytes_as_ref(i)?;
+            cells.extend_from_slice(cell);
+            cells_len.push(cell.len());
         }
-        result
+
+        self.reset_for_rebuild()?;
+        let mut start = 0;
+        for (i, &len) in cells_len.iter().enumerate() {
+            let bytes = &cells[start..len + start];
+            self.insert_cell(&bytes, i as _)?;
+            start += len;
+        }
+        Ok(())
     }
 
     // fn debug_check_child_pointers(&self) {
