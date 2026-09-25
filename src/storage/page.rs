@@ -877,7 +877,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             // we need to defrage
             if page.freespace()? >= content.len() + 2 {
                 self.defragment()?;
-                return self.insert_cell(&content, cell_idx);
+                let result = self.insert_cell(&content, cell_idx)?;
+                sqlite_assert_with_internal_err(
+                    matches!(result, InsertionState::Inserted),
+                    || "Cell does not fite even after defragementation".into(),
+                )?;
+                return Ok(result);
             }
             return Ok(InsertionState::None); // overflow
         }
