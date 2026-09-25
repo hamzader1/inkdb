@@ -48,7 +48,7 @@ impl BufferPool {
         sqlite_assert_one(
             self.page_table.contains_key(&page_no)
                 && *self.page_table.get(&page_no).unwrap() == frame_id,
-            SqliteError::Internal(format!(
+            SqliteError::InternalFmt(format!(
                 "buffer pool evict: frame {frame_id} does not map page {page_no}"
             )),
         )?;
@@ -208,7 +208,7 @@ impl BufferPool {
     pub fn borrow(&self, frameid: FrameId, page_no: PageNo) -> SqliteResult<()> {
         let frame = &self.frame_buffer[frameid];
         if frame.borrow.get() < 0 {
-            return Err(SqliteError::Runtime(format!(
+            return Err(SqliteError::runtime(format!(
                 "Page no '{}' already borrowed as mut",
                 page_no
             )));
@@ -219,7 +219,7 @@ impl BufferPool {
     pub fn exclusive_borrow(&self, frameid: FrameId, page_no: PageNo) -> SqliteResult<()> {
         let frame = &self.frame_buffer[frameid];
         if frame.borrow.get() != 0 {
-            return Err(SqliteError::Runtime(format!(
+            return Err(SqliteError::runtime(format!(
                 "Page no '{}' already borrowed as ref",
                 page_no
             )));

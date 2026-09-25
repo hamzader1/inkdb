@@ -15,7 +15,13 @@ impl SqliteShell {
                     match database.execute(cmd.as_str()) {
                         Ok(_) => {}
                         Err(e) => {
-                            println!("Runtime Error: {}", e);
+                            // Presentation belongs here, not in the error: the shell is the only
+                            // place that still has the statement, so it is the only place that can
+                            // draw a caret. The error itself is just (kind, span).
+                            match crate::errors::render_syntax_error(cmd.as_str(), &e) {
+                                Some(rendered) => println!("{rendered}"),
+                                None => println!("Error: {e}"),
+                            }
                         }
                     }
                     let end = start.elapsed();

@@ -6,7 +6,7 @@ use crate::db::header::{
     FIRST_FREELIST_TRUNK_PAGE_SIZE, SqliteDatabaseHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
     TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
-use crate::errors::SqliteError;
+use crate::errors::{CorruptError, SqliteError};
 use crate::util::sqlite_assert_with_runtime_err;
 
 use super::buffer_pool::{Acquire, BufferPool};
@@ -369,19 +369,15 @@ impl<V: Vfs> Pager<V> {
         match (first, total) {
             (0, 0) => return Ok(None),
             (0, _) => {
-                return Err(SqliteError::Corrupt(
-                    "freelist count is nonzero but first trunk page is zero".into(),
-                ));
+                return Err(SqliteError::Corrupt(CorruptError::FreelistTrunkMissing));
             }
             (_, 0) => {
-                return Err(SqliteError::Corrupt(
-                    "freelist trunk page is nonzero but freelist count is zero".into(),
-                ));
+                return Err(SqliteError::Corrupt(CorruptError::FreelistCountMissing));
             }
             _ => {}
         };
         if first == 1 {
-            return Err(SqliteError::Corrupt("trunk page is page 1".into()));
+            return Err(SqliteError::Corrupt(CorruptError::FreelistPageIsHeader));
         }
         let mut guard = self.get_mut(first)?;
         let bytes = guard.bytes_as_mut_unchecked();
@@ -394,7 +390,7 @@ impl<V: Vfs> Pager<V> {
         cursor.move_forward_by((4 * (leaf_count - 1)) as _)?;
         let last_leaf = cursor.read_next_u32()?;
         if last_leaf == 1 {
-            return Err(SqliteError::Corrupt("leaf page is page 1".into()));
+            return Err(SqliteError::Corrupt(CorruptError::FreelistLeafIsHeader));
         }
         bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
         Ok(Some((last_leaf, first, total - 1)))

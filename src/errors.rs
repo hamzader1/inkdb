@@ -1,7 +1,6 @@
-use std::rc::Rc;
-
 use thiserror::Error;
 
+use crate::pager::pager::PageNo;
 use crate::sql::tokens::{Span, TokenKind};
 #[derive(Debug, Error)]
 pub enum SqliteError {
@@ -59,11 +58,14 @@ pub enum SqliteError {
     #[error("Unexpected end of varint")]
     UnexpectedEndOfVarint,
 
-    #[error("{0}")]
-    Corrupt(String),
+    #[error(transparent)]
+    Corrupt(#[from] CorruptError),
 
-    #[error("internal engine invariant violated: {0}")]
-    Internal(String),
+    #[error("internal error: {0} (this is a bug, please report it)")]
+    Internal(&'static str),
+
+    #[error("internal error: {0} (this is a bug, please report it)")]
+    InternalFmt(String),
 
     #[error("table '{0}' already exists")]
     TableAlreadyExists(String),
@@ -86,63 +88,11 @@ pub enum SqliteError {
     #[error("{0}")]
     Overflow(String),
 
-    #[error("Invalid number from position {start} to {end}: Number too large or malformed")]
-    InvalidNumber {
-        input: String,
-        start: usize,
-        end: usize,
-    },
+    #[error(transparent)]
+    Runtime(#[from] RuntimeError),
 
-    #[error(
-        "Unexpected Character '{character}' at position {position}: Expected alphanumeric, operator, or keyword"
-    )]
-    UnexpectedChar {
-        input: String,
-        character: char,
-        position: usize,
-    },
-
-    #[error("Unterminated string at position {position}: Expected closing quote")]
-    UnterminatedString { input: String, position: usize },
-
-    #[error("Unclosed parenthesis at position {position}: Expected ')'")]
-    UnterminatedParenthsis { input: String, position: usize },
-
-    #[error("Unmatched ')' at position {position}: No matching '(' found")]
-    UnmatchedClosingParenthesis { input: String, position: usize },
-
-    #[error("{0}")]
-    Runtime(String),
-
-    #[error("cannot convert {actual} value to {expected}")]
-    TypeConversionMismatch {
-        expected: &'static str,
-        actual: &'static str,
-    },
-    #[error("{}", err_formatter(&format!("Expected token type {}, got {}", expected_token, actual), input, span.0, Some(span.1), None))]
-    TypeMismatch {
-        input: Rc<str>,
-        expected_token: TokenKind,
-        actual: TokenKind,
-        span: Span,
-    },
-
-    #[error("{}",
-        err_formatter(&format!("Unexpected end of expression, expected {}", tkind), input, span.0, Some(span.1),None)
-    )]
-    UnexpectedEndOfExpression {
-        input: Rc<str>,
-        tkind: TokenKind,
-        span: Span,
-    },
-    #[error("{}",
-        err_formatter(&format!("Expected identifier but {} token type were given", tkind), input, span.0, Some(span.1),None)
-    )]
-    ExpectedIdentifier {
-        input: Rc<str>,
-        tkind: TokenKind,
-        span: Span,
-    },
+    #[error(transparent)]
+    Syntax(#[from] SyntaxError),
 
     #[error("A transaction is already active")]
     TransactionAlreadyStarted,
@@ -151,26 +101,127 @@ pub enum SqliteError {
     NoActiveTransaction,
 }
 
-fn err_formatter(
-    err_title: &str,
-    input: &str,
-    start: usize,
-    end: Option<usize>,
-    hint: Option<&str>,
-) -> String {
-    let span_symbol_len = end.unwrap_or(1);
-    let pointer = format!(
-        "{}{}",
-        " ".repeat(start + 1),
-        "^".repeat(span_symbol_len.saturating_sub(start).max(1)),
-    );
+#[derive(Debug, Error)]
+pub enum RuntimeError {
+    #[error("{0}")]
+    Message(String),
+    #[error("cannot convert {actual} value to {expected}")]
+    TypeConversion {
+        expected: &'static str,
+        actual: &'static str,
+    },
+}
 
-    if let Some(hint) = hint {
-        format!(
-            "{}\n\t {}\n\t{}\nHint: {}\n",
-            err_title, input, pointer, hint
-        )
-    } else {
-        format!("{}\n\t {}\n\t{}\n", err_title, input, pointer)
+#[derive(Debug, Error)]
+pub enum CorruptError {
+    #[error("an invariant check failed: {0}")]
+    Assertion(String),
+    #[error("sqlite_master record has {columns} columns, expected 5")]
+    CatalogRecord { columns: usize },
+    #[error("index predecessor leaf is empty")]
+    EmptyPredecessorLeaf,
+    #[error("freelist trunk page is nonzero but freelist count is zero")]
+    FreelistCountMissing,
+    #[error("trunk page is page 1")]
+    FreelistPageIsHeader,
+    #[error("freelist count is nonzero but first trunk page is zero")]
+    FreelistTrunkMissing,
+    #[error("leaf page is page 1")]
+    FreelistLeafIsHeader,
+    #[error("index root {index_page}: entry missing for a row being deleted")]
+    IndexEntryMissing { index_page: PageNo },
+    #[error("index {index_page} holds rowid {rowid} but table {table_page} has no such row")]
+    IndexEntryWithoutRow {
+        index_page: PageNo,
+        rowid: u64,
+        table_page: PageNo,
+    },
+    #[error("invalid overflow page pointer")]
+    InvalidOverflowPointer,
+    #[error("page {page} has no right-most child")]
+    MissingRightMostChild { page: PageNo },
+    #[error("failed to parse the next overflow page")]
+    OverflowNextPointer,
+    #[error("assembled payload length mismatch")]
+    OverflowPayloadMismatch,
+    #[error("local payload exceeds total payload length")]
+    OverflowPayloadTooLong,
+    #[error("parent {parent} slot {slot} points at page {points_at}, expected {expected}")]
+    ParentSlotMismatch {
+        parent: PageNo,
+        slot: u16,
+        points_at: PageNo,
+        expected: PageNo,
+    },
+    #[error("replace_cell: page refused its own old cell")]
+    ReplaceCellRefused,
+    #[error("row vanished between exact seek and read")]
+    RowVanished,
+    #[error("page {page} is not a {expected} page")]
+    UnexpectedPageKind {
+        page: PageNo,
+        expected: &'static str,
+    },
+    #[error("invalid left child page number: 0")]
+    ZeroChildPointer,
+}
+
+#[derive(Debug, Error)]
+#[error("{kind} at {span:?}")]
+pub struct SyntaxError {
+    pub kind: SyntaxErrorKind,
+    pub span: Span,
+}
+
+impl SqliteError {
+    pub fn runtime(message: impl Into<String>) -> Self {
+        Self::Runtime(RuntimeError::Message(message.into()))
     }
+
+    pub fn type_conversion(expected: &'static str, actual: &'static str) -> Self {
+        Self::Runtime(RuntimeError::TypeConversion { expected, actual })
+    }
+
+    pub fn syntax(kind: SyntaxErrorKind, span: Span) -> Self {
+        Self::Syntax(SyntaxError { kind, span })
+    }
+}
+
+#[derive(Debug, Error, PartialEq)]
+pub enum SyntaxErrorKind {
+    #[error("invalid number: too large or malformed")]
+    InvalidNumber,
+    #[error("unexpected character '{0}': expected alphanumeric, operator or keyword")]
+    UnexpectedChar(char),
+    #[error("unterminated string: expected a closing quote")]
+    UnterminatedString,
+    #[error("unclosed parenthesis: expected ')'")]
+    UnclosedParenthesis,
+    #[error("unmatched ')': no matching '(' found")]
+    UnmatchedClosingParenthesis,
+    #[error("expected {expected} token, got {actual}")]
+    TokenMismatch {
+        expected: TokenKind,
+        actual: TokenKind,
+    },
+    #[error("unexpected end of expression, expected {0}")]
+    UnexpectedEndOfExpression(TokenKind),
+    #[error("expected an identifier, got a {0} token")]
+    ExpectedIdentifier(TokenKind),
+}
+
+pub fn render_syntax_error(sql: &str, err: &SqliteError) -> Option<String> {
+    let SqliteError::Syntax(syntax) = err else {
+        return None;
+    };
+    let Span(start, end) = syntax.span;
+    let caret_len = end.saturating_sub(start).max(1);
+    let pointer = format!("{}{}", " ".repeat(start + 1), "^".repeat(caret_len));
+    Some(format!(
+        "{}
+	 {}
+	{}
+",
+        syntax.kind, sql, pointer
+    ))
 }

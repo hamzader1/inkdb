@@ -148,34 +148,22 @@ impl<'a> Value<'a> {
             Value::Integer(n) => Ok(n.to_string()),
             Value::Float(n) => Ok(n.to_string()),
             Value::Text(txt) => Ok(txt.to_string()),
-            Value::Blob(_) => Err(SqliteError::TypeConversionMismatch {
-                expected: "TEXT",
-                actual: self.type_name(),
-            }),
+            Value::Blob(_) => Err(SqliteError::type_conversion("TEXT", self.type_name())),
 
-            Value::Tuple(_) => Err(SqliteError::TypeConversionMismatch {
-                expected: "TEXT",
-                actual: self.type_name(),
-            }),
+            Value::Tuple(_) => Err(SqliteError::type_conversion("TEXT", self.type_name())),
         }
     }
     pub fn cast_int(&self) -> Result<i64, SqliteError> {
         match self {
             Value::Integer(n) => Ok(*n),
-            other => Err(SqliteError::TypeConversionMismatch {
-                expected: "INTEGER",
-                actual: other.type_name(),
-            }),
+            other => Err(SqliteError::type_conversion("INTEGER", other.type_name())),
         }
     }
     pub fn get_float(&self) -> Result<f64, SqliteError> {
         match self {
             Value::Float(n) => Ok(*n),
             Value::Integer(n) => Ok(*n as f64),
-            other => Err(SqliteError::TypeConversionMismatch {
-                expected: "REAL",
-                actual: other.type_name(),
-            }),
+            other => Err(SqliteError::type_conversion("REAL", other.type_name())),
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::SqliteError;
+use crate::errors::CorruptError;
 use crate::pager::pager::PageNo;
 pub fn sqlite_assert_one(condition: bool, err: SqliteError) -> Result<(), SqliteError> {
     if !condition {
@@ -12,7 +13,7 @@ where
     Fn: FnOnce() -> String,
 {
     if !condition {
-        return Err(SqliteError::Corrupt(err()));
+        return Err(CorruptError::Assertion(err()).into());
     }
     Ok(())
 }
@@ -21,7 +22,7 @@ where
     Fn: FnOnce() -> String,
 {
     if !condition {
-        return Err(SqliteError::Runtime(err()));
+        return Err(SqliteError::runtime(err()));
     }
     Ok(())
 }
@@ -31,7 +32,7 @@ where
     Fn: FnOnce() -> String,
 {
     if !condition {
-        return Err(SqliteError::Internal(err()));
+        return Err(SqliteError::InternalFmt(err()));
     }
     Ok(())
 }

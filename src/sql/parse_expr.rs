@@ -116,14 +116,14 @@ impl Parser {
             Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
             Some(BoolVar(x)) => self.arena.push(Expr::Bool(*x)),
             Some(other) => {
-                return Err(SqliteError::Runtime(format!(
+                return Err(SqliteError::runtime(format!(
                     "Unexpected token {:?} in expression: expected a column name, string, number, boolean or '('",
                     other
                 )));
             }
             None => {
-                return Err(SqliteError::Runtime(
-                    "Unexpected end of input, expected a value".into(),
+                return Err(SqliteError::runtime(
+                    "Unexpected end of input, expected a value",
                 ));
             }
         };

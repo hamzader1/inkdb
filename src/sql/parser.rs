@@ -5,7 +5,7 @@ use super::{
     },
     tokens::Span,
 };
-use crate::errors::SqliteError::{self, *};
+use crate::errors::{SqliteError, SyntaxErrorKind};
 
 use super::tokens::{
     Token,
@@ -97,19 +97,19 @@ impl Parser {
         if !self.at(t_kind.clone()) {
             match self.peek() {
                 Some(t) => {
-                    return Err(TypeMismatch {
-                        input: Rc::clone(&self.query),
-                        expected_token: t_kind,
-                        actual: t.clone(),
-                        span: self.current_token_span(),
-                    });
+                    return Err(SqliteError::syntax(
+                        SyntaxErrorKind::TokenMismatch {
+                            expected: t_kind,
+                            actual: t.clone(),
+                        },
+                        self.current_token_span(),
+                    ));
                 }
                 _ => {
-                    return Err(UnexpectedEndOfExpression {
-                        input: Rc::clone(&self.query),
-                        tkind: t_kind,
-                        span: self.default_end_span(),
-                    });
+                    return Err(SqliteError::syntax(
+                        SyntaxErrorKind::UnexpectedEndOfExpression(t_kind),
+                        self.default_end_span(),
+                    ));
                 }
             }
         }
@@ -130,17 +130,15 @@ impl Parser {
                 _ => unreachable!(),
             },
 
-            Some(tkind) => Err(ExpectedIdentifier {
-                input: Rc::clone(&self.query),
-                tkind: tkind.clone(),
-                span: self.current_token_span(),
-            }),
+            Some(tkind) => Err(SqliteError::syntax(
+                SyntaxErrorKind::ExpectedIdentifier(tkind.clone()),
+                self.current_token_span(),
+            )),
 
-            None => Err(UnexpectedEndOfExpression {
-                input: Rc::clone(&self.query),
-                tkind: TokenKind::Identifier(String::new()),
-                span: self.default_end_span(),
-            }),
+            None => Err(SqliteError::syntax(
+                SyntaxErrorKind::UnexpectedEndOfExpression(TokenKind::Identifier(String::new())),
+                self.default_end_span(),
+            )),
         }
     }
 

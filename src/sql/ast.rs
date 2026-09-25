@@ -136,8 +136,8 @@ impl<'a> TryFrom<&Value<'a>> for Affinity {
             Value::Float(_) => Ok(Affinity::Float),
             Value::Text(_) => Ok(Affinity::Text),
             Value::Blob(_) => Ok(Affinity::Blob),
-            _ => Err(SqliteError::Runtime(
-                "Null cannot be used as column affinity".into(),
+            _ => Err(SqliteError::runtime(
+                "Null cannot be used as column affinity",
             )),
         }
     }

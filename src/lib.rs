@@ -25,6 +25,8 @@ use errors::SqliteError;
 pub use storage::sqlite_cursor::SqliteCursor;
 pub type DbError = SqliteError;
 
+pub type Result<T, E = SqliteError> = std::result::Result<T, E>;
+
 use self::vfs::Vfs;
 pub type SqliteResult<T> = Result<T, SqliteError>;
 use crate::pager::pager::Pager;
@@ -125,7 +127,7 @@ pub struct SqliteDatabase<V: Vfs> {
 //         if let Some(exc) = exception
 //             && exc(page_no)
 //         {
-//             return Err(SqliteError::Internal(format!(
+//             return Err(SqliteError::InternalFmt(format!(
 //                 "page guard exception rejected page {page_no}"
 //             )));
 //         }

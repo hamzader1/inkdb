@@ -1,4 +1,4 @@
-use crate::errors::SqliteError;
+use crate::errors::{SqliteError, SyntaxErrorKind};
 
 use super::tokens::{Span, Token, TokenKind};
 
@@ -59,10 +59,10 @@ impl<'a> Lexer<'a> {
                     }
 
                     if !quotes_stack.is_empty() {
-                        return Err(SqliteError::UnterminatedString {
-                            input: self.input.to_string(),
-                            position: quotes_stack.pop().unwrap(),
-                        });
+                        return Err(SqliteError::syntax(
+                            SyntaxErrorKind::UnterminatedString,
+                            Span(quotes_stack.pop().unwrap(), self.pos),
+                        ));
                     }
 
                     push_token(&mut tokens, TokenKind::String(string), start, self.pos);
@@ -106,10 +106,10 @@ impl<'a> Lexer<'a> {
                     let start = self.pos;
 
                     if parenth_stack.is_empty() {
-                        return Err(SqliteError::UnmatchedClosingParenthesis {
-                            input: self.input.to_string(),
-                            position: start,
-                        });
+                        return Err(SqliteError::syntax(
+                            SyntaxErrorKind::UnmatchedClosingParenthesis,
+                            Span(start, start + 1),
+                        ));
                     }
 
                     parenth_stack.pop();
@@ -136,11 +136,10 @@ impl<'a> Lexer<'a> {
 
                         push_token(&mut tokens, TokenKind::NotEquals, start, self.pos);
                     } else {
-                        return Err(SqliteError::UnexpectedChar {
-                            input: self.input.to_string(),
-                            character: char,
-                            position: start,
-                        });
+                        return Err(SqliteError::syntax(
+                            SyntaxErrorKind::UnexpectedChar(char),
+                            Span(start, self.pos),
+                        ));
                     }
                 }
 
@@ -377,21 +376,20 @@ impl<'a> Lexer<'a> {
 
                 // Anything unsupported
                 _ => {
-                    return Err(SqliteError::UnexpectedChar {
-                        input: self.input.to_string(),
-                        character: char,
-                        position: self.pos,
-                    });
+                    return Err(SqliteError::syntax(
+                        SyntaxErrorKind::UnexpectedChar(char),
+                        Span(self.pos, self.pos + 1),
+                    ));
                 }
             }
         }
 
         // Check for unclosed '('
         if let Some(start) = parenth_stack.pop() {
-            return Err(SqliteError::UnterminatedParenthsis {
-                input: self.input.to_string(),
-                position: start,
-            });
+            return Err(SqliteError::syntax(
+                SyntaxErrorKind::UnclosedParenthesis,
+                Span(start, self.pos),
+            ));
         }
 
         Ok(tokens)
@@ -454,10 +452,8 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let invalid = |end| SqliteError::InvalidNumber {
-            input: self.input.to_string(),
-            start,
-            end,
+        let invalid = |end| {
+            SqliteError::syntax(SyntaxErrorKind::InvalidNumber, Span(start, end))
         };
         if is_float {
             number
