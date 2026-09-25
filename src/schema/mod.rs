@@ -73,11 +73,12 @@ impl Table {
         for col in self.columns.iter() {
             if col.affinity == Affinity::Int
                 && let Some(ref constraits) = col.constraints
-            {
-                return constraits
+                && constraits
                     .iter()
-                    .find(|constrait| **constrait == Constraint::PrimaryKey)
-                    .is_some();
+                    .find(|constraint| **constraint == Constraint::PrimaryKey)
+                    .is_some()
+            {
+                return true;
             }
         }
         false
