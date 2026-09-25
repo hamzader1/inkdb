@@ -33,7 +33,7 @@ impl Analyze {
                     )
                 })?;
                 for (i, value) in inner_values.iter().enumerate() {
-                    let sqlite_value_type = Affinity::from(value);
+                    let sqlite_value_type = Affinity::try_from(value)?;
                     sqlite_assert_with_runtime_err(
                         sqlite_value_type == table.columns[i].affinity,
                         || {
