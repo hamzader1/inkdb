@@ -7,20 +7,18 @@ use crate::sql::parser::ExprArena;
 
 pub struct Eval;
 impl Eval {
-    pub fn eval(
+    pub fn eval<'a>(
         arena: &ExprArena,
         idx: usize,
-        row: Option<&[Value<'static>]>,
-    ) -> Result<Value<'static>, SqliteError> {
+        row: Option<&[Value<'a>]>,
+    ) -> Result<Value<'a>, SqliteError> {
         match arena.nodes[idx] {
             Expr::Number(n) => Ok(Value::Integer(n)),
             Expr::Float(f) => Ok(Value::Float(f)),
-            Expr::StringLitteral(ref str) => {
-                Ok(Value::Text(Cow::Owned(str.to_string())))
-            }
+            Expr::StringLitteral(ref str) => Ok(Value::Text(Cow::Owned(str.to_string()))),
             Expr::Bool(b) => Ok(Value::Integer(b as u8 as i64)),
             Expr::ColumnRef(col_idx) => match row {
-                Some(row) => Ok(row[col_idx].to_owned_static()),
+                Some(row) => Ok(row[col_idx].clone()),
                 _ => Err(SqliteError::Runtime(
                     "Cannot evaluate a column reference without a row: LIMIT and constant expressions must not mention columns".into(),
                 )),

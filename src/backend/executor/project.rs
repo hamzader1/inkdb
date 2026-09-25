@@ -34,7 +34,7 @@ impl<V: Vfs> Project<V> {
                 .iter()
                 .map(|i| {
                     let value = Eval::eval(arena, *i, Some(&row))?;
-                    Ok(value)
+                    Ok(value.into_static())
                 })
                 .collect::<Result<Vec<_>, SqliteError>>()?;
             row.data = output_row;
