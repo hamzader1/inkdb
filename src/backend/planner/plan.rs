@@ -271,7 +271,7 @@ impl<V: Vfs> Plan<V> {
         arena: Option<&ExprArena>,
     ) -> Result<Option<Row>, SqliteError> {
         match self {
-            Self::TableScan(t) => t.next(pager),
+            Self::TableScan(t) => t.next(pager, arena),
             Self::Filter(f) => f.next(pager, arena.unwrap()),
             Self::Limit(l) => l.next(pager, arena.unwrap()),
             Self::Project(p) => p.next(pager, arena.unwrap()),
