@@ -34,10 +34,6 @@ impl Analyze {
 }
 
 impl Analyze {
-    /// Single post-order traversal shared by both binders. Each hook returns
-    /// "where this node ended up in the sink's world": a position in the new
-    /// arena for slow (things move, `*` expands), the input index for fast
-    /// (binding happens in place).
     pub fn walk(
         table: &Table,
         idx: usize,
@@ -51,8 +47,6 @@ impl Analyze {
                 Ok(sink.leaf(arena, node, idx))
             }
             Expr::Add(l, r) | Expr::Substract(l, r) | Expr::Multiply(l, r) | Expr::Devide(l, r) => {
-                // Cloned again so the hook can see which operator this is; the
-                // dispatch clone above only carried the children out.
                 let node = arena.nodes[idx].clone();
                 let bound_l = Self::walk(table, l, arena, sink)?;
                 let bound_r = Self::walk(table, r, arena, sink)?;
@@ -83,7 +77,6 @@ pub struct SlowBind<'a> {
 }
 
 pub trait BindSink {
-    // Each hook returns "where this node ended up in MY world".
     fn ident(
         &mut self,
         table: &Table,
@@ -100,9 +93,6 @@ pub trait BindSink {
     ) -> Result<usize, SqliteError>;
     fn unary(&mut self, arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize;
     fn binary(&mut self, node: &Expr, idx: usize, l: usize, r: usize) -> usize;
-    /// Error for node kinds this binder rejects (`Star` in WHERE/LIMIT,
-    /// already-bound `ColumnRef`, ...). Keeps sink-specific messages out
-    /// of the shared walk.
     fn unsupported(&mut self, expr: &Expr) -> SqliteError;
 }
 impl BindSink for SlowBind<'_> {
