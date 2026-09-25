@@ -56,7 +56,7 @@ impl<V: Vfs> CreateIndex<V> {
         let mut prepare = PrepareRow::new(
             None,
             1,
-            vec![row.iter().map(|v| v.into_owned()).collect()],
+            vec![row.iter().map(|v| v.into_static()).collect()],
             None,
         );
         while prepare.next(pager)?.is_some() {}
@@ -115,7 +115,7 @@ impl CreateTable {
         let mut prepare = PrepareRow::new(
             None,
             1,
-            vec![row.iter().map(|v| v.into_owned()).collect()],
+            vec![row.iter().map(|v| v.into_static()).collect()],
             None,
         );
         while prepare.next(pager)?.is_some() {}

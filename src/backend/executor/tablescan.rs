@@ -53,7 +53,7 @@ impl<V: Vfs> TableScan<V> {
             self.is_done = true;
             return Ok(None);
         };
-        let v = record.iter().map(|v| v.into_owned()).collect();
+        let v = record.iter().map(|v| v.into_static()).collect();
         let row = Row::new(row_id, v);
         self.guard.save_or_advance(pager, &mut self.cursor)?;
         Ok(Some(row))

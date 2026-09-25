@@ -82,14 +82,14 @@ pub enum Value<'a> {
 }
 
 impl<'a> Value<'a> {
-    pub fn into_owned(&self) -> Value<'static> {
+    pub fn into_static(&self) -> Value<'static> {
         match self {
             Value::Text(x) => Value::Text(Cow::Owned(x.as_ref().to_string())),
             Value::Blob(x) => Value::Blob(Cow::Owned(x.as_ref().to_owned())),
             Value::Float(f) => Value::Float(*f),
             Value::Integer(n) => Value::Integer(*n),
             Value::Null => Value::Null,
-            Value::Tuple(t) => Value::Tuple(t.iter().map(|inner| inner.into_owned()).collect()),
+            Value::Tuple(t) => Value::Tuple(t.iter().map(|inner| inner.into_static()).collect()),
         }
     }
 }

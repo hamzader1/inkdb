@@ -56,7 +56,7 @@ impl<V: Vfs> PrepareRow<V> {
         /*
          * insert here
          */
-        let out = Row::new(next_row_id, inner.iter().map(|v| v.into_owned()).collect());
+        let out = Row::new(next_row_id, inner.iter().map(|v| v.into_static()).collect());
         self.pos += 1;
         Ok(Some(out))
     }

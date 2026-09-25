@@ -214,7 +214,7 @@ impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
         }
         if let Ok(record) = self.page.record_of_cell(self.index, self.pager) {
             self.index += 1;
-            return Some(record.into_iter().map(|v| v.into_owned()).collect());
+            return Some(record.into_iter().map(|v| v.into_static()).collect());
         }
         None
     }
@@ -573,11 +573,11 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             }
             BTreeCell::IndexInterior(index_interior) => {
                 let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_owned())
+                Ok(Value::Tuple(record).into_static())
             }
             BTreeCell::IndexLeaf(index_leaf) => {
                 let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_owned())
+                Ok(Value::Tuple(record).into_static())
             }
         }
     }
