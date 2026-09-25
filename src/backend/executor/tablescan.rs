@@ -1,10 +1,13 @@
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
+use crate::record::Value;
+use crate::sql::parser::ExprArena;
 use crate::storage::btree::{BTreeCursor, RestorePosition, TableLeaf};
 use crate::storage::page::PageRef as BTreePageRef;
 use crate::vfs::Vfs;
 
 use super::Row;
+use super::eval::Eval;
 use super::scan_guard::ScanGuard;
 
 #[derive(Debug)]
@@ -12,6 +15,8 @@ pub struct TableScan<V: Vfs> {
     pub cursor: BTreeCursor<V>,
     is_done: bool,
     pub guard: Box<dyn ScanGuard<V>>,
+    predicate: Option<usize>,
+    rows_rejected: u64,
 }
 impl<V: Vfs> TableScan<V> {
     pub fn new(
@@ -35,85 +40,68 @@ impl<V: Vfs> TableScan<V> {
             cursor,
             is_done: empty,
             guard: scan_plan,
+            predicate: None,
+            rows_rejected: 0,
         })
+    }
+
+    pub fn set_predicate(&mut self, predicate: usize) {
+        self.predicate = Some(predicate);
+    }
+
+    pub fn predicate(&self) -> Option<usize> {
+        self.predicate
+    }
+
+    pub fn rows_rejected(&self) -> u64 {
+        self.rows_rejected
     }
 }
 impl<V: Vfs> TableScan<V> {
-    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
-        if self.is_done {
-            return Ok(None);
+    pub fn next(
+        &mut self,
+        pager: &mut Pager<V>,
+        arena: Option<&ExprArena>,
+    ) -> Result<Option<Row>, SqliteError> {
+        while !self.is_done {
+            self.guard.restore(pager, &mut self.cursor)?;
+            let Some(cell) = self.cursor.current::<TableLeaf>(pager)? else {
+                self.is_done = true;
+                return Ok(None);
+            };
+            let row_id = cell.row_id;
+
+            let mut rejected = false;
+            let values = match self.cursor.current_record::<TableLeaf>(pager)? {
+                Some(record) => {
+                    let keep = match (self.predicate, arena) {
+                        (Some(predicate), Some(arena)) => {
+                            Eval::eval(arena, predicate, Some(&record))?.to_bool()
+                        }
+                        _ => true,
+                    };
+                    if keep {
+                        Some(record.into_iter().map(Value::into_static).collect())
+                    } else {
+                        rejected = true;
+                        None
+                    }
+                }
+                None => {
+                    self.is_done = true;
+                    None
+                }
+            };
+
+            self.guard.save_or_advance(pager, &mut self.cursor)?;
+            if rejected {
+                self.rows_rejected += 1;
+                continue;
+            }
+            if let Some(values) = values {
+                return Ok(Some(Row::new(row_id, values)));
+            }
         }
-        self.guard.restore(pager, &mut self.cursor)?;
-        let Some(cell) = self.cursor.current::<TableLeaf>(pager)? else {
-            self.is_done = true;
-            return Ok(None);
-        };
-        let row_id = cell.row_id;
-        let Some(record) = self.cursor.current_record::<TableLeaf>(pager)? else {
-            self.is_done = true;
-            return Ok(None);
-        };
-        let v = record.iter().map(|v| v.to_owned_static()).collect();
-        let row = Row::new(row_id, v);
-        self.guard.save_or_advance(pager, &mut self.cursor)?;
-        Ok(Some(row))
+        Ok(None)
     }
 }
-
-// pub trait RelationScan<V: Vfs>: std::fmt::Debug {
-//     fn next(
-//         &mut self,
-//         pager: &mut Pager<V>,
-//         cursor: &mut BTreeCursor<V>,
-//     ) -> Result<Option<Row>, SqliteError>;
-// }
-
-// #[derive(Debug)]
-// pub struct UnsafeTableScan;
-// impl<V: Vfs> RelationScan<V> for UnsafeTableScan {
-//     fn next(
-//         &mut self,
-//         pager: &mut Pager<V>,
-//         cursor: &mut BTreeCursor<V>,
-//     ) -> Result<Option<Row>, SqliteError> {
-//         // Unsafe means the row may vanish under us through Delete. When the
-//         // saved row is still there we step over it, when it is gone the
-//         // restore already parks on its successor. Either way the cursor is
-//         // valid here or the scan is over.
-//         match cursor.restore_position(pager)? {
-//             RestorePosition::Exact => cursor.next(pager)?,
-//             RestorePosition::Next | RestorePosition::Empty => {}
-//         }
-//         let Some(cell) = cursor.current(pager)? else {
-//             return Ok(None);
-//         };
-//         let row_id = cell.row_id;
-//         let Some(record) = cursor.current_record(pager)? else {
-//             return Ok(None);
-//         };
-//         let v = record.iter().map(|v| v.into_owned()).collect();
-//         let row = Row::new(row_id, v);
-//         cursor.save_position(pager)?;
-//         Ok(Some(row))
-//     }
-// }
-
-// #[derive(Debug)]
-// pub struct SafeTableScan;
-// impl<V: Vfs> RelationScan<V> for SafeTableScan {
-//     fn next(
-//         &mut self,
-//         pager: &mut Pager<V>,
-//         cursor: &mut BTreeCursor<V>,
-//     ) -> Result<Option<Row>, SqliteError> {
-//         if cursor.last_visited_entry().is_some() {
-//             let row_id = cursor.with_current(pager, |_, c| Ok(c.row_id()))?;
-//             let record = cursor.current_record(pager)?.unwrap();
-//             let v = record.iter().map(|v| v.into_owned()).collect();
-//             let row = Row::new(row_id, v);
-//             cursor.next(pager)?;
-//             return Ok(Some(row));
-//         }
-//         Ok(None)
-//     }
-// }
