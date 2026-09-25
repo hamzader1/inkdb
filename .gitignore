@@ -12,3 +12,4 @@ profile.*
 docs2
 .backup
 *.sh
+.context

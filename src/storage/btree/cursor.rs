@@ -5,7 +5,7 @@ use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::btree::{CellIndex, compare_index_entry, page_as_ref_with_pager};
-use crate::storage::page::{BTreePageType, PageRef};
+use crate::storage::page::PageRef;
 use crate::vfs::Vfs;
 use std::cmp::Ordering;
 
@@ -675,7 +675,7 @@ fn index_interior_next_step(
 
 pub(crate) fn search_row_ids<B: AsRef<[u8]>, K: PageKind, V: Vfs>(
     page: &TypedPage<B, K>,
-    pager: &mut Pager<V>,
+    _pager: &mut Pager<V>,
     target: u64,
 ) -> SqliteResult<(bool, u16)>
 where

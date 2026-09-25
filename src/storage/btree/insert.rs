@@ -349,10 +349,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
             }
         }
 
-        let before_cells = {
-            let g = self.pager.get(old_root)?;
-            BTreePage::<&[u8]>::new(old_root, page_size, usable, g.bytes())?.no_of_cells()?
-        };
         {
             let divider_cell = split.divider.cell_for(new_left);
             let mut guard = self.pager.get_mut(old_root)?;

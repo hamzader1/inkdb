@@ -22,16 +22,10 @@ pub mod varint;
 pub mod vfs;
 use errors::SqliteError;
 
-use std::path::Path;
 pub use storage::sqlite_cursor::SqliteCursor;
-use vfs::SqliteOptions;
 pub type DbError = SqliteError;
 
-use self::pager::pager::PageNo;
 use self::vfs::Vfs;
-use self::vfs::cursor::FileCursor;
-use self::vfs::disk::{DiskFile, DiskVfs};
-use self::vfs::file::SqliteFile;
 pub type SqliteResult<T> = Result<T, SqliteError>;
 use crate::pager::pager::Pager;
 

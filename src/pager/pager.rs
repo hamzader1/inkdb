@@ -13,7 +13,6 @@ use super::buffer_pool::{Acquire, BufferPool};
 use super::frame::FrameId;
 use super::guard::{BorrowState, PageGuard};
 use super::journal::Journal;
-use super::metadata::SqliteMetadata;
 use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::Statistics;
 use crate::vfs::Vfs;

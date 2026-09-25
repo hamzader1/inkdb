@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::pager::pager::{PageNo, Pager};

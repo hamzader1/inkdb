@@ -1,5 +1,5 @@
 use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
-use super::{btree::CellIndex, sqlite_cursor::SqliteCursor};
+use super::sqlite_cursor::SqliteCursor;
 use crate::errors::SqliteError;
 
 use crate::pager::pager::PageNo;
@@ -91,7 +91,7 @@ impl BTreeCell {
     }
 }
 impl TableInteriorCell {
-    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], _: usize) -> Result<Self, SqliteError> {
         let mut cursor = SqliteCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
@@ -114,7 +114,7 @@ impl TableLeafCell {
         let current_pos = cursor.stream_pos() as usize;
         let local_payload_size =
             compute_table_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_range = (current_pos..current_pos + local_payload_size);
+        let local_payload_range = current_pos..current_pos + local_payload_size;
         let mut overflow_page: Option<u32> = None;
         if local_payload_size < payload_len as usize {
             cursor.move_forward_by(local_payload_size as _)?;
@@ -155,7 +155,7 @@ impl IndexInteriorCell {
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size = (current_pos..current_pos + payload_size);
+        let local_payload_size = current_pos..current_pos + payload_size;
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             cursor.move_forward_by(payload_size as _)?;
@@ -188,7 +188,7 @@ impl IndexLeafCell {
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
         let payload_size = compute_index_local_payload_size(usable_size, payload_len as usize);
-        let local_payload_size = (current_pos..current_pos + payload_size);
+        let local_payload_size = current_pos..current_pos + payload_size;
         let mut overflow_page: Option<PageNo> = None;
         if payload_size < payload_len as usize {
             cursor.move_forward_by(payload_size as _)?;

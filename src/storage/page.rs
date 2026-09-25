@@ -1,10 +1,9 @@
 use super::btree::CellIndex;
-use super::btree::kind::{Cell, HasPayload};
+use super::btree::kind::HasPayload;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::SqliteResult;
 use crate::errors::SqliteError;
-use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::Value;
@@ -16,7 +15,6 @@ use crate::util::{
 };
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
-use std::marker::PhantomData;
 
 // use super::cell::BTreeCell;
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
@@ -570,11 +568,11 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         match cell {
             BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into()),
             BTreeCell::TableInterior(table_interior) => Ok(table_interior.rowid_boundary.into()),
-            BTreeCell::IndexInterior(index_interior) => {
+            BTreeCell::IndexInterior(_) => {
                 let record = self.record_of(cell, pager)?;
                 Ok(Value::Tuple(record).to_owned_static())
             }
-            BTreeCell::IndexLeaf(index_leaf) => {
+            BTreeCell::IndexLeaf(_) => {
                 let record = self.record_of(cell, pager)?;
                 Ok(Value::Tuple(record).to_owned_static())
             }
@@ -795,7 +793,6 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
 
     */
     pub fn get_freeblock(&mut self, size: u16) -> SqliteResult<Option<u16>> {
-        let bytes = self.bytes_mut();
         let page_ref = self.downgrade()?;
         if page_ref.first_freeblock()? == 0 {
             return Ok(None);

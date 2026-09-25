@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::ast::Constraint;
 use super::ast::*;
 use super::parser::Parser;

@@ -1,6 +1,5 @@
 use crate::pager::frame::FrameId;
 
-use self::BorrowState::Ref;
 
 use super::buffer_pool::BufferPool;
 use std::{marker::PhantomData, ptr::NonNull};

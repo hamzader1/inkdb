@@ -117,9 +117,7 @@ impl Parser {
         Ok(())
     }
     pub fn default_end_span(&self) -> Span {
-        let s = Span(self.query.len(), self.query.len() + 1);
-        dbg!(&s);
-        s
+        Span(self.query.len(), self.query.len() + 1)
     }
     pub fn expect_ident(&mut self) -> Result<String, SqliteError> {
         match self.peek() {

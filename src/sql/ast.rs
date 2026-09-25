@@ -68,7 +68,7 @@ impl Expr {
             Expr::Devide(_, _) => Expr::Devide(l, r),
             Expr::And { left: _, right: _ } => Expr::And { left: l, right: r },
             Expr::Or { left: _, right: _ } => Expr::Or { left: l, right: r },
-            Expr::BinaryOp { left, op, right } => Expr::BinaryOp {
+            Expr::BinaryOp { op, .. } => Expr::BinaryOp {
                 left: l,
                 op: *op,
                 right: r,

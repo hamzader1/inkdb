@@ -2,7 +2,7 @@ use crate::{
     SqliteCursor, SqliteResult,
     errors::SqliteError,
     pager::pager::{PageNo, Pager},
-    util::{validate_page, validate_page_non_one},
+    util::validate_page_non_one,
     vfs::Vfs,
 };
 
