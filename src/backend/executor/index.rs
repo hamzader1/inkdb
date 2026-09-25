@@ -1,5 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
+use crate::errors::CorruptError;
 use crate::{
     SqliteResult,
     backend::{
@@ -77,28 +78,25 @@ pub struct IndexExactMatch<V: Vfs> {
     target: Value<'static>,
     cursor: BTreeCursor<V>,
     scan_guard: Box<dyn ScanGuard<V>>,
+    is_init: bool,
     is_done: bool,
 }
 
 impl<V: Vfs> IndexExactMatch<V> {
     pub fn new(
-        pager: &mut Pager<V>,
         index_root_page: u32,
         relation_root_page: u32,
         target: Value<'static>,
         scan_guard: Box<dyn ScanGuard<V>>,
     ) -> Result<Self, SqliteError> {
-        // Park on the first entry at or after the wanted key. Matches may
-        // live in a later leaf than the raw landing, so done stays false
-        // here and the key check in next decides when the run ends.
         let mut cursor = BTreeCursor::new(index_root_page);
-        cursor.seek_lower_bound(pager, &Value::Tuple(vec![target.clone()]))?;
         Ok(Self {
             index_root_page,
             relation_root_page,
             target,
             cursor,
             scan_guard,
+            is_init: false,
             is_done: false,
         })
     }
@@ -112,6 +110,12 @@ impl<V: Vfs> IndexExactMatch<V> {
         &self.target
     }
     pub fn next(&mut self, pager: &mut Pager<V>, arena: &ExprArena) -> SqliteResult<Option<Row>> {
+        if !self.is_init {
+            self.cursor
+                .seek_lower_bound(pager, &Value::Tuple(vec![self.target.clone()]))?;
+            self.is_init = true;
+        }
+
         // If the previous row survived, step over it. If it was deleted,
         // restore already sits on its successor.
         self.scan_guard.restore(pager, &mut self.cursor)?;
@@ -139,15 +143,17 @@ impl<V: Vfs> IndexExactMatch<V> {
         // up instead of returning a wrong row.
         let mut relation_btree = BTree::new(self.relation_root_page, pager);
         if relation_btree.seek(&row_id)? != SeekResult::Exact {
-            return Err(SqliteError::Corrupt(format!(
-                "index {} holds rowid {row_id} but table {} has no such row",
-                self.index_root_page, self.relation_root_page
-            )));
+            return Err(CorruptError::IndexEntryWithoutRow {
+                index_page: self.index_root_page,
+                rowid: row_id.cast_int()? as u64,
+                table_page: self.relation_root_page,
+            }
+            .into());
         }
         let relation_record = relation_btree
             .cursor
             .current_record::<TableLeaf>(pager)?
-            .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
+            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?
             .iter()
             .map(|v| v.to_owned_static())
             .collect();
@@ -171,10 +177,10 @@ impl<V: Vfs> IndexMutation<V> for IndexDelete {
         // ignoring it is how rows survived DELETE while the index lost
         // track of them.
         if !btree.delete(Value::Tuple(key))? {
-            return Err(SqliteError::Corrupt(format!(
-                "index root {}: entry missing for a row being deleted",
-                btree.root_page
-            )));
+            return Err(CorruptError::IndexEntryMissing {
+                index_page: btree.root_page,
+            }
+            .into());
         }
         Ok(())
     }
@@ -190,7 +196,7 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
             && let Some(record) = btree.current_record::<IndexLeaf>()?
             && record[0] == key[0]
         {
-            return Err(SqliteError::Runtime(format!(
+            return Err(SqliteError::runtime(format!(
                 "violates unique index constraint for value: {}",
                 key[0]
             )));
@@ -209,6 +215,7 @@ pub struct IndexRangeScan<V: Vfs> {
     pub range: (Bound<Value<'static>>, Bound<Value<'static>>),
     pub scan_guard: Box<dyn ScanGuard<V>>,
     cursor: BTreeCursor<V>,
+    is_init: bool,
     is_done: bool,
 }
 
@@ -219,26 +226,9 @@ impl<V: Vfs> IndexRangeScan<V> {
         start: Bound<Value<'static>>,
         end: Bound<Value<'static>>,
         scan_guard: Box<dyn ScanGuard<V>>,
-        pager: &mut Pager<V>,
     ) -> SqliteResult<Self> {
         assert!(!(matches!(start, Bound::Unbounded) && matches!(end, Bound::Unbounded)));
         let mut cursor = BTreeCursor::<V>::new(index_root_page);
-        match start {
-            Bound::Included(ref i) => {
-                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.to_owned_static()]))?;
-            }
-            Bound::Excluded(ref i) => {
-                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.to_owned_static()]))?;
-                while let Some(record) = cursor.current_record::<IndexLeaf>(pager)?
-                    && &record[0] == i
-                {
-                    cursor.next(pager)?;
-                }
-            }
-            _ => {
-                cursor.first(pager)?;
-            }
-        };
 
         Ok(Self {
             index_root_page,
@@ -246,6 +236,7 @@ impl<V: Vfs> IndexRangeScan<V> {
             range: (start, end),
             scan_guard,
             cursor,
+            is_init: false,
             is_done: false,
         })
     }
@@ -261,6 +252,27 @@ impl<V: Vfs> IndexRangeScan<V> {
     }
 
     pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<Option<Row>> {
+        if !self.is_init {
+            match self.range.0 {
+                Bound::Included(ref i) => {
+                    self.cursor
+                        .seek_lower_bound(pager, &Value::Tuple(vec![i.to_owned_static()]))?;
+                }
+                Bound::Excluded(ref i) => {
+                    self.cursor
+                        .seek_lower_bound(pager, &Value::Tuple(vec![i.to_owned_static()]))?;
+                    while let Some(record) = self.cursor.current_record::<IndexLeaf>(pager)?
+                        && &record[0] == i
+                    {
+                        self.cursor.next(pager)?;
+                    }
+                }
+                _ => {
+                    self.cursor.first(pager)?;
+                }
+            };
+            self.is_init = true;
+        }
         self.scan_guard.restore(pager, &mut self.cursor)?;
         if self.is_done {
             return Ok(None);
@@ -280,15 +292,17 @@ impl<V: Vfs> IndexRangeScan<V> {
             .to_owned_static();
         let mut relation_btree = BTree::new(self.relation_root_page, pager);
         if relation_btree.seek(&row_id)? != SeekResult::Exact {
-            return Err(SqliteError::Corrupt(format!(
-                "index {} holds rowid {row_id} but table {} has no such row",
-                self.index_root_page, self.relation_root_page
-            )));
+            return Err(CorruptError::IndexEntryWithoutRow {
+                index_page: self.index_root_page,
+                rowid: row_id.cast_int()? as u64,
+                table_page: self.relation_root_page,
+            }
+            .into());
         }
         let relation_record = relation_btree
             .cursor
             .current_record::<TableLeaf>(pager)?
-            .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
+            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?
             .iter()
             .map(|v| v.to_owned_static())
             .collect();
