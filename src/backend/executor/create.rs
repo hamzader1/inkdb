@@ -2,9 +2,9 @@ use crate::backend::analyze::{ResolvedCreateIndexQuery, ResolvedCreateTableQuery
 use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
-use crate::record::{SqlType, Value};
+use crate::record::Value;
 use crate::storage::btree::BTree;
-use crate::storage::page::{PageMut as BTreePageMut, BTreePageType};
+use crate::storage::page::{BTreePageType, PageMut as BTreePageMut};
 use crate::vfs::Vfs;
 
 use super::Row;
@@ -45,18 +45,18 @@ impl<V: Vfs> CreateIndex<V> {
             pager.page_size(),
             pager.usable_size(),
         );
-        let row = [
-            Value::text("index"),
-            Value::text(&meta.index_name),
-            Value::text(&meta.relation_name),
-            Value::Integer(new_page as _),
-            Value::text(&meta.query),
+        let row: [Value; 5] = [
+            "index".into(),
+            meta.index_name.into(),
+            meta.relation_name.into(),
+            (new_page as u64).into(),
+            (&*meta.query).into(),
         ];
 
         let mut prepare = PrepareRow::new(
             None,
             1,
-            vec![row.iter().map(|v| v.into_static()).collect()],
+            vec![row.iter().map(|v| v.to_owned_static()).collect()],
             None,
         );
         while prepare.next(pager)?.is_some() {}
@@ -76,7 +76,7 @@ impl<V: Vfs> CreateIndex<V> {
     // use batch instead
     pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
         while let Some(row) = self.child.next(pager, None)? {
-            let record = [row[self.col_idx].clone(), row.key.into_sqlite_value()];
+            let record = [row[self.col_idx].clone(), row.key.into()];
             let key = Value::Tuple(record.to_vec());
             let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&record));
             Insert::new(self.index_root_page, key, &mut bytes).next(pager)?;
@@ -105,17 +105,17 @@ impl CreateTable {
             pager.usable_size(),
         );
         let row = [
-            Value::text("table"),                       // type
-            Value::text(name),                          // name
-            Value::text(name),                          // table_name
-            Value::Integer(new_page as _),              // root page
-            Value::text(self.meta.meta.query.as_ref()), // original query
+            ("table").into(),                     // type
+            (&**name).into(),                     // name
+            (&**name).into(),                     // tbl_name
+            Value::Integer(new_page as _),        // root page
+            self.meta.meta.query.as_ref().into(), // original query
         ];
 
         let mut prepare = PrepareRow::new(
             None,
             1,
-            vec![row.iter().map(|v| v.into_static()).collect()],
+            vec![row.iter().map(|v| v.to_owned_static()).collect()],
             None,
         );
         while prepare.next(pager)?.is_some() {}
