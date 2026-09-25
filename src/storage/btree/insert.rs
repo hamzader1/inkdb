@@ -199,7 +199,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
-        let (cells, split_at, promo, old_rmp) = {
+        let (cells, cells_len, split_at, promo, old_rmp) = {
             let guard = self.pager.get(page_no)?;
             let page = parse_ref::<K, V>(page_no, &guard, self.pager)?;
             let n = page.no_of_cells()?;
@@ -210,11 +210,15 @@ impl<'a, V: Vfs> BTree<'a, V> {
             }
             let split_at = (n / 2) as usize;
             let promo = K::promote(&page, split_at as u16, self.pager)?;
-            let mut cells: Vec<Vec<u8>> = Vec::with_capacity(n as usize);
+            let mut cells = Vec::new();
+            let mut cells_len = Vec::new();
             for i in 0..n {
-                cells.push(page.cell_bytes_as_ref(i)?.to_vec());
+                let cell = page.cell_bytes_as_ref(i)?;
+                cells.extend_from_slice(cell);
+                cells_len.push(cell.len());
+                // cells.push(page.cell_bytes_as_ref(i)?.to_vec());
             }
-            (cells, split_at, promo, page.right_most_ptr()?)
+            (cells, cells_len, split_at, promo, page.right_most_ptr()?)
         };
 
         if promo.consumed == Consumed::LastOfLeft && split_at < 2 {
@@ -222,11 +226,22 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 "split: page {page_no} has too few cells to promote one"
             )));
         }
-        let (left_cells, right_cells): (&[Vec<u8>], &[Vec<u8>]) = match promo.consumed {
-            Consumed::None => (&cells[..split_at], &cells[split_at..]),
-            Consumed::LastOfLeft => (&cells[..split_at - 1], &cells[split_at..]),
-            Consumed::FirstOfRight => (&cells[..split_at], &cells[split_at + 1..]),
+        let (left_cells, right_cells, right_start): (&[usize], &[usize], usize) = match promo
+            .consumed
+        {
+            Consumed::None => (&cells_len[..split_at], &cells_len[split_at..], split_at),
+            Consumed::LastOfLeft => (&cells_len[..split_at - 1], &cells_len[split_at..], split_at),
+            Consumed::FirstOfRight => (
+                &cells_len[..split_at],
+                &cells_len[split_at + 1..],
+                split_at + 1,
+            ),
         };
+        // let right_start = match promo.consumed {
+        //     Consumed::None => split_at,
+        //     Consumed::LastOfLeft => split_at,
+        //     Consumed::FirstOfRight => split_at + 1,
+        // };
 
         /*
          write: the right half goes to a fresh page, the left half stays where it was
@@ -236,28 +251,41 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let mut guard = self.pager.get_mut(right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page = TypedPage::<&mut [u8], K>::fresh(right_page, page_size, usable, bytes)?;
-            for (i, cell) in right_cells.iter().enumerate() {
-                if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
+            let mut start: usize = cells_len[..right_start].iter().sum();
+            for (i, len) in right_cells.iter().enumerate() {
+                let bytes = &cells[start..len + start];
+                if page.insert_cell(&bytes, i as _)? == InsertionState::None {
                     return Err(SqliteError::Internal(format!(
                         "split: right half of page {page_no} does not fit in page {right_page}"
                     )));
                 }
+                start += len;
             }
+            // for (i, cell) in right_cells.iter().enumerate() {
+            //     if page.insert_cell(cell, i as u16)? == InsertionState::None {
+            //         return Err(SqliteError::Internal(format!(
+            //             "split: right half of page {page_no} does not fit in page {right_page}"
+            //         )));
+            //     }
+            // }
             if let Some(rmp) = old_rmp {
                 page.set_right_most_ptr(rmp)?;
             }
-        }
+        };
         {
             let mut guard = self.pager.get_mut(page_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page = TypedPage::<&mut [u8], K>::parse_mut(page_no, page_size, usable, bytes)?;
+            let mut start = 0;
             page.reset_for_rebuild()?;
-            for (i, cell) in left_cells.iter().enumerate() {
-                if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
+            for (i, len) in left_cells.iter().enumerate() {
+                let bytes = &cells[start..len + start];
+                if page.insert_cell(&bytes, i as u16)? == InsertionState::None {
                     return Err(SqliteError::Internal(format!(
                         "split: left half of page {page_no} does not fit"
                     )));
                 }
+                start += len;
             }
             if let Some(rmp) = promo.left_rmp {
                 page.set_right_most_ptr(rmp)?;
@@ -279,10 +307,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         })
     }
 
-    fn grow_root<K: CellOps, R: InteriorOps>(
-        &mut self,
-        split: &Split,
-    ) -> SqliteResult<Split> {
+    fn grow_root<K: CellOps, R: InteriorOps>(&mut self, split: &Split) -> SqliteResult<Split> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
         let old_root = split.left_page;
