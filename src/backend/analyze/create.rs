@@ -25,15 +25,15 @@ impl Analyze {
     ) -> SqliteResult<ResolvedQuery> {
         let relation = Self::get_table(sqlite_master, &stmt.table)?;
         if sqlite_master.indexes.contains_key(&stmt.name) {
-            return Err(SqliteError::Runtime(format!(
+            return Err(SqliteError::runtime(format!(
                 "Index with name {} already exists",
                 stmt.name
             )));
         }
         // single col only for now
         if stmt.columns.is_empty() {
-            return Err(SqliteError::Runtime(
-                "Index can be created on empty column set".into(),
+            return Err(SqliteError::runtime(
+                "Index can be created on empty column set",
             ));
         }
         let column_index = match relation.get_col_idx(&stmt.columns[0]) {

@@ -19,8 +19,8 @@ impl Eval {
             Expr::Bool(b) => Ok(Value::Integer(b as u8 as i64)),
             Expr::ColumnRef(col_idx) => match row {
                 Some(row) => Ok(row[col_idx].clone()),
-                _ => Err(SqliteError::Runtime(
-                    "Cannot evaluate a column reference without a row: LIMIT and constant expressions must not mention columns".into(),
+                _ => Err(SqliteError::runtime(
+                    "Cannot evaluate a column reference without a row: LIMIT and constant expressions must not mention columns",
                 )),
             },
 

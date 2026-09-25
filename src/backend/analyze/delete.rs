@@ -43,7 +43,7 @@ impl Analyze {
             if index.table == table.name {
                 let col_idx = table
                     .get_col_idx(&index.columns[0])
-                    .ok_or(SqliteError::Runtime(format!(
+                    .ok_or(SqliteError::runtime(format!(
                         "
                             Column {} does not exist in table {}
                             ",

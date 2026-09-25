@@ -31,12 +31,7 @@ impl Analyze {
         //     return Self::handle_sqlite_master_query(select_stmt, sqlite_master);
         // }
 
-        let has_star = arena
-            .nodes
-            .iter()
-            .find(|node| *node == &Expr::Star)
-            .is_some();
-
+        let has_star = arena.nodes.contains(&Expr::Star);
         // TODO: THIS NEEDS OPTIMAZATION
         if !has_star {
             for idx in columns.iter() {

@@ -172,7 +172,7 @@ impl BindSink for SlowBind<'_> {
         }
     }
     fn unsupported(&mut self, expr: &Expr) -> SqliteError {
-        SqliteError::Runtime(format!(
+        SqliteError::runtime(format!(
             "Expression '{expr}' cannot appear in a SELECT column list (only columns, '*' and arithmetic/comparison expressions are supported)"
         ))
     }
@@ -204,8 +204,8 @@ impl BindSink for FastBind {
         _arena: &mut ExprArena,
         _idx: usize,
     ) -> Result<usize, SqliteError> {
-        Err(SqliteError::Runtime(
-            "Expression * cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported".into(),
+        Err(SqliteError::runtime(
+            "Expression * cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported",
         ))
     }
     fn unary(&mut self, _arena: &mut ExprArena, _node: Expr, idx: usize, _child: usize) -> usize {
@@ -215,7 +215,7 @@ impl BindSink for FastBind {
         idx
     }
     fn unsupported(&mut self, expr: &Expr) -> SqliteError {
-        SqliteError::Runtime(format!(
+        SqliteError::runtime(format!(
             "Expression '{expr}' cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported)"
         ))
     }
