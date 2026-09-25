@@ -1,3 +1,4 @@
+use crate::errors::CorruptError;
 use crate::{
     SqliteCursor, SqliteResult,
     errors::SqliteError,
@@ -23,14 +24,10 @@ impl<'a, V: Vfs> FreeList<'a, V> {
         match (current_page_no, total_free_pages) {
             (0, 0) => return Ok(None),
             (0, _) => {
-                return Err(SqliteError::Corrupt(
-                    "freelist count is nonzero but first trunk page is zero".into(),
-                ));
+                return Err(SqliteError::Corrupt(CorruptError::FreelistTrunkMissing));
             }
             (_, 0) => {
-                return Err(SqliteError::Corrupt(
-                    "freelist trunk page is nonzero but freelist count is zero".into(),
-                ));
+                return Err(SqliteError::Corrupt(CorruptError::FreelistCountMissing));
             }
             _ => {}
         };

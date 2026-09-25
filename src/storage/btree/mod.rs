@@ -1,12 +1,10 @@
-
-
 pub mod cursor;
-pub mod tree;
 pub mod delete;
 pub mod insert;
 pub mod kind;
 pub mod ops;
 pub mod rebalance;
+pub mod tree;
 pub mod typed_mut;
 
 pub use cursor::{BTreeCursor, CursorState, Path, RestorePosition, SeekResult};
@@ -41,8 +39,8 @@ pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     guard: &'b mut PageGuard,
     pager: &Pager<V>,
 ) -> Result<crate::storage::page::PageMut<'b>, SqliteError> {
-    let bytes = guard.bytes_as_mut().ok_or_else(|| {
-        SqliteError::Internal("page_as_mut_with_pager: guard is not a mutable borrow".into())
+    let bytes = guard.bytes_as_mut().ok_or({
+        SqliteError::Internal("page_as_mut_with_pager: guard is not a mutable borrow")
     })?;
     crate::storage::page::PageMut::new(page_no, pager.page_size(), pager.usable_size(), bytes)
 }
@@ -55,12 +53,12 @@ pub(crate) fn compare_index_entry(
         Value::Tuple(cols) => cols,
         _ => {
             return Err(SqliteError::Internal(
-                "index seek target must be a tuple of key columns".into(),
+                "index seek target must be a tuple of key columns",
             ));
         }
     };
     if keys.len() > entry.len() {
-        return Err(SqliteError::Internal(format!(
+        return Err(SqliteError::InternalFmt(format!(
             "index seek target has {} columns but entries hold {}",
             keys.len(),
             entry.len()
@@ -77,5 +75,3 @@ pub(crate) fn compare_index_entry(
     }
     Ok((Ordering::Equal, keys.len() == entry.len()))
 }
-
-

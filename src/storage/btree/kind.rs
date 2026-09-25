@@ -205,9 +205,9 @@ where
         Ok(self.cell(i)?.left_child())
     }
     pub(crate) fn rmp(&self) -> SqliteResult<u32> {
-        self.inner
-            .right_most_ptr()?
-            .ok_or_else(|| SqliteError::Internal("interior page has no right-most pointer".into()))
+        self.inner.right_most_ptr()?.ok_or(SqliteError::Internal(
+            "interior page has no right-most pointer",
+        ))
     }
 }
 impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K> {

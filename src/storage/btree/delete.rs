@@ -1,5 +1,6 @@
 use crate::SqliteError;
 use crate::SqliteResult;
+use crate::errors::CorruptError;
 use crate::pager::pager::PageNo;
 use crate::record::Value;
 use crate::storage::page::{BTreePage, PageMut, PageRef};
@@ -79,9 +80,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let n = any.no_of_cells()?;
             if matches!(any, AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_)) {
                 if n == 0 {
-                    return Err(SqliteError::Corrupt(
-                        "index predecessor leaf is empty".into(),
-                    ));
+                    return Err(SqliteError::Corrupt(CorruptError::EmptyPredecessorLeaf));
                 }
                 self.cursor
                     .stack
@@ -90,8 +89,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
             }
             let rmp = PageRef::new(pred_no, page_size, usable, guard.bytes())?
                 .right_most_ptr()?
-                .ok_or_else(|| {
-                    SqliteError::Corrupt("index interior has no right-most child".into())
+                .ok_or({
+                    SqliteError::Corrupt(CorruptError::MissingRightMostChild { page: pred_no })
                 })?;
             self.cursor
                 .stack
@@ -117,7 +116,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 == crate::storage::page::InsertionState::None
             {
                 return Err(SqliteError::Internal(
-                    "index divider repaint does not fit in its parent".into(),
+                    "index divider repaint does not fit in its parent",
                 ));
             }
         }

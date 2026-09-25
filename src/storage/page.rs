@@ -3,7 +3,7 @@ use super::btree::kind::HasPayload;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::sqlite_cursor::SqliteCursor;
 use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::errors::{CorruptError, SqliteError};
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::Value;
@@ -117,9 +117,7 @@ impl<'a> OverflowPageRef<'a> {
         let next_page_buffer = match data[0..4].as_array::<4>() {
             Some(buf) => buf,
             _ => {
-                return Err(SqliteError::Corrupt(
-                    "Failed to parse next overflow page from overflow page".into(),
-                ));
+                return Err(SqliteError::Corrupt(CorruptError::OverflowNextPointer));
             }
         };
         let next_page = u32::from_be_bytes(*next_page_buffer);
@@ -162,9 +160,7 @@ impl<'a> OverflowPageRef<'a> {
     ) -> Result<Vec<u8>, SqliteError> {
         let mut remaining = total_payload_length
             .checked_sub(local_payload_bytes.len())
-            .ok_or(SqliteError::Corrupt(
-                "local payload exceeds total payload length".into(),
-            ))?;
+            .ok_or(SqliteError::Corrupt(CorruptError::OverflowPayloadTooLong))?;
         let mut current_page = first_overflow_page;
         let mut total_collected_payload: Vec<u8> = Vec::new();
         total_collected_payload.extend_from_slice(local_payload_bytes);
@@ -195,7 +191,7 @@ impl<'a> OverflowPageRef<'a> {
 
         sqlite_assert_one(
             total_collected_payload.len() == total_payload_length,
-            SqliteError::Corrupt("assembled payload length mismatch".into()),
+            SqliteError::Corrupt(CorruptError::OverflowPayloadMismatch),
         )?;
 
         Ok(total_collected_payload)
@@ -209,16 +205,14 @@ pub struct PageIterator<'r, 'p, V: crate::vfs::Vfs> {
 }
 
 impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
-    type Item = Vec<Value<'static>>;
+    type Item = SqliteResult<Vec<Value<'r>>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.page.no_of_cells().unwrap_or(0) {
             return None;
         }
-        if let Ok(record) = self.page.record_of_cell(self.index, self.pager) {
-            self.index += 1;
-            return Some(record.into_iter().map(|v| v.to_owned_static()).collect());
-        }
-        None
+        let record = self.page.record_of_cell(self.index, self.pager);
+        self.index += 1;
+        Some(record)
     }
 }
 
@@ -973,7 +967,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
     pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
         if self.usable_size != other.usable_size || self.bytes_mut().len() < other.usable_size {
             return Err(SqliteError::Internal(
-                "copy_data_from between pages with different usable sizes".into(),
+                "copy_data_from between pages with different usable sizes",
             ));
         }
         let (old_ho, new_ho) = (other.header_offset as usize, self.header_offset as usize);
@@ -1227,7 +1221,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         let content = content.as_ref();
         let n = self.no_of_cells()? as usize;
         if i as usize >= n {
-            return Err(SqliteError::Internal(format!(
+            return Err(SqliteError::InternalFmt(format!(
                 "replace_cell: index {i} out of bounds (page holds {n} cells)"
             )));
         }
@@ -1255,9 +1249,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
                 // lied. Put the old body back: None must mean untouched.
                 match self.insert_cell(&old, i)? {
                     InsertionState::Inserted => Ok(InsertionState::None),
-                    _ => Err(SqliteError::Corrupt(
-                        "replace_cell: page refused its own old cell".into(),
-                    )),
+                    _ => Err(SqliteError::Corrupt(CorruptError::ReplaceCellRefused)),
                 }
             }
         }

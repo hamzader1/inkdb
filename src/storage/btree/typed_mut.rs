@@ -1,5 +1,5 @@
 use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::errors::{CorruptError, SqliteError};
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::storage::page::{BTreePage, BTreePageType, PageRef};
@@ -50,10 +50,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: PageKind> TypedPage<B, K> {
     ) -> SqliteResult<Self> {
         let page = BTreePage::new(page_no, page_size, usable_size, bytes)?;
         if page.page_type()?.as_byte() != K::BYTE {
-            return Err(SqliteError::Corrupt(format!(
-                "page {page_no} is not a {} page",
-                kind_name::<K>()
-            )));
+            return Err(SqliteError::Corrupt(CorruptError::UnexpectedPageKind {
+                page: page_no,
+                expected: kind_name::<K>(),
+            }));
         }
         Ok(TypedPage::wrap(page))
     }
@@ -83,10 +83,10 @@ pub(crate) fn parse_ref<'b, K: PageKind, V: Vfs>(
         guard.bytes(),
     )?;
     if page.page_type()?.as_byte() != K::BYTE {
-        return Err(SqliteError::Corrupt(format!(
-            "page {page_no} is not a {} page",
-            kind_name::<K>()
-        )));
+        return Err(SqliteError::Corrupt(CorruptError::UnexpectedPageKind {
+                page: page_no,
+                expected: kind_name::<K>(),
+            }));
     }
     Ok(TypedPage::wrap(page))
 }

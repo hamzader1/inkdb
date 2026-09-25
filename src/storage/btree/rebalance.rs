@@ -1,5 +1,5 @@
 use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::errors::{CorruptError, SqliteError};
 use crate::pager::pager::PageNo;
 use crate::storage::page::{BTreePage, InsertionState, PageMut, PageRef};
 use crate::vfs::Vfs;
@@ -94,7 +94,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             page.reset_for_rebuild()?;
             for (i, cell) in pool.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::Internal(format!(
+                    return Err(SqliteError::InternalFmt(format!(
                         "merge: combined cells do not fit in page {right_page}"
                     )));
                 }
@@ -138,7 +138,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let n = pool.len();
         if n < 3 {
             return Err(SqliteError::Internal(
-                "redistribute: not enough cells to spread over two pages".into(),
+                "redistribute: not enough cells to spread over two pages",
             ));
         }
         let total: usize = pool.iter().map(|cell| cell.len()).sum();
@@ -172,7 +172,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             page.reset_for_rebuild()?;
             for (i, cell) in right_share.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::Internal(format!(
+                    return Err(SqliteError::InternalFmt(format!(
                         "redistribute: right share does not fit in page {right_page}"
                     )));
                 }
@@ -194,7 +194,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             };
             for (i, cell) in keep.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::Internal(format!(
+                    return Err(SqliteError::InternalFmt(format!(
                         "redistribute: left share does not fit in page {left_page}"
                     )));
                 }
@@ -209,7 +209,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let mut parent = PageMut::new(parent_no, page_size, usable, bytes)?;
             if parent.replace_cell(divider_idx, &plan.parent_cell)? == InsertionState::None {
                 return Err(SqliteError::Internal(
-                    "redistribute: parent separator does not fit".into(),
+                    "redistribute: parent separator does not fit",
                 ));
             }
         }
@@ -251,8 +251,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 let b = parent.bytes();
                 children.push(u32::from_be_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]));
             }
-            children.push(parent.right_most_ptr()?.ok_or_else(|| {
-                SqliteError::Corrupt("interior page has no right-most child".into())
+            children.push(parent.right_most_ptr()?.ok_or({
+                SqliteError::Corrupt(CorruptError::MissingRightMostChild { page: parent_no })
             })?);
             if slot == 0 {
                 (child, children[1], 0)
@@ -294,9 +294,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
         if is_leaf || n > 0 {
             return Ok(());
         }
-        let child_no = rmp.ok_or_else(|| {
-            SqliteError::Internal("empty interior root has no right-most child".into())
-        })?;
+        let child_no = rmp.ok_or(SqliteError::Internal(
+            "empty interior root has no right-most child",
+        ))?;
 
         let (cells, child_rmp, child_type) = {
             let guard = self.pager.get(child_no)?;
@@ -318,7 +318,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             for (i, cell) in cells.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
                     return Err(SqliteError::Internal(
-                        "root collapse: child cells do not fit in the root".into(),
+                        "root collapse: child cells do not fit in the root",
                     ));
                 }
             }

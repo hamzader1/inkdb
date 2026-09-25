@@ -1,6 +1,6 @@
 use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
 use super::sqlite_cursor::SqliteCursor;
-use crate::errors::SqliteError;
+use crate::errors::{CorruptError, SqliteError};
 
 use crate::pager::pager::PageNo;
 
@@ -95,9 +95,7 @@ impl TableInteriorCell {
         let mut cursor = SqliteCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
-            return Err(SqliteError::Corrupt(
-                "invalid left child page number: 0".into(),
-            ));
+            return Err(SqliteError::Corrupt(CorruptError::ZeroChildPointer));
         }
         let (rowid_boundary, _) = cursor.read_next_varint(bytes.len())?;
         Ok(Self {
@@ -120,7 +118,7 @@ impl TableLeafCell {
             cursor.move_forward_by(local_payload_size as _)?;
             let overflow_page_int = cursor.read_next_u32()?;
             if overflow_page_int == 0 {
-                return Err(SqliteError::Corrupt("invalid overflow page pointer".into()));
+                return Err(SqliteError::Corrupt(CorruptError::InvalidOverflowPointer));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -146,9 +144,7 @@ impl IndexInteriorCell {
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
             // use validate function later
-            return Err(SqliteError::Corrupt(
-                "invalid left child page number: 0".into(),
-            ));
+            return Err(SqliteError::Corrupt(CorruptError::ZeroChildPointer));
         }
         // Staged cell bytes can be shorter than a page. Size the varint
         // window by what is actually here, like the table parsers do.
@@ -161,7 +157,7 @@ impl IndexInteriorCell {
             cursor.move_forward_by(payload_size as _)?;
             let overflow_page_int = cursor.read_next_u32()?;
             if overflow_page_int == 0 {
-                return Err(SqliteError::Corrupt("invalid overflow page pointer".into()));
+                return Err(SqliteError::Corrupt(CorruptError::InvalidOverflowPointer));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -194,7 +190,7 @@ impl IndexLeafCell {
             cursor.move_forward_by(payload_size as _)?;
             let overflow_page_int = cursor.read_next_u32()?;
             if overflow_page_int == 0 {
-                return Err(SqliteError::Corrupt("invalid overflow page pointer".into()));
+                return Err(SqliteError::Corrupt(CorruptError::InvalidOverflowPointer));
             }
             overflow_page = Some(overflow_page_int)
         }

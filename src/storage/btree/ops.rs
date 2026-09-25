@@ -353,7 +353,7 @@ impl RebalanceOps for TableLeaf {
     ) -> SqliteResult<Redistribute> {
         let last = left_share
             .last()
-            .ok_or_else(|| SqliteError::Internal("redistribute: empty left share".into()))?;
+            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
         let row_id = TableLeafCell::parse(last, usable)?.row_id;
         Ok(Redistribute {
             parent_cell: Encode::encode_table_interior_cell(left_page, row_id),
@@ -382,7 +382,7 @@ impl RebalanceOps for IndexLeaf {
     ) -> SqliteResult<Redistribute> {
         let promoted = left_share
             .last()
-            .ok_or_else(|| SqliteError::Internal("redistribute: empty left share".into()))?;
+            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
         Ok(Redistribute {
             parent_cell: Encode::encode_index_interior_cell(left_page, promoted),
             drop_left_last: true,
@@ -397,9 +397,9 @@ impl RebalanceOps for TableInterior {
         left_rmp: Option<PageNo>,
         usable: usize,
     ) -> SqliteResult<Option<Vec<u8>>> {
-        let left_rmp = left_rmp.ok_or_else(|| {
-            SqliteError::Internal("pull_down: left interior has no right child".into())
-        })?;
+        let left_rmp = left_rmp.ok_or(SqliteError::Internal(
+            "pull_down: left interior has no right child",
+        ))?;
         let sep = TableInteriorCell::parse(sep_cell, usable)?;
         Ok(Some(Encode::encode_table_interior_cell(
             left_rmp,
@@ -417,7 +417,7 @@ impl RebalanceOps for TableInterior {
     ) -> SqliteResult<Redistribute> {
         let promoted = left_share
             .last()
-            .ok_or_else(|| SqliteError::Internal("redistribute: empty left share".into()))?;
+            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
         let promoted_cell = TableInteriorCell::parse(promoted, usable)?;
         Ok(Redistribute {
             parent_cell: Encode::encode_table_interior_cell(
@@ -436,9 +436,9 @@ impl RebalanceOps for IndexInterior {
         left_rmp: Option<PageNo>,
         _usable: usize,
     ) -> SqliteResult<Option<Vec<u8>>> {
-        let left_rmp = left_rmp.ok_or_else(|| {
-            SqliteError::Internal("pull_down: left interior has no right child".into())
-        })?;
+        let left_rmp = left_rmp.ok_or(SqliteError::Internal(
+            "pull_down: left interior has no right child",
+        ))?;
         Ok(Some(Encode::encode_index_interior_cell(
             left_rmp,
             &sep_cell[4..],
@@ -455,7 +455,7 @@ impl RebalanceOps for IndexInterior {
     ) -> SqliteResult<Redistribute> {
         let promoted = left_share
             .last()
-            .ok_or_else(|| SqliteError::Internal("redistribute: empty left share".into()))?;
+            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
         let promoted_cell = IndexInteriorCell::parse(promoted, usable)?;
         Ok(Redistribute {
             parent_cell: Encode::encode_index_interior_cell(left_page, &promoted[4..]),
