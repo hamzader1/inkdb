@@ -132,7 +132,7 @@ impl<V: Vfs> IndexExactMatch<V> {
         let row_id = index_record
             .pop()
             .expect("Index record is empty")
-            .into_static();
+            .to_owned_static();
 
         // Every index entry must point at a live table row. A missing row
         // means the table delete and the index delete disagreed, so speak
@@ -149,7 +149,7 @@ impl<V: Vfs> IndexExactMatch<V> {
             .current_record::<TableLeaf>(pager)?
             .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
             .iter()
-            .map(|v| v.into_static())
+            .map(|v| v.to_owned_static())
             .collect();
 
         let row = Row::new(row_id.cast_int()? as _, relation_record);
@@ -225,10 +225,10 @@ impl<V: Vfs> IndexRangeScan<V> {
         let mut cursor = BTreeCursor::<V>::new(index_root_page);
         match start {
             Bound::Included(ref i) => {
-                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.into_static()]))?;
+                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.to_owned_static()]))?;
             }
             Bound::Excluded(ref i) => {
-                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.into_static()]))?;
+                cursor.seek_lower_bound(pager, &Value::Tuple(vec![i.to_owned_static()]))?;
                 while let Some(record) = cursor.current_record::<IndexLeaf>(pager)?
                     && &record[0] == i
                 {
@@ -277,7 +277,7 @@ impl<V: Vfs> IndexRangeScan<V> {
         let row_id = index_record
             .pop()
             .expect("Index record is empty")
-            .into_static();
+            .to_owned_static();
         let mut relation_btree = BTree::new(self.relation_root_page, pager);
         if relation_btree.seek(&row_id)? != SeekResult::Exact {
             return Err(SqliteError::Corrupt(format!(
@@ -290,7 +290,7 @@ impl<V: Vfs> IndexRangeScan<V> {
             .current_record::<TableLeaf>(pager)?
             .ok_or_else(|| SqliteError::Corrupt("row vanished between exact seek and read".into()))?
             .iter()
-            .map(|v| v.into_static())
+            .map(|v| v.to_owned_static())
             .collect();
 
         let row = Row::new(row_id.cast_int()? as _, relation_record);

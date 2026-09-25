@@ -7,11 +7,12 @@ use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
+use crate::record::Value;
 use crate::record::tuple::Tuple;
 use crate::record::tuple::{decode_sqltype, into_borrowed, into_owned};
-use crate::record::{SqlType, Value};
 use crate::util::{
-    sqlite_assert_one, sqlite_assert_with_corrupt_err, sqlite_assert_with_runtime_err,
+    sqlite_assert_one, sqlite_assert_with_corrupt_err, sqlite_assert_with_internal_err,
+    sqlite_assert_with_runtime_err,
 };
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
@@ -214,7 +215,7 @@ impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
         }
         if let Ok(record) = self.page.record_of_cell(self.index, self.pager) {
             self.index += 1;
-            return Some(record.into_iter().map(|v| v.into_static()).collect());
+            return Some(record.into_iter().map(|v| v.to_owned_static()).collect());
         }
         None
     }
@@ -410,13 +411,13 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     }
 
     pub fn freespace(&self) -> SqliteResult<usize> {
-        let freeblocks_size = self.freeblocks_size()?;
+        let freeblocks_size = self.total_freeblocks_size()?;
         let total_free_bytes =
             freeblocks_size + self.frag_cnt()? as usize + self.cell_content_area()? as usize
                 - (self.header_size()? as u16 + self.no_of_cells()? * 2) as usize;
         Ok(total_free_bytes)
     }
-    fn freeblocks_size(&self) -> SqliteResult<usize> {
+    fn total_freeblocks_size(&self) -> SqliteResult<usize> {
         if self.first_freeblock()? == 0 {
             return Ok(0);
         }
@@ -567,17 +568,15 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         pager: &mut Pager<V>,
     ) -> SqliteResult<Value<'static>> {
         match cell {
-            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into_sqlite_value()),
-            BTreeCell::TableInterior(table_interior) => {
-                Ok(table_interior.rowid_boundary.into_sqlite_value())
-            }
+            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into()),
+            BTreeCell::TableInterior(table_interior) => Ok(table_interior.rowid_boundary.into()),
             BTreeCell::IndexInterior(index_interior) => {
                 let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_static())
+                Ok(Value::Tuple(record).to_owned_static())
             }
             BTreeCell::IndexLeaf(index_leaf) => {
                 let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).into_static())
+                Ok(Value::Tuple(record).to_owned_static())
             }
         }
     }
@@ -770,7 +769,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         self.set_first_freeblock(0)?;
         self.set_frag_cnt(0)?;
         self.set_no_of_cells(0)?;
-        if self.downgrade()?.page_type()?.is_interior() {
+        if self.is_interior()? {
             self.set_right_most_ptr(0)?;
         }
         Ok(())
@@ -957,7 +956,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         offset: usize,
         i: u16,
         from_top: bool,
-    ) -> SqliteResult<InsertionState> {
+    ) -> SqliteResult<()> {
         self.bytes_mut()[offset..offset + content.len()].copy_from_slice(content);
         let arr = self.downgrade()?.header_size()? as u16;
         let n = self.downgrade()?.no_of_cells()?;
@@ -969,7 +968,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             let cca = self.downgrade()?.cell_content_area()? as usize;
             self.set_cell_content_area((cca - content.len()) as _)?;
         }
-        Ok(InsertionState::Inserted)
+        Ok(())
     }
     pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
         if self.usable_size != other.usable_size || self.bytes_mut().len() < other.usable_size {

@@ -1,4 +1,3 @@
-use crate::record::SqlType;
 use crate::record::tuple::Tuple;
 use crate::storage::btree::BTree;
 use crate::storage::cell::Encode;
@@ -52,11 +51,14 @@ impl<V: Vfs> PrepareRow<V> {
         };
         let inner = &self.rows[self.pos];
         let mut bytes = Encode::encode_table_leaf_cell(Tuple::serialize(inner), next_row_id as _);
-        Insert::new(self.root_page, next_row_id.into_sqlite_value(), &mut bytes).next(pager)?;
+        Insert::new(self.root_page, next_row_id.into(), &mut bytes).next(pager)?;
         /*
          * insert here
          */
-        let out = Row::new(next_row_id, inner.iter().map(|v| v.into_static()).collect());
+        let out = Row::new(
+            next_row_id,
+            inner.iter().map(|v| v.to_owned_static()).collect(),
+        );
         self.pos += 1;
         Ok(Some(out))
     }

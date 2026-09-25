@@ -524,7 +524,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 Some(vec![Value::Integer(cell.row_id() as i64)])
             }
         };
-        Ok(collected.map(|record| record.into_iter().map(|v| v.into_static()).collect()))
+        Ok(collected.map(|record| record.into_iter().map(|v| v.to_owned_static()).collect()))
     }
     fn with_page<T, FN>(pager: &mut Pager<V>, page_no: PageNo, f: FN) -> Result<T, SqliteError>
     where

@@ -1,7 +1,6 @@
 use crate::SqliteResult;
 use crate::backend::planner::plan::Plan;
 use crate::pager::pager::{PageNo, Pager};
-use crate::record::SqlType;
 use crate::sql::parser::ExprArena;
 use crate::storage::btree::BTree;
 use crate::vfs::Vfs;
@@ -32,7 +31,7 @@ impl<V: Vfs> Delete<V> {
     ) -> SqliteResult<Option<Row>> {
         while let Some(row) = self.child.next(pager, arena)? {
             let mut btree = BTree::new(self.root_page, pager);
-            btree.delete(row.key.into_sqlite_value())?;
+            btree.delete(row.key.into())?;
         }
         Ok(None)
     }

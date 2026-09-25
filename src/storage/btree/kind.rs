@@ -246,7 +246,7 @@ where
     ) -> SqliteResult<Value<'static>> {
         let cell = &self.cell(i)?;
         let record = self.inner.get_cell_record_v2(cell, pager)?;
-        Ok(Value::Tuple(record).into_static())
+        Ok(Value::Tuple(record).to_owned_static())
     }
 }
 
