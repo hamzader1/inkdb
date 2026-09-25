@@ -274,7 +274,6 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         scan_guard: Box<dyn ScanGuard<V>>,
     ) -> SqliteResult<Plan<V>> {
         Ok(Plan::IndexExactMatch(IndexExactMatch::new(
-            self.pager,
             index_root_page,
             self.relation.root_page,
             target,
@@ -294,7 +293,6 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
             start,
             end,
             scan_guard,
-            self.pager,
         )?))
     }
 }
