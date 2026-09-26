@@ -1,5 +1,4 @@
 use crate::SqliteMaster;
-use crate::backend::analyze::IndexMetadata;
 use crate::errors::SqliteError;
 use crate::sql::ast::{Affinity, InsertStmt};
 use crate::util::sqlite_assert_with_runtime_err;
@@ -48,10 +47,9 @@ impl Analyze {
         }
 
         Ok(ResolvedQuery::InsertQuery(ResolvedInsertQuery {
+            table_name: table.name.clone(),
             root_page: table.root_page,
             values,
-            indexes: sqlite_master.indexes_on(&table_name)?,
-            entry_hint: None,
         }))
     }
 }
