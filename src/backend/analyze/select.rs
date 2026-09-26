@@ -38,8 +38,8 @@ impl Analyze {
                 // Analyze:
                 Analyze::fast_bind(table, *idx, &mut arena)?;
             }
-            if let Some(predict) = where_clause {
-                Analyze::fast_bind(table, predict, &mut arena)?;
+            if let Some(predicate) = where_clause {
+                Analyze::fast_bind(table, predicate, &mut arena)?;
             }
             if let Some(limit) = limit {
                 Analyze::fast_bind(table, limit, &mut arena)?;
@@ -81,20 +81,20 @@ impl Analyze {
                 col_id += 1;
             }
         }
-        // TODO: Can we optimaze this further to call 'slow_bind' once?
-        if let Some(ref mut predict) = where_clause {
+        // TODO: Can we optimize this further to call 'slow_bind' once?
+        if let Some(ref mut predicate) = where_clause {
             Analyze::slow_bind(
                 table,
-                *predict,
+                *predicate,
                 &mut arena,
                 &mut new_arena,
                 &mut map,
                 &mut new_cols,
             )?;
-            *predict = map[*predict];
+            *predicate = map[*predicate];
         }
 
-        // TODO: Can we optimaze this further to call 'slow_bind' once?
+        // TODO: Can we optimize this further to call 'slow_bind' once?
         if let Some(ref mut limit) = limit {
             Analyze::slow_bind(
                 table,

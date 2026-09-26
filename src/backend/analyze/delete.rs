@@ -6,20 +6,20 @@ use crate::{SqliteMaster, SqliteResult};
 use super::{Analyze, IndexMetadata, ResolvedQuery};
 
 impl Analyze {
-    // TODO: Expand and add optimazer
+    // TODO: Expand and add optimizer
     pub fn analyze_delete_stmt(
         mut stmt: DeleteStmt,
         sqlite_master: &SqliteMaster,
     ) -> SqliteResult<ResolvedQuery> {
         // let DeleteStmt { table_name, .. } = &mut stmt;
         let table = Self::get_table(sqlite_master, &stmt.table_name)?;
-        if let Some(predict) = stmt.where_clause {
+        if let Some(predicate) = stmt.where_clause {
             let arena = stmt.arena.as_mut().expect(
                 "
                     Where clause without an arena parent is now allowed
                 ",
             );
-            Self::fast_bind(table, predict, arena)?;
+            Self::fast_bind(table, predicate, arena)?;
         }
         // BASIC, Sql ( "DELETE FROM t" )
         else {
