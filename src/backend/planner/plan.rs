@@ -7,6 +7,7 @@ use crate::backend::analyze::{
     ResolvedSelectQuery,
 };
 use crate::backend::executor::Row;
+use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
@@ -17,12 +18,12 @@ use crate::backend::executor::index::{
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
-use crate::backend::executor::scan_guard::{CustomScanGuard, SafeScan, ScanGuard, UnsafeScan};
+use crate::backend::executor::scan_guard::ScanMode;
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
 use crate::backend::executor::truncate::TruncateTable;
-use crate::backend::optimizer::Optimizer;
+use crate::backend::optimizer::optimize_index_scan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
@@ -53,297 +54,243 @@ pub enum Plan<V: Vfs> {
 }
 
 impl<V: Vfs> Plan<V> {
-    pub fn is_filter(&self) -> bool {
-        matches!(*self, Plan::Filter(_))
-    }
-    /// Mutable child subtree for optimizer traversal (`while let Some(child)
-    /// = plan.child_mut()`). Leaves and sinks return `None`.
-    pub fn child_mut(&mut self) -> Option<&mut Plan<V>> {
+    pub fn children(&self) -> Vec<&Plan<V>> {
         match self {
-            Plan::Filter(f) => Some(f.child_mut()),
-            Plan::Limit(l) => Some(l.child_mut()),
-            Plan::Project(p) => Some(&mut p.child),
-            Plan::Delete(d) => Some(d.child_mut()),
-            Plan::PrepareIndex(pi) => Some(pi.child_mut()),
-            _ => None,
+            Plan::Filter(f) => vec![f.child()],
+            Plan::Limit(l) => vec![l.child()],
+            Plan::Project(p) => vec![p.child()],
+            Plan::Delete(d) => vec![d.child()],
+            Plan::PrepareIndex(pi) => vec![pi.child()],
+            Plan::CreateIndex(ci) => vec![ci.child()],
+            Plan::Terminate(t) => vec![t.child()],
+            Plan::Explain(e) => vec![e.child()],
+            _ => Vec::new(),
         }
     }
 }
 
-pub enum PlanContext<V: Vfs> {
-    Logical(Plan<V>),
-    Resolved(PreparedPlan<V>),
+pub struct PlanTree<'a, V: Vfs> {
+    plan: &'a Plan<V>,
+    arena: &'a ExprArena,
 }
-impl<V: Vfs> PlanContext<V> {
-    pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
-        match self {
-            Self::Logical(p) => p.next(pager, None),
-            Self::Resolved(a) => a.next(pager),
+
+impl<'a, V: Vfs> PlanTree<'a, V> {
+    pub fn new(plan: &'a Plan<V>, arena: &'a ExprArena) -> Self {
+        Self { plan, arena }
+    }
+
+    fn write_tree(&self, f: &mut std::fmt::Formatter<'_>, depth: usize) -> std::fmt::Result {
+        writeln!(
+            f,
+            "{}{}",
+            "    ".repeat(depth),
+            self.plan.node_label(self.arena)
+        )?;
+        for child in self.plan.children() {
+            Self::new(child, self.arena).write_tree(f, depth + 1)?;
         }
+        Ok(())
     }
 }
+
+impl<'a, V: Vfs> std::fmt::Display for PlanTree<'a, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.write_tree(f, 0)
+    }
+}
+
 impl<V: Vfs> Plan<V> {
+    #[allow(clippy::only_used_in_recursion)]
     pub fn create_plan(
         resolved_query: ResolvedQuery,
         pager: &mut Pager<V>,
         sqlite_master: &SqliteMaster,
-    ) -> Result<PlanContext<V>, SqliteError> {
+    ) -> Result<PreparedPlan<V>, SqliteError> {
         match resolved_query {
-            ResolvedQuery::SelectQuery(stmt) => Ok(PlanContext::Resolved(Self::init_select_plan(
-                stmt,
-                pager,
-                sqlite_master,
-            )?)),
-            ResolvedQuery::InsertQuery(stmt) => {
-                Ok(PlanContext::Resolved(Self::init_insert_plan(stmt)?))
-            }
-            ResolvedQuery::DeleteQuery(stmt) => Ok(PlanContext::Resolved(Self::init_delete_plan(
-                stmt,
-                pager,
-                sqlite_master,
-            )?)),
-            ResolvedQuery::CreateTableQuery(stmt) => Ok(PlanContext::Logical(Plan::CreateTable(
-                CreateTable::new(stmt),
-            ))),
-            ResolvedQuery::BeginTransactionQuery => Ok(PlanContext::Logical(
+            ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, sqlite_master),
+            ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, sqlite_master),
+            ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, sqlite_master),
+            ResolvedQuery::CreateTableQuery(stmt) => Ok(PreparedPlan::new(
+                Plan::CreateTable(CreateTable::new(stmt)),
+                ExprArena::new(),
+            )),
+            ResolvedQuery::BeginTransactionQuery => Ok(PreparedPlan::new(
                 Plan::BeginTransaction(BeginTransaction),
+                ExprArena::new(),
             )),
-            ResolvedQuery::CommitTransactionQuery => Ok(PlanContext::Logical(
+            ResolvedQuery::CommitTransactionQuery => Ok(PreparedPlan::new(
                 Plan::CommitTransaction(CommitTransaction),
+                ExprArena::new(),
             )),
-            ResolvedQuery::RollbackTransactionQuery => Ok(PlanContext::Logical(
+            ResolvedQuery::RollbackTransactionQuery => Ok(PreparedPlan::new(
                 Plan::RollbackTransaction(RollBackTransaction),
+                ExprArena::new(),
             )),
-            ResolvedQuery::TruncateTable(stmt) => Ok(PlanContext::Resolved(PreparedPlan::new(
-                Plan::TruncateTable(TruncateTable::new(stmt.root_page, stmt.indexes)),
-                None,
-            ))),
-            ResolvedQuery::CreateIndexQuery(stmt) => Ok(PlanContext::Resolved(
-                Self::init_create_index_plan(stmt, pager)?,
-            )),
-            ResolvedQuery::ExplainQuery(stmt) => {
-                let plan = Self::create_plan(*stmt.query, pager, sqlite_master)?;
-                match plan {
-                    PlanContext::Logical(p) => Ok(PlanContext::Logical(Self::Explain(Explain {
-                        child: Box::new(p),
-                    }))),
-                    PlanContext::Resolved(r) => Ok(PlanContext::Logical(Self::Explain(Explain {
-                        child: Box::new(r.parent),
-                    }))),
-                }
+            ResolvedQuery::TruncateTable(stmt) => {
+                let indexes = index_roots(sqlite_master, &stmt.table_name)?;
+                Ok(PreparedPlan::new(
+                    Plan::TruncateTable(TruncateTable::new(stmt.root_page, indexes)),
+                    ExprArena::new(),
+                ))
             }
-            _ => todo!(),
+            ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
+            ResolvedQuery::ExplainQuery(stmt) => {
+                let inner = Self::create_plan(*stmt.query, pager, sqlite_master)?;
+                Ok(PreparedPlan::new(
+                    Plan::Explain(Explain::new(Box::new(inner.parent))),
+                    inner.arena,
+                ))
+            }
         }
     }
 
-    pub fn init_select_plan(
+    fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
-        pager: &mut Pager<V>,
         sqlite_master: &SqliteMaster,
     ) -> Result<PreparedPlan<V>, SqliteError> {
-        let mut child = Self::TableScan(TableScan::new(
-            resolved_query.root_page,
-            pager,
-            Box::new(SafeScan),
-        )?);
-        if let Some(predict) = resolved_query.where_clause {
-            child = Self::Filter(Filter::new(Box::new(child), predict));
-            Optimizer::new(
+        let mode = ScanMode::Stable;
+        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, mode)?);
+        if let Some(predicate) = resolved_query.where_clause {
+            child = Self::Filter(Filter::new(Box::new(child), predicate));
+            optimize_index_scan(
                 &mut child,
-                pager,
                 sqlite_master,
                 &resolved_query.table_name,
-                resolved_query.root_page,
                 &resolved_query.arena,
-                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<V>> { Box::new(SafeScan) })),
-            )
-            .optimize()?;
+                mode,
+            )?;
             if let Plan::Filter(f) = &mut child
                 && let Plan::TableScan(scan) = f.child_mut()
             {
-                scan.set_predicate(predict);
+                scan.set_predicate(predicate);
             }
         }
         if let Some(limit) = resolved_query.limit {
             let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;
             child = Self::Limit(Limit::new(Box::new(child), limit));
         }
-        let mut parent = Self::Project(Project::new(
+        let parent = Self::Project(Project::new(
             Box::new(child),
             resolved_query.columns.clone(),
         ));
 
-        Ok(PreparedPlan::new(parent, Some(resolved_query.arena)))
+        Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
-    pub fn init_insert_plan(
+    fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
+        sqlite_master: &SqliteMaster,
     ) -> Result<PreparedPlan<V>, SqliteError> {
-        // Rows flow upward: PrepareRow yields table rows, each PrepareIndex
-        // writes one index entry per row and passes it along
         let mut plan = Plan::PrepareRow(PrepareRow::new(
             None,
             resolved_query.root_page,
             resolved_query.values,
-            None, // table constraints hook
+            None,
         ));
-        if let Some(indexes) = resolved_query.indexes {
-            for index in indexes {
-                let prepare = PrepareIndex::new(
-                    index.index_root_page,
-                    index.col_idx,
-                    Box::new(IndexInsert {
-                        is_unique: index.is_unique,
-                    }),
-                    Box::new(plan),
-                );
-                plan = Plan::PrepareIndex(prepare);
-            }
+        for index in sqlite_master.indexes_on(&resolved_query.table_name)? {
+            let prepare = PrepareIndex::new(
+                index,
+                Box::new(IndexInsert {
+                    is_unique: index.is_unique,
+                }),
+                Box::new(plan),
+            );
+            plan = Plan::PrepareIndex(prepare);
         }
 
-        let plan = Plan::Terminate(Terminate {
-            child: Box::new(plan),
-        });
-        Ok(PreparedPlan {
-            parent: plan,
-            arena: None,
-        })
+        let plan = Plan::Terminate(Terminate::new(Box::new(plan)));
+        Ok(PreparedPlan::new(plan, ExprArena::new()))
     }
 
-    pub fn init_delete_plan(
-        resolved_query: ResolvedDeleteQuery,
-        pager: &mut Pager<V>,
+    fn init_delete_plan(
+        mut resolved_query: ResolvedDeleteQuery,
         sqlite_master: &SqliteMaster,
     ) -> SqliteResult<PreparedPlan<V>> {
-        let mut parent = Self::TableScan(TableScan::new(
-            resolved_query.root_page,
-            pager,
-            Box::new(UnsafeScan),
-        )?);
-        if let Some(predict) = resolved_query.where_clause {
-            parent = Self::Filter(Filter::new(Box::new(parent), predict));
-
-            Optimizer::new(
+        let mode = ScanMode::Volatile;
+        let arena = resolved_query.arena.take().unwrap_or_default();
+        let mut parent = Self::TableScan(TableScan::new(resolved_query.root_page, mode)?);
+        if let Some(predicate) = resolved_query.where_clause {
+            parent = Self::Filter(Filter::new(Box::new(parent), predicate));
+            optimize_index_scan(
                 &mut parent,
-                pager,
                 sqlite_master,
                 &resolved_query.table_name,
-                resolved_query.root_page,
-                resolved_query.arena.as_ref().unwrap(),
-                CustomScanGuard::new(Some(|| -> Box<dyn ScanGuard<V>> { Box::new(UnsafeScan) })),
-            )
-            .optimize()?;
+                &arena,
+                mode,
+            )?;
         }
 
-        if let Some(indexes) = resolved_query.indexes {
-            for index in indexes {
-                let prepare = PrepareIndex::new(
-                    index.index_root_page,
-                    index.col_idx,
-                    Box::new(IndexDelete),
-                    Box::new(parent),
-                );
-                parent = Plan::PrepareIndex(prepare);
-            }
+        for index in sqlite_master.indexes_on(&resolved_query.table_name)? {
+            let prepare = PrepareIndex::new(index, Box::new(IndexDelete), Box::new(parent));
+            parent = Plan::PrepareIndex(prepare);
         }
         parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
-        Ok(PreparedPlan::new(parent, resolved_query.arena))
+        Ok(PreparedPlan::new(parent, arena))
     }
 
-    pub fn init_create_index_plan(
+    fn init_create_index_plan(
         resolved_query: ResolvedCreateIndexQuery,
-        pager: &mut Pager<V>,
     ) -> SqliteResult<PreparedPlan<V>> {
         let child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
-            pager,
-            Box::new(SafeScan),
+            ScanMode::Stable,
         )?);
-        let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query, pager)?);
-        Ok(PreparedPlan::new(parent, None))
+        let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
+        Ok(PreparedPlan::new(parent, ExprArena::new()))
     }
 }
 
 impl<V: Vfs> Plan<V> {
-    pub fn next(
-        &mut self,
-        pager: &mut Pager<V>,
-        arena: Option<&ExprArena>,
-    ) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
         match self {
-            Self::TableScan(t) => t.next(pager, arena),
-            Self::Filter(f) => f.next(pager, arena.unwrap()),
-            Self::Limit(l) => l.next(pager, arena.unwrap()),
-            Self::Project(p) => p.next(pager, arena.unwrap()),
-            Self::Insert(i) => i.next(pager),
-            Self::Delete(d) => d.next(pager, arena),
-            Self::CreateTable(c) => c.next(pager),
-            Self::BeginTransaction(bt) => bt.next(pager),
-            Self::CommitTransaction(ct) => ct.next(pager),
-            Self::RollbackTransaction(rbt) => rbt.next(pager),
-            Self::TruncateTable(tb) => tb.next(pager),
-            Self::IndexExactMatch(iem) => iem.next(pager, arena.unwrap()),
-            Self::IndexRangeScan(irc) => irc.next(pager),
-            Self::CreateIndex(ci) => ci.next(pager),
-            Self::Terminate(t) => t.next(pager),
-            Self::PrepareIndex(pi) => pi.next(pager, arena),
-            Self::PrepareRow(pr) => pr.next(pager),
-            Self::Explain(e) => e.next(arena),
+            Self::TableScan(t) => t.next(ctx),
+            Self::Filter(f) => f.next(ctx),
+            Self::Limit(l) => l.next(ctx),
+            Self::Project(p) => p.next(ctx),
+            Self::Insert(i) => i.next(ctx),
+            Self::Delete(d) => d.next(ctx),
+            Self::CreateTable(c) => c.next(ctx),
+            Self::BeginTransaction(bt) => bt.next(ctx),
+            Self::CommitTransaction(ct) => ct.next(ctx),
+            Self::RollbackTransaction(rbt) => rbt.next(ctx),
+            Self::TruncateTable(tb) => tb.next(ctx),
+            Self::IndexExactMatch(iem) => iem.next(ctx),
+            Self::IndexRangeScan(irc) => irc.next(ctx),
+            Self::CreateIndex(ci) => ci.next(ctx),
+            Self::Terminate(t) => t.next(ctx),
+            Self::PrepareIndex(pi) => pi.next(ctx),
+            Self::PrepareRow(pr) => pr.next(ctx),
+            Self::Explain(e) => e.next(ctx),
             Halt => Ok(None),
-            _ => unreachable!(),
         }
     }
-}
 
-#[derive(Debug)]
-pub struct Terminate<V: Vfs> {
-    child: Box<Plan<V>>,
-}
-
-impl<V: Vfs> Terminate<V> {
-    pub fn new(child: Box<Plan<V>>) -> Self {
-        Self { child }
-    }
-
-    pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<Option<Row>> {
-        while self.child.next(pager, None)?.is_some() {}
-        Ok(None)
-    }
-}
-
-impl<V: Vfs> Plan<V> {
-    pub fn explain_plan(&self, arena: Option<&ExprArena>) -> String {
+    pub fn node_label(&self, arena: &ExprArena) -> String {
         match self {
-            Self::TableScan(tb) => {
-                format!(
-                    "TableScan [root_page: {}, scan_plan: {}]",
-                    tb.cursor.root,
-                    tb.guard.scan_type()
-                )
-            }
-            Self::Filter(f) => match arena {
-                Some(a) => format!("Filter [{:?}]", a.nodes[f.predicate()]),
+            Self::TableScan(tb) => format!(
+                "TableScan [root_page: {}, scan: {}]",
+                tb.cursor.root,
+                tb.guard.scan_type()
+            ),
+            Self::Filter(f) => match arena.nodes.get(f.predicate()) {
+                Some(expr) => format!("Filter [{expr:?}]"),
                 None => format!("Filter [pred: {}]", f.predicate()),
             },
-            Self::Limit(l) => {
-                format!("LIMIT [limit: {}]", l.limit)
-            }
+            Self::Limit(l) => format!("Limit [limit: {}]", l.limit),
             Self::Insert(i) => format!(
-                "INSERT [root_page: {}, key: {}, data..]",
-                i.root_page, i.key
+                "Insert [root_page: {}, key: {}, data: {} bytes]",
+                i.root_page,
+                i.key,
+                i.data.len()
             ),
             Self::PrepareRow(pr) => format!(
-                "PrepareRow [root_page: {}, rows: {:#?}",
+                "PrepareRow [root_page: {}, rows: {:?}]",
                 pr.root_page, pr.rows
             ),
             Self::Project(p) => format!("Project [columns: {:?}]", p.columns()),
             Self::Delete(d) => format!("Delete [root_page: {}]", d.root_page()),
             Self::CreateTable(c) => format!("CreateTable [name: {}]", c.table_name()),
-            Self::CreateIndex(c) => format!(
-                "CreateIndex [index_root: {}, col: {}]",
-                c.index_root_page(),
-                c.col_idx()
-            ),
+            Self::CreateIndex(c) => format!("CreateIndex [indexed_column: {}]", c.col_idx()),
             Self::PrepareIndex(p) => format!(
                 "PrepareIndex [index_root: {}, col: {}, action: {}]",
                 p.index_root_page(),
@@ -356,6 +303,12 @@ impl<V: Vfs> Plan<V> {
                 i.relation_root_page(),
                 i.target()
             ),
+            Self::IndexRangeScan(i) => format!(
+                "IndexRangeScan [index_root: {}, table_root: {}, target: {:?}]",
+                i.index_root_page(),
+                i.relation_root_page(),
+                i.range()
+            ),
             Self::TruncateTable(t) => format!(
                 "TruncateTable [root_page: {}, indexes: {:?}]",
                 t.root_page(),
@@ -366,14 +319,36 @@ impl<V: Vfs> Plan<V> {
             Self::RollbackTransaction(_) => "RollbackTransaction".into(),
             Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
-            Self::IndexRangeScan(i) => format!(
-                "IndexRangeScan [index_root: {}, table_root: {}, target: {:?}]",
-                i.index_root_page(),
-                i.relation_root_page(),
-                i.range()
-            ),
-            _ => unreachable!(),
+            Halt => "Halt".into(),
         }
+    }
+}
+
+fn index_roots(sqlite_master: &SqliteMaster, table_name: &str) -> SqliteResult<Vec<u32>> {
+    Ok(sqlite_master
+        .indexes_on(table_name)?
+        .into_iter()
+        .map(|index| index.index_root_page)
+        .collect())
+}
+
+#[derive(Debug)]
+pub struct Terminate<V: Vfs> {
+    child: Box<Plan<V>>,
+}
+
+impl<V: Vfs> Terminate<V> {
+    pub fn new(child: Box<Plan<V>>) -> Self {
+        Self { child }
+    }
+
+    pub fn child(&self) -> &Plan<V> {
+        &self.child
+    }
+
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+        while self.child.next(ctx)?.is_some() {}
+        Ok(None)
     }
 }
 
@@ -387,13 +362,12 @@ impl<V: Vfs> Explain<V> {
         Self { child }
     }
 
-    fn next(&mut self, arena: Option<&ExprArena>) -> SqliteResult<Option<Row>> {
-        let mut plan = &mut *self.child;
-        println!("{}", plan.explain_plan(arena));
-        while let Some(child) = plan.child_mut() {
-            println!("{}", child.explain_plan(arena));
-            plan = child;
-        }
+    pub fn child(&self) -> &Plan<V> {
+        &self.child
+    }
+
+    fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+        println!("{}", PlanTree::new(&self.child, ctx.arena));
         Ok(None)
     }
 }
