@@ -1,7 +1,6 @@
 use crate::SqliteResult;
 use crate::backend::analyze::IndexMetadata;
-use crate::errors::SqliteError::Runtime;
-use crate::errors::{CorruptError, RuntimeError};
+use crate::errors::CorruptError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::lexer::Lexer;
@@ -116,38 +115,32 @@ impl SqliteMaster {
         Ok(sqlite_master)
     }
 
-    pub(crate) fn indexes_on(&self, table_name: &str) -> SqliteResult<Option<Vec<IndexMetadata>>> {
-        let table = self
-            .tables
-            .get(table_name)
-            .ok_or(SqliteError::runtime(format!(
-                "Table {} does not exists",
-                table_name
-            )))?;
-        let mut indexes_of_t: Option<Vec<IndexMetadata>> = None;
-        for index in self.indexes.values() {
-            // let Some(indexes_of_t) = indexes_of_t
-            if index.table == table_name {
-                let column_idx =
-                    table
-                        .get_col_idx(&index.columns[0])
-                        .ok_or(SqliteError::runtime(format!(
-                            "Column {} does not exist on table {}",
-                            index.columns[0], table_name
-                        )))?;
+    pub fn table(&self, table_name: &str) -> Option<&Table> {
+        self.tables
+            .values()
+            .find(|table| table.name.eq_ignore_ascii_case(table_name))
+    }
 
-                if indexes_of_t.is_none() {
-                    indexes_of_t = Some(Vec::new())
-                };
-                let Some(ref mut indexes_of_t) = indexes_of_t else {
-                    unreachable!()
-                };
-                indexes_of_t.push(IndexMetadata {
-                    index_root_page: index.root_page,
-                    col_idx: column_idx,
-                    is_unique: index.unique,
-                });
+    pub(crate) fn indexes_on(&self, table_name: &str) -> SqliteResult<Vec<IndexMetadata>> {
+        let table = self
+            .table(table_name)
+            .ok_or_else(|| SqliteError::TableNotFound(table_name.to_string()))?;
+        let mut indexes_of_t = Vec::new();
+        for index in self.indexes.values() {
+            if !index.table.eq_ignore_ascii_case(&table.name) {
+                continue;
             }
+            let column_idx = table.get_col_idx(&index.columns[0]).ok_or_else(|| {
+                SqliteError::runtime(format!(
+                    "Column {} does not exist on table {}",
+                    index.columns[0], table.name
+                ))
+            })?;
+            indexes_of_t.push(IndexMetadata::new(
+                index.root_page,
+                column_idx,
+                index.unique,
+            ));
         }
         Ok(indexes_of_t)
     }
