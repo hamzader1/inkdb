@@ -87,7 +87,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     }
 
     /*
-     * Optimaze these two functions below
+     * optimize these two functions below
      */
     pub fn save_position(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
         if let Some(last_entry) = self.stack.last() {
@@ -477,6 +477,36 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             return Ok(Some(cell));
         }
         Ok(None)
+    }
+    pub fn max_row_id(&mut self, pager: &mut Pager<V>) -> SqliteResult<u64> {
+        self.last(pager)?;
+        if let Some(path) = self.stack.last() {
+            let page = AnyPage::parse(
+                path.page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                path.guard.bytes(),
+            )?;
+            let inner = match page {
+                AnyPage::TableLeaf(ref inner) => inner,
+                AnyPage::TableInterior(_) => {
+                    return Err(SqliteError::Internal(
+                        "Cursor::last ends in a interior table",
+                    ));
+                }
+                _ => return Err(SqliteError::Internal("Index pages has no RowId")),
+            };
+            let n_of_cells = inner.no_of_cells()?;
+            if n_of_cells == 0 {
+                return Ok(0);
+            } else {
+                let cell = inner.cell(n_of_cells - 1)?;
+                return Ok(cell.row_id);
+            }
+        }
+        Err(SqliteError::Internal(
+            "Cusror stack is empty after seeking to last",
+        ))
     }
     fn clear_path(&mut self) {
         self.stack.clear();
