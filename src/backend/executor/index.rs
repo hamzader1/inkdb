@@ -203,7 +203,7 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
         }
 
         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
-        Insert::<'_, V>::new(btree.root_page, Value::Tuple(key), &mut bytes).next(btree.pager)?;
+        Insert::<'_, V>::new(btree.root_page, Value::Tuple(key), bytes).next(btree.pager)?;
         Ok(())
     }
 }

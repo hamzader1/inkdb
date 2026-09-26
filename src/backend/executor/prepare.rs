@@ -47,7 +47,7 @@ impl<V: Vfs> PrepareRow<V> {
         /*
          * insert here
          */
-        Insert::new(self.root_page, next_row_id.into(), &mut bytes).next(pager)?;
+        Insert::new(self.root_page, next_row_id.into(), bytes).next(pager)?;
         let out = Row::new(
             next_row_id,
             inner.iter().map(|v| v.to_owned_static()).collect(),

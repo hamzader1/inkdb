@@ -108,7 +108,7 @@ impl<V: Vfs> CreateIndex<V> {
             let record = [row[self.col_idx()].clone(), row.key.into()];
             let key = Value::Tuple(record.to_vec());
             let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&record));
-            Insert::new(index_root_page, key, &mut bytes).next(pager)?;
+            Insert::new(index_root_page, key, bytes).next(pager)?;
         }
         Ok(None)
     }
