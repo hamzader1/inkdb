@@ -10,17 +10,17 @@ use super::Row;
 #[derive(Debug)]
 pub struct Filter<V: Vfs> {
     child: Box<Plan<V>>,
-    predict: usize,
+    predicate: usize,
 }
 impl<V: Vfs> Filter<V> {
-    pub fn new(child: Box<Plan<V>>, predict: usize) -> Self {
-        Self { child, predict }
+    pub fn new(child: Box<Plan<V>>, predicate: usize) -> Self {
+        Self { child, predicate }
     }
     pub fn child_mut(&mut self) -> &mut Plan<V> {
         &mut self.child
     }
     pub fn predicate(&self) -> usize {
-        self.predict
+        self.predicate
     }
 }
 
@@ -35,7 +35,7 @@ impl<V: Vfs> Filter<V> {
                 Some(row) => row,
                 _ => return Ok(None),
             };
-            if Eval::eval(arena, self.predict, Some(&row))?.to_bool() {
+            if Eval::eval(arena, self.predicate, Some(&row))?.to_bool() {
                 return Ok(Some(row));
             }
         }

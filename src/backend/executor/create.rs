@@ -25,8 +25,9 @@ impl CreateTable {
 #[derive(Debug)]
 pub struct CreateIndex<V: Vfs> {
     child: Box<Plan<V>>,
-    index_root_page: u32,
-    col_idx: usize, // todo: remake usize -> Vec::<usize>;
+    index_root_page: Option<u32>,
+    is_init: bool,
+    meta: ResolvedCreateIndexQuery,
 }
 impl<V: Vfs> CreateIndex<V> {
     pub fn new(
@@ -34,52 +35,80 @@ impl<V: Vfs> CreateIndex<V> {
         meta: ResolvedCreateIndexQuery,
         pager: &mut Pager<V>,
     ) -> Result<Self, SqliteError> {
-        // todo: start txn
-        let new_page = pager.allocate_new_page()?;
-        let mut guard = pager.get_mut(new_page)?;
-        let bytes = guard.bytes_as_mut_unchecked();
-        BTreePageMut::new_from_raw_bytes(
-            new_page,
-            BTreePageType::LeafIndex,
-            bytes,
-            pager.page_size(),
-            pager.usable_size(),
-        );
-        let row: [Value; 5] = [
-            "index".into(),
-            meta.index_name.into(),
-            meta.relation_name.into(),
-            (new_page as u64).into(),
-            (&*meta.query).into(),
-        ];
+        // let new_page = pager.allocate_new_page()?;
+        // let mut guard = pager.get_mut(new_page)?;
+        // let bytes = guard.bytes_as_mut_unchecked();
+        // BTreePageMut::new_from_raw_bytes(
+        //     new_page,
+        //     BTreePageType::LeafIndex,
+        //     bytes,
+        //     pager.page_size(),
+        //     pager.usable_size(),
+        // );
+        // let row: [Value; 5] = [
+        //     "index".into(),
+        //     meta.index_name.into(),
+        //     meta.relation_name.into(),
+        //     (new_page as u64).into(),
+        //     (&*meta.query).into(),
+        // ];
 
-        let mut prepare = PrepareRow::new(
-            None,
-            1,
-            vec![row.iter().map(|v| v.to_owned_static()).collect()],
-            None,
-        );
-        while prepare.next(pager)?.is_some() {}
+        // let mut prepare = PrepareRow::new(
+        //     None,
+        //     1,
+        //     vec![row.iter().map(|v| v.to_owned_static()).collect()],
+        //     None,
+        // );
+        // while prepare.next(pager)?.is_some() {}
         Ok(Self {
             child,
-            index_root_page: new_page,
-            col_idx: meta.column_index,
+            index_root_page: None,
+            meta,
+            is_init: false,
         })
     }
-    pub fn index_root_page(&self) -> u32 {
+    pub fn index_root_page(&self) -> Option<u32> {
         self.index_root_page
     }
     pub fn col_idx(&self) -> usize {
-        self.col_idx
+        self.meta.column_index
     }
-    // todo: remove allocte per insert.
-    // use batch instead
     pub fn next(&mut self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
+        if !self.is_init {
+            let new_page = pager.allocate_new_page()?;
+            let mut guard = pager.get_mut(new_page)?;
+            let bytes = guard.bytes_as_mut_unchecked();
+            BTreePageMut::new_from_raw_bytes(
+                new_page,
+                BTreePageType::LeafIndex,
+                bytes,
+                pager.page_size(),
+                pager.usable_size(),
+            );
+            let row: [Value; 5] = [
+                "index".into(),
+                (&*self.meta.index_name).into(),
+                (&*self.meta.relation_name).into(),
+                (new_page as u64).into(),
+                (&*self.meta.query).into(),
+            ];
+
+            let mut prepare = PrepareRow::new(
+                None,
+                1,
+                vec![row.iter().map(|v| v.to_owned_static()).collect()],
+                None,
+            );
+            while prepare.next(pager)?.is_some() {}
+            self.index_root_page = Some(new_page);
+            self.is_init = true;
+        }
+        let index_root_page = self.index_root_page.unwrap();
         while let Some(row) = self.child.next(pager, None)? {
-            let record = [row[self.col_idx].clone(), row.key.into()];
+            let record = [row[self.col_idx()].clone(), row.key.into()];
             let key = Value::Tuple(record.to_vec());
             let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&record));
-            Insert::new(self.index_root_page, key, &mut bytes).next(pager)?;
+            Insert::new(index_root_page, key, &mut bytes).next(pager)?;
         }
         Ok(None)
     }
@@ -91,7 +120,6 @@ impl CreateTable {
     }
 
     pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
-        let is_new_txn = pager.start_transaction();
         let name = &self.meta.meta.name;
         // Allocating a new page
         let new_page = BTree::new(1, pager).allocate_page()?;
@@ -119,9 +147,6 @@ impl CreateTable {
             None,
         );
         while prepare.next(pager)?.is_some() {}
-        if is_new_txn {
-            pager.commit()?;
-        }
         Ok(None)
     }
 }
