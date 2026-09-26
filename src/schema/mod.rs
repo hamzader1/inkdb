@@ -6,6 +6,7 @@ use crate::record::Value;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 use crate::storage::btree::{BTreeCursor, TableLeaf};
+use crate::vfs::Vfs;
 use crate::{errors::SqliteError, sql::ast::Constraint};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -98,6 +99,7 @@ impl Index {
 pub struct SqliteMaster {
     pub tables: HashMap<String, Table>,
     pub indexes: HashMap<String, Index>,
+    pub is_dirty: bool,
 }
 
 impl SqliteMaster {
@@ -105,16 +107,22 @@ impl SqliteMaster {
         let mut sqlite_master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),
+            is_dirty: false,
         };
-        let mut btree_cursor = BTreeCursor::new(1);
-        btree_cursor.first(pager)?;
-        while let Some(record) = btree_cursor.current_record::<TableLeaf>(pager)? {
-            sqlite_master.parse_record(&record)?;
-            btree_cursor.next(pager)?;
-        }
+        sqlite_master.parse(pager)?;
         Ok(sqlite_master)
     }
 
+    pub fn parse<V: Vfs>(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+        let mut btree_cursor = BTreeCursor::new(1);
+        btree_cursor.first(pager)?;
+        while let Some(record) = btree_cursor.current_record::<TableLeaf>(pager)? {
+            self.parse_record(&record)?;
+            btree_cursor.next(pager)?;
+        }
+        self.is_dirty = false; // we just got the latest update
+        Ok(())
+    }
     pub fn table(&self, table_name: &str) -> Option<&Table> {
         self.tables
             .values()
