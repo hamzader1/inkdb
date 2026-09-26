@@ -1,3 +1,5 @@
+use crate::SqliteResult;
+use crate::backend::executor::RowWrapper;
 use crate::db::Database;
 use crate::vfs::disk::DiskVfs;
 use rustyline::DefaultEditor;
@@ -6,23 +8,22 @@ use std::time::Instant;
 
 pub struct SqliteShell;
 impl SqliteShell {
-    pub fn run(database: &mut Database<DiskVfs>) {
+    pub fn run(database: &mut Database<DiskVfs>) -> SqliteResult<()> {
         let mut rl = DefaultEditor::new().expect("Error initiliazing the shell");
         loop {
             let command = match SqliteShell::read_command(&mut rl) {
                 Ok(cmd) => {
                     let start = Instant::now();
                     match database.execute(cmd.as_str()) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            // Presentation belongs here, not in the error: the shell is the only
-                            // place that still has the statement, so it is the only place that can
-                            // draw a caret. The error itself is just (kind, span).
-                            match crate::errors::render_syntax_error(cmd.as_str(), &e) {
-                                Some(rendered) => println!("{rendered}"),
-                                None => println!("Error: {e}"),
+                        Ok(mut s) => {
+                            for row in s.rows() {
+                                println!("{}", RowWrapper(row?));
                             }
                         }
+                        Err(e) => match crate::errors::render_syntax_error(cmd.as_str(), &e) {
+                            Some(rendered) => println!("{rendered}"),
+                            None => println!("Error: {e}"),
+                        },
                     }
                     let end = start.elapsed();
                     println!("Time elapsed: {:.2} s", end.as_secs_f64());
@@ -50,6 +51,7 @@ impl SqliteShell {
                 break;
             }
         }
+        Ok(())
     }
 
     fn read_command(rl: &mut DefaultEditor) -> Result<String, ReadlineError> {
