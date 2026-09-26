@@ -74,6 +74,7 @@ impl<V: Vfs> CreateIndex<V> {
                 None,
             );
             while prepare.next(ctx)?.is_some() {}
+            ctx.master.is_dirty = true;
             self.index = Some(IndexMetadata::new(new_page, self.meta.column_index, false));
             self.is_init = true;
         }
@@ -121,6 +122,7 @@ impl CreateTable {
             None,
         );
         while prepare.next(ctx)?.is_some() {}
+        ctx.master.is_dirty = true;
         Ok(None)
     }
 }

@@ -20,7 +20,7 @@ impl<V: Vfs> PreparedPlan<V> {
     pub fn next(
         &mut self,
         pager: &mut Pager<V>,
-        master: &SqliteMaster,
+        master: &mut SqliteMaster,
     ) -> Result<Option<Row>, SqliteError> {
         if pager.start_transaction() {
             let parent_res = {

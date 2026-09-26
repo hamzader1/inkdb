@@ -68,6 +68,9 @@ impl<V: crate::vfs::Vfs> Database<V> {
         let query: Rc<str> = Rc::from(query);
         let lexer = Lexer::tokenize(&query)?;
         let res = Parser::parse(Rc::clone(&query), lexer)?;
+        if self.sqlite_master.is_dirty {
+            self.sqlite_master.parse(&mut self.pager)?;
+        }
         let resolved_query = Analyze::analyze(res, &self.sqlite_master)?;
         let plan = Plan::create_plan(resolved_query, &mut self.pager, &self.sqlite_master)?;
         Ok(Statement {
@@ -78,6 +81,7 @@ impl<V: crate::vfs::Vfs> Database<V> {
     }
 }
 
+#[derive(Debug)]
 pub struct Statement<'a, V: Vfs> {
     pager: &'a mut Pager<V>,
     sqlite_master: &'a mut SqliteMaster,
