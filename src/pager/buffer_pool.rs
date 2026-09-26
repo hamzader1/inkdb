@@ -10,6 +10,7 @@ use std::ptr::NonNull;
 const CACHE_SIZE: usize = 4096;
 
 #[rustfmt::skip]
+#[derive(Debug)]
 pub struct BufferPool {
     page_table:              HashMap<PageNo, FrameId>,
     page_buffer:             Box<[u8]>,

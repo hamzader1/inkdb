@@ -21,6 +21,7 @@ use crate::{DbError, SqliteCursor, SqliteResult};
 
 pub type PageNo = u32;
 
+#[derive(Debug)]
 pub struct Pager<V: Vfs> {
     vfs: V,
     source: V::File,
