@@ -1,4 +1,5 @@
 use crate::SqliteMaster;
+use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
 use crate::record::Value;
@@ -24,10 +25,9 @@ pub struct ResolvedSelectQuery {
 
 #[derive(Debug)]
 pub struct ResolvedInsertQuery {
+    pub table_name: String,
     pub root_page: PageNo,
     pub values: Vec<Vec<Value<'static>>>,
-    pub indexes: Option<Vec<IndexMetadata>>,
-    pub entry_hint: Option<Value<'static>>, // row id hint
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -44,6 +44,18 @@ impl IndexMetadata {
             is_unique,
         }
     }
+
+    pub fn key_for(&self, values: &[Value<'static>], rowid: u64) -> Vec<Value<'static>> {
+        vec![values[self.col_idx].clone(), Value::Integer(rowid as i64)]
+    }
+}
+
+pub fn rowid_of(entry: &[Value<'_>]) -> SqliteResult<u64> {
+    entry
+        .last()
+        .ok_or_else(|| SqliteError::runtime("index entry is empty"))?
+        .cast_int()
+        .map(|rowid| rowid as u64)
 }
 #[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
@@ -55,14 +67,13 @@ pub struct ResolvedDeleteQuery {
     pub table_name: String,
     pub root_page: PageNo,
     pub arena: Option<ExprArena>,
-    pub indexes: Option<Vec<IndexMetadata>>,
     pub where_clause: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct ResolvedTruncateTableQuery {
+    pub table_name: String,
     pub root_page: u32,
-    pub indexes: Option<Vec<u32>>,
 }
 
 use std::rc::Rc;
@@ -114,15 +125,9 @@ impl Analyze {
             Ast::RollbackTransaction => Ok(ResolvedQuery::RollbackTransactionQuery),
             Ast::TruncateTableAst(t_stmt) => {
                 let table = Self::get_table(sqlite_master, &t_stmt.table_name)?;
-                let root_page = table.root_page;
-                let indexes = Self::indexes_related_to(sqlite_master, &t_stmt.table_name);
                 Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
-                    root_page,
-                    indexes: if indexes.is_empty() {
-                        None
-                    } else {
-                        Some(indexes)
-                    },
+                    table_name: table.name.clone(),
+                    root_page: table.root_page,
                 }))
             }
             Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, sqlite_master),
@@ -136,21 +141,8 @@ impl Analyze {
         sqlite_master: &'s SqliteMaster,
         table_name: &str,
     ) -> Result<&'s Table, SqliteError> {
-        let table = match sqlite_master.tables.get(&table_name.to_lowercase()) {
-            Some(table) => table,
-            _ => {
-                return Err(SqliteError::TableNotFound(table_name.to_string()));
-            }
-        };
-        Ok(table)
-    }
-    pub fn indexes_related_to(sqlite_master: &SqliteMaster, table_name: &str) -> Vec<u32> {
-        let mut v = Vec::new();
-        for index in sqlite_master.indexes.values() {
-            if index.table == table_name {
-                v.push(index.root_page)
-            }
-        }
-        v
+        sqlite_master
+            .table(table_name)
+            .ok_or_else(|| SqliteError::TableNotFound(table_name.to_string()))
     }
 }
