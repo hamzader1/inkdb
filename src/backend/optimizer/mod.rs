@@ -1,75 +1,69 @@
 use std::ops::Bound;
 
 use super::executor::index::IndexRangeScan;
-use super::executor::scan_guard::{CustomScanGuard, ScanGuard};
+use super::executor::scan_guard::{ScanGuard, ScanMode};
 use super::planner::plan::Plan;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::index::IndexExactMatch;
-use crate::backend::executor::scan_guard::{SafeScan, UnsafeScan};
-use crate::errors::SqliteError;
-use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{SqliteMaster, SqliteResult};
 
-pub struct Optimizer<'a, V: Vfs> {
+pub fn optimize_index_scan<V: Vfs>(
+    plan: &mut Plan<V>,
+    sqlite_master: &SqliteMaster,
+    table_name: &str,
+    arena: &ExprArena,
+    mode: ScanMode,
+) -> SqliteResult<()> {
+    let Plan::Filter(_) = plan else {
+        return Ok(());
+    };
+    let Some(relation) = sqlite_master.table(table_name) else {
+        return Ok(());
+    };
+    let mut optimizer = Optimizer {
+        sqlite_master,
+        relation,
+        plan,
+        arena,
+        ready_index: None,
+        mode,
+        guard_spent: false,
+        is_done: false,
+    };
+    optimizer.optimize()
+}
+
+struct Optimizer<'a, V: Vfs> {
     sqlite_master: &'a SqliteMaster,
     relation: &'a crate::schema::Table,
     plan: &'a mut Plan<V>,
-    pager: &'a mut Pager<V>,
     arena: &'a ExprArena,
-    // if len == requested_len we have a ready index
     ready_index: Option<Plan<V>>,
-    // The scan guard factory is spent exactly once, up front. A second
-    // index lookaside in the same predicate (a = x AND b = y) must reuse
-    // the first scan, never build a second one: the factory is FnOnce
-    // and a second take panics.
-    scan_guard: Option<Box<dyn ScanGuard<V>>>,
+    mode: ScanMode,
+    guard_spent: bool,
     is_done: bool,
 }
 
 impl<'a, V: Vfs> Optimizer<'a, V> {
-    pub fn new<G>(
-        plan: &'a mut Plan<V>,
-        pager: &'a mut Pager<V>,
-        sqlite_master: &'a SqliteMaster,
-        table_name: &str,
-        root_page: u32,
-        arena: &'a ExprArena,
-        // Allows the optimizer to modify the source plans to be either SafeScan or Unsafe.
-        mut guard: CustomScanGuard<G, V>,
-    ) -> Self
-    where
-        G: FnOnce() -> Box<dyn ScanGuard<V>>,
-    {
-        debug_assert!(
-            matches!(plan, Plan::Filter(_)),
-            "Expected Filter plan, found {:?}",
-            plan
-        );
-        // already verified from the analyzing phase
-        let table = sqlite_master.tables.get(table_name).unwrap();
-        Self {
-            sqlite_master,
-            relation: table,
-            plan,
-            pager,
-            arena,
-            ready_index: None,
-            scan_guard: Some(guard.take()),
-            is_done: false,
+    fn take_guard(&mut self) -> Option<Box<dyn ScanGuard<V>>> {
+        if self.guard_spent {
+            return None;
         }
+        self.guard_spent = true;
+        Some(self.mode.guard())
     }
 
-    pub fn optimize(&mut self) -> SqliteResult<()> {
+    fn optimize(&mut self) -> SqliteResult<()> {
         let Plan::Filter(filter) = self.plan else {
-            unreachable!()
+            return Ok(());
         };
 
-        let predict = filter.predicate();
-        self.optimaze_where(predict)?;
+        let predicate = filter.predicate();
+        self.optimize_where(predicate)?;
 
         if self.is_done {
             return Ok(());
@@ -79,18 +73,20 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         };
         match new_plan {
             Plan::IndexExactMatch(_) | Plan::IndexRangeScan(_) => {
-                *self.plan.child_mut().unwrap() = new_plan;
+                if let Plan::Filter(filter) = self.plan {
+                    *filter.child_mut() = new_plan;
+                }
             }
             _ => unreachable!(),
         }
         Ok(())
     }
 
-    pub fn optimaze_where(&mut self, predict: usize) -> SqliteResult<()> {
+    fn optimize_where(&mut self, predicate: usize) -> SqliteResult<()> {
         if self.is_done {
             return Ok(());
         }
-        match self.arena.nodes[predict] {
+        match self.arena.nodes[predicate] {
             Expr::BinaryOp { left, op, right } => match op {
                 BinaryOperator::NotEq => return Ok(()),
                 _ => {
@@ -111,7 +107,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                 // single guard before an exact on the same index is seen.
                 // Either way the kept Filter verifies the full predicate.
                 let mut leaves = Vec::new();
-                Self::collect_conjuncts(self.arena, predict, &mut leaves);
+                Self::collect_conjuncts(self.arena, predicate, &mut leaves);
                 let mut exact_built = false;
                 for &leaf in &leaves {
                     if self.try_exact_side(leaf)? {
@@ -121,7 +117,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                 }
                 if !exact_built {
                     for &leaf in &leaves {
-                        self.optimaze_where(leaf)?;
+                        self.optimize_where(leaf)?;
                         if self.is_done {
                             break;
                         }
@@ -217,9 +213,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                         _ => {}
                     }
                 }
-                // One scan per predicate: a second lookaside keeps the
-                // first scan and lets the kept Filter verify the rest.
-                let Some(scan_guard) = self.scan_guard.take() else {
+                let Some(scan_guard) = self.take_guard() else {
                     return Ok(None);
                 };
                 let index_plan = match op {
@@ -267,7 +261,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Eval::eval(arena, index, None).ok()
     }
 
-    pub fn new_index_exact_match(
+    fn new_index_exact_match(
         &mut self,
         index_root_page: u32,
         target: Value<'static>,
@@ -280,7 +274,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
             scan_guard,
         )?))
     }
-    pub fn new_index_range_scan(
+    fn new_index_range_scan(
         &mut self,
         index_root_page: u32,
         start: Bound<Value<'static>>,
