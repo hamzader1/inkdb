@@ -208,6 +208,8 @@ pub enum SyntaxErrorKind {
     UnexpectedEndOfExpression(TokenKind),
     #[error("expected an identifier, got a {0} token")]
     ExpectedIdentifier(TokenKind),
+    #[error("expected end of expression (;), found {0}")]
+    ExpectedEoi(TokenKind),
 }
 
 pub fn render_syntax_error(sql: &str, err: &SqliteError) -> Option<String> {
