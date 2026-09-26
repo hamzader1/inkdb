@@ -34,8 +34,7 @@ impl Database<DiskVfs> {
         Self::with_source_cache(sqlite_default_vfs, db_path, cache_size)
     }
     pub fn execute(&mut self, query: &str) -> Result<(), SqliteError> {
-        let query = query.split_whitespace().collect::<Vec<_>>().join(" ");
-        let query: Rc<str> = Rc::from(query.as_str());
+        let query: Rc<str> = Rc::from(query);
 
         let lexer = Lexer::tokenize(&query)?;
 
@@ -45,7 +44,7 @@ impl Database<DiskVfs> {
         let resolved_query = Analyze::analyze(res, &sqlite_master)?;
 
         let mut plan = Plan::create_plan(resolved_query, &mut self.pager, &sqlite_master)?;
-        while let Some(row) = plan.next(&mut self.pager)? {
+        while let Some(row) = plan.next(&mut self.pager, &sqlite_master)? {
             println!("{}", RowWrapper(row));
         }
         Ok(())
