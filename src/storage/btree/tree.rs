@@ -72,6 +72,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
     pub fn restore_position(&mut self) -> SqliteResult<RestorePosition> {
         self.cursor.restore_position(self.pager)
     }
+    pub fn max_row_id(&mut self) -> SqliteResult<u64> {
+        self.cursor.max_row_id(self.pager)
+    }
 
     pub fn current_record<K: PageKind>(&mut self) -> SqliteResult<Option<Vec<Value<'_>>>>
     where

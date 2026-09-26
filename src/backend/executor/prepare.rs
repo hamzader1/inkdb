@@ -41,7 +41,7 @@ impl<V: Vfs> PrepareRow<V> {
             return Ok(None);
         }
         let mut btree = BTree::new(self.root_page, ctx.pager);
-        let next_row_id = btree.cursor.max_row_id(ctx.pager)? + 1;
+        let next_row_id = btree.max_row_id()? + 1;
         let inner = &self.rows[self.pos];
         let bytes = Encode::encode_table_leaf_cell(Tuple::serialize(inner), next_row_id as _);
         /*
