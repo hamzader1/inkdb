@@ -8,18 +8,14 @@ use std::time::Instant;
 
 pub struct SqliteShell;
 impl SqliteShell {
-    pub fn run(database: &mut Database<DiskVfs>) -> SqliteResult<()> {
+    pub fn run(database: &mut Database<DiskVfs>) {
         let mut rl = DefaultEditor::new().expect("Error initiliazing the shell");
         loop {
             let command = match SqliteShell::read_command(&mut rl) {
                 Ok(cmd) => {
                     let start = Instant::now();
-                    match database.execute(cmd.as_str()) {
-                        Ok(mut s) => {
-                            for row in s.rows() {
-                                println!("{}", RowWrapper(row?));
-                            }
-                        }
+                    match Self::_run(database, &cmd) {
+                        Ok(_) => {}
                         Err(e) => match crate::errors::render_syntax_error(cmd.as_str(), &e) {
                             Some(rendered) => println!("{rendered}"),
                             None => println!("Error: {e}"),
@@ -51,9 +47,14 @@ impl SqliteShell {
                 break;
             }
         }
+    }
+    fn _run(database: &mut Database<DiskVfs>, cmd: &str) -> SqliteResult<()> {
+        let mut s = database.execute(cmd)?;
+        for row in s.rows() {
+            println!("{}", RowWrapper(row?));
+        }
         Ok(())
     }
-
     fn read_command(rl: &mut DefaultEditor) -> Result<String, ReadlineError> {
         let mut buffer = String::new();
         let mut line_number = 0;
