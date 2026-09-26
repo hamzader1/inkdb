@@ -108,6 +108,7 @@ impl Parser {
             where_clause = Some(self.parse_expression()?);
             arena = Some(self.arena.take());
         }
+        self.expect_eof()?;
         Ok(Ast::DeleteStmtAst(DeleteStmt {
             table_name,
             arena,

@@ -5,7 +5,11 @@ use super::{
     },
     tokens::Span,
 };
-use crate::errors::{SqliteError, SyntaxErrorKind};
+use crate::{
+    SqliteResult,
+    errors::{SqliteError, SyntaxErrorKind},
+    util::sqlite_assert_with_internal_err,
+};
 
 use super::tokens::{
     Token,
@@ -114,6 +118,15 @@ impl Parser {
             }
         }
         self.pos += 1;
+        Ok(())
+    }
+    pub fn expect_eof(&self) -> SqliteResult<()> {
+        if self.peek().is_some() {
+            return Err(SqliteError::syntax(
+                SyntaxErrorKind::ExpectedEoi(self.tokens[self.pos].kind.clone()),
+                self.current_token_span(),
+            ));
+        }
         Ok(())
     }
     pub fn default_end_span(&self) -> Span {
