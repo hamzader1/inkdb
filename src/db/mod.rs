@@ -1,7 +1,8 @@
-use crate::SqliteMaster;
 use crate::backend::analyze::Analyze;
-use crate::backend::executor::RowWrapper;
+use crate::backend::executor::{Row, RowWrapper};
 use crate::backend::planner::plan::Plan;
+use crate::backend::planner::prepared_plan::PreparedPlan;
+use crate::{SqliteMaster, SqliteResult};
 // use crate::pager::pager::Pager;
 // use crate::vfs::disk::DiskVfs;
 use crate::errors::SqliteError;
@@ -21,6 +22,7 @@ use crate::vfs::disk::{DiskFile, DiskVfs};
 
 pub struct Database<V: crate::vfs::Vfs> {
     pub pager: Pager<V>,
+    pub sqlite_master: SqliteMaster,
     header: SqliteDatabaseHeader,
 }
 
@@ -33,30 +35,19 @@ impl Database<DiskVfs> {
         let sqlite_default_vfs = DiskVfs;
         Self::with_source_cache(sqlite_default_vfs, db_path, cache_size)
     }
-    pub fn execute(&mut self, query: &str) -> Result<(), SqliteError> {
-        let query: Rc<str> = Rc::from(query);
-
-        let lexer = Lexer::tokenize(&query)?;
-
-        let res = Parser::parse(Rc::clone(&query), lexer)?;
-
-        let sqlite_master = SqliteMaster::new(&mut self.pager)?;
-        let resolved_query = Analyze::analyze(res, &sqlite_master)?;
-
-        let mut plan = Plan::create_plan(resolved_query, &mut self.pager, &sqlite_master)?;
-        while let Some(row) = plan.next(&mut self.pager, &sqlite_master)? {
-            println!("{}", RowWrapper(row));
-        }
-        Ok(())
-    }
 }
 
 impl<V: crate::vfs::Vfs> Database<V> {
     pub fn with_source<P: AsRef<Path>>(mut vfs: V, path: P) -> Result<Self, SqliteError> {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
-        let pager = Pager::new(vfs, source, HeaderCache::from(header))?;
-        Ok(Self { pager, header })
+        let mut pager = Pager::new(vfs, source, HeaderCache::from(header))?;
+        let mut sqlite_master = SqliteMaster::new(&mut pager)?;
+        Ok(Self {
+            pager,
+            sqlite_master,
+            header,
+        })
     }
     pub fn with_source_cache<P: AsRef<Path>>(
         mut vfs: V,
@@ -65,7 +56,41 @@ impl<V: crate::vfs::Vfs> Database<V> {
     ) -> Result<Self, SqliteError> {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
-        let pager = Pager::with_cache(vfs, source, HeaderCache::from(header), cache_size)?;
-        Ok(Self { pager, header })
+        let mut pager = Pager::new(vfs, source, HeaderCache::from(header))?;
+        let mut sqlite_master = SqliteMaster::new(&mut pager)?;
+        Ok(Self {
+            pager,
+            sqlite_master,
+            header,
+        })
+    }
+    pub fn execute(&mut self, query: &str) -> Result<Statement<'_, V>, SqliteError> {
+        let query: Rc<str> = Rc::from(query);
+        let lexer = Lexer::tokenize(&query)?;
+        let res = Parser::parse(Rc::clone(&query), lexer)?;
+        let resolved_query = Analyze::analyze(res, &self.sqlite_master)?;
+        let plan = Plan::create_plan(resolved_query, &mut self.pager, &self.sqlite_master)?;
+        Ok(Statement {
+            pager: &mut self.pager,
+            sqlite_master: &mut self.sqlite_master,
+            stmt: plan,
+        })
+    }
+}
+
+pub struct Statement<'a, V: Vfs> {
+    pager: &'a mut Pager<V>,
+    sqlite_master: &'a mut SqliteMaster,
+    stmt: PreparedPlan<V>,
+}
+impl<'a, V: Vfs> Statement<'a, V> {
+    pub(crate) fn rows(&'a mut self) -> impl Iterator<Item = Result<Row, SqliteError>> + 'a {
+        std::iter::from_fn(
+            move || match self.stmt.next(self.pager, self.sqlite_master) {
+                Ok(Some(row)) => Some(Ok(row)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e)),
+            },
+        )
     }
 }
