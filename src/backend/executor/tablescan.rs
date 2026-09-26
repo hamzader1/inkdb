@@ -1,14 +1,13 @@
 use crate::errors::SqliteError;
-use crate::pager::pager::Pager;
 use crate::record::Value;
-use crate::sql::parser::ExprArena;
-use crate::storage::btree::{BTreeCursor, RestorePosition, TableLeaf};
+use crate::storage::btree::{BTreeCursor, TableLeaf};
 use crate::storage::page::PageRef as BTreePageRef;
 use crate::vfs::Vfs;
 
 use super::Row;
+use super::context::ExecCtx;
 use super::eval::Eval;
-use super::scan_guard::ScanGuard;
+use super::scan_guard::{ScanGuard, ScanMode};
 
 #[derive(Debug)]
 pub struct TableScan<V: Vfs> {
@@ -20,17 +19,13 @@ pub struct TableScan<V: Vfs> {
     is_done: bool,
 }
 impl<V: Vfs> TableScan<V> {
-    pub fn new(
-        root_page: u32,
-        pager: &mut Pager<V>,
-        scan_plan: Box<dyn ScanGuard<V>>,
-    ) -> Result<Self, SqliteError> {
-        let mut cursor = BTreeCursor::new(root_page);
+    pub fn new(root_page: u32, mode: ScanMode) -> Result<Self, SqliteError> {
+        let cursor = BTreeCursor::new(root_page);
 
         Ok(Self {
             cursor,
             is_done: false,
-            guard: scan_plan,
+            guard: mode.guard(),
             predicate: None,
             is_init: false,
             rows_rejected: 0,
@@ -50,19 +45,15 @@ impl<V: Vfs> TableScan<V> {
     }
 }
 impl<V: Vfs> TableScan<V> {
-    pub fn next(
-        &mut self,
-        pager: &mut Pager<V>,
-        arena: Option<&ExprArena>,
-    ) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
         if !self.is_init {
-            self.cursor.first(pager)?;
+            self.cursor.first(ctx.pager)?;
             let (page_no, _) = self.cursor.last_visited_entry_unchecked();
-            let guard = pager.get(page_no)?;
+            let guard = ctx.pager.get(page_no)?;
             let page = BTreePageRef::new(
                 page_no,
-                pager.page_size(),
-                pager.usable_size(),
+                ctx.pager.page_size(),
+                ctx.pager.usable_size(),
                 guard.bytes(),
             )?;
             let empty = page.no_of_cells()? == 0;
@@ -72,21 +63,21 @@ impl<V: Vfs> TableScan<V> {
             self.is_init = true;
         }
         while !self.is_done {
-            self.guard.restore(pager, &mut self.cursor)?;
-            let Some(cell) = self.cursor.current::<TableLeaf>(pager)? else {
+            self.guard.restore(ctx.pager, &mut self.cursor)?;
+            let Some(cell) = self.cursor.current::<TableLeaf>(ctx.pager)? else {
                 self.is_done = true;
                 return Ok(None);
             };
             let row_id = cell.row_id;
 
             let mut rejected = false;
-            let values = match self.cursor.current_record::<TableLeaf>(pager)? {
+            let values = match self.cursor.current_record::<TableLeaf>(ctx.pager)? {
                 Some(record) => {
-                    let keep = match (self.predicate, arena) {
-                        (Some(predicate), Some(arena)) => {
-                            Eval::eval(arena, predicate, Some(&record))?.to_bool()
+                    let keep = match self.predicate {
+                        Some(predicate) => {
+                            Eval::eval(ctx.arena, predicate, Some(&record))?.to_bool()
                         }
-                        _ => true,
+                        None => true,
                     };
                     if keep {
                         Some(record.into_iter().map(Value::into_static).collect())
@@ -101,7 +92,7 @@ impl<V: Vfs> TableScan<V> {
                 }
             };
 
-            self.guard.save_or_advance(pager, &mut self.cursor)?;
+            self.guard.save_or_advance(ctx.pager, &mut self.cursor)?;
             if rejected {
                 self.rows_rejected += 1;
                 continue;

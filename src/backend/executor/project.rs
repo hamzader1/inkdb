@@ -1,11 +1,10 @@
 use crate::backend::planner::plan::Plan;
 use crate::errors::SqliteError;
-use crate::pager::pager::Pager;
 use crate::record::Value;
-use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 
 use super::Row;
+use super::context::ExecCtx;
 use super::eval::Eval;
 
 #[derive(Debug)]
@@ -21,19 +20,18 @@ impl<V: Vfs> Project<V> {
     pub fn columns(&self) -> &[usize] {
         &self.columns
     }
+    pub fn child(&self) -> &Plan<V> {
+        &self.child
+    }
 }
 impl<V: Vfs> Project<V> {
-    pub fn next(
-        &mut self,
-        pager: &mut Pager<V>,
-        arena: &ExprArena,
-    ) -> Result<Option<Row>, crate::errors::SqliteError> {
-        if let Some(mut row) = self.child.next(pager, Some(arena))? {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+        if let Some(mut row) = self.child.next(ctx)? {
             let output_row: Vec<Value<'static>> = self
                 .columns
                 .iter()
                 .map(|i| {
-                    let value = Eval::eval(arena, *i, Some(&row))?;
+                    let value = Eval::eval(ctx.arena, *i, Some(&row))?;
                     Ok(value.into_static())
                 })
                 .collect::<Result<Vec<_>, SqliteError>>()?;

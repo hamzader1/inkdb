@@ -1,18 +1,19 @@
 use crate::SqliteResult;
 use crate::backend::executor::Row;
 use crate::errors::SqliteError;
-use crate::pager::pager::Pager;
 use crate::vfs::Vfs;
+
+use super::context::ExecCtx;
 
 #[derive(Debug)]
 pub struct BeginTransaction;
 
 impl BeginTransaction {
-    pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
-        if pager.in_transaction() {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+        if ctx.pager.in_transaction() {
             return Err(SqliteError::TransactionAlreadyStarted);
         }
-        pager.start_transaction();
+        ctx.pager.start_transaction();
         Ok(None)
     }
 }
@@ -21,9 +22,9 @@ impl BeginTransaction {
 pub struct CommitTransaction;
 
 impl CommitTransaction {
-    pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
-        if pager.in_transaction() {
-            pager.commit()?;
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+        if ctx.pager.in_transaction() {
+            ctx.pager.commit()?;
             Ok(None)
         } else {
             Err(SqliteError::NoActiveTransaction)
@@ -34,11 +35,11 @@ impl CommitTransaction {
 #[derive(Debug)]
 pub struct RollBackTransaction;
 impl RollBackTransaction {
-    pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> SqliteResult<Option<Row>> {
-        if !pager.in_transaction() {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+        if !ctx.pager.in_transaction() {
             return Err(SqliteError::NoActiveTransaction);
         }
-        pager.rollback()?;
+        ctx.pager.rollback()?;
         Ok(None)
     }
 }

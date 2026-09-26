@@ -60,23 +60,17 @@ impl<V: Vfs> ScanGuard<V> for SafeScan {
     }
 }
 
-pub struct CustomScanGuard<G, V>
-where
-    V: Vfs,
-    G: FnOnce() -> Box<dyn ScanGuard<V>>,
-{
-    pub scan_guard: Option<G>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanMode {
+    Stable,
+    Volatile,
 }
 
-impl<G, V> CustomScanGuard<G, V>
-where
-    V: Vfs,
-    G: FnOnce() -> Box<dyn ScanGuard<V>>,
-{
-    pub fn new(scan_guard: Option<G>) -> Self {
-        Self { scan_guard }
-    }
-    pub fn take(&mut self) -> G::Output {
-        (self.scan_guard.take().unwrap())()
+impl ScanMode {
+    pub fn guard<V: Vfs>(self) -> Box<dyn ScanGuard<V>> {
+        match self {
+            Self::Stable => Box::new(SafeScan),
+            Self::Volatile => Box::new(UnsafeScan),
+        }
     }
 }

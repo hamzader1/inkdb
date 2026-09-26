@@ -1,9 +1,10 @@
 use crate::SqliteResult;
 use crate::backend::executor::Row;
-use crate::pager::pager::Pager;
 use crate::record::Value;
 use crate::storage::btree::BTree;
 use crate::vfs::Vfs;
+
+use super::context::ExecCtx;
 
 #[derive(Debug)]
 pub struct Insert<'a, V> {
@@ -23,8 +24,8 @@ impl<'a, V: Vfs> Insert<'a, V> {
         }
     }
 
-    pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<Option<Row>> {
-        let mut btree = BTree::new(self.root_page, pager);
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+        let mut btree = BTree::new(self.root_page, ctx.pager);
         btree.insert(&self.key, &mut self.data)?;
         Ok(None)
     }

@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::record::Value;
 
+pub mod context;
 pub mod create;
 pub mod delete;
 pub mod eval;

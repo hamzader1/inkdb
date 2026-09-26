@@ -6,15 +6,17 @@ use crate::{
     vfs::Vfs,
 };
 
+use super::context::ExecCtx;
+
 #[derive(Debug)]
 pub struct TruncateTable {
     root_page: u32,
-    indexes: Option<Vec<u32>>,
+    indexes: Vec<u32>,
     page_kind: BTreePageType,
 }
 
 impl TruncateTable {
-    pub fn new(root_page: u32, indexes: Option<Vec<u32>>) -> Self {
+    pub fn new(root_page: u32, indexes: Vec<u32>) -> Self {
         Self {
             root_page,
             indexes,
@@ -25,32 +27,30 @@ impl TruncateTable {
     pub fn root_page(&self) -> u32 {
         self.root_page
     }
-    pub fn indexes(&self) -> Option<&[u32]> {
-        self.indexes.as_deref()
+    pub fn indexes(&self) -> &[u32] {
+        &self.indexes
     }
 
     fn new_index(root_page: u32) -> Self {
         Self {
             root_page,
-            indexes: None,
+            indexes: Vec::new(),
             page_kind: BTreePageType::LeafIndex,
         }
     }
 
-    pub fn next<V: Vfs>(&self, pager: &mut Pager<V>) -> Result<Option<Row>, SqliteError> {
-        Self::dfs(self.root_page, self.root_page, pager)?;
-        let mut guard = pager.get_mut(self.root_page)?;
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+        Self::dfs(self.root_page, self.root_page, ctx.pager)?;
+        let mut guard = ctx.pager.get_mut(self.root_page)?;
         BTreePageMut::new_from_raw_bytes(
             self.root_page,
             self.page_kind,
             guard.bytes_as_mut_unchecked(),
-            pager.page_size(),
-            pager.usable_size(),
+            ctx.pager.page_size(),
+            ctx.pager.usable_size(),
         )?;
-        if let Some(ref indexes) = self.indexes {
-            for index in indexes {
-                Self::new_index(*index).next(pager)?;
-            }
+        for index in self.indexes.iter() {
+            Self::new_index(*index).next(ctx)?;
         }
         Ok(None)
     }
