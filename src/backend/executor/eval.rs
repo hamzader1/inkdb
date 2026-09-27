@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::errors::SqliteError;
-use crate::record::Value;
+use crate::record::{TryAdd, TryDiv, TryMul, TrySub, Value};
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 
@@ -25,20 +25,22 @@ impl Eval {
             },
 
             Expr::Add(l, r) => {
-                Ok(Self::eval(arena, l, row)? + Self::eval(arena, r, row)?)
+                let lhs = Self::eval(arena, l, row)?;
+                lhs.try_add(&Self::eval(arena, r, row)?)
             }
             Expr::Substract(l, r) => {
-                Ok(Self::eval(arena, l, row)? - Self::eval(arena, r, row)?)
+                let lhs = Self::eval(arena, l, row)?;
+                lhs.try_sub(&Self::eval(arena, r, row)?)
             }
             Expr::Multiply(l, r) => {
-                Ok(Self::eval(arena, l, row)? * Self::eval(arena, r, row)?)
+                let lhs = Self::eval(arena, l, row)?;
+                lhs.try_mul(&Self::eval(arena, r, row)?)
             }
             Expr::Devide(l, r) => {
-                Ok(Self::eval(arena, l, row)? / Self::eval(arena, r, row)?)
+                let lhs = Self::eval(arena, l, row)?;
+                lhs.try_div(&Self::eval(arena, r, row)?)
             }
-            Expr::Neg(x) => {
-                Ok(Value::Integer(-1) * Self::eval(arena, x, row)?)
-            }
+            Expr::Neg(x) => Self::eval(arena, x, row)?.try_mul(&Value::Integer(-1)),
 
             Expr::Not(expr) => {
                 if !Self::eval(arena, expr, row)?.to_bool() {
@@ -71,54 +73,42 @@ impl Eval {
                 right,
             } => match op {
                 BinaryOperator::Eq => {
-                    if Self::eval(arena, left, row)?
-                        == Self::eval(arena, right, row)?
-                    {
+                    if Self::eval(arena, left, row)? == Self::eval(arena, right, row)? {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::NotEq => {
-                    if Self::eval(arena, left, row)?
-                        != Self::eval(arena, right, row)?
-                    {
+                    if Self::eval(arena, left, row)? != Self::eval(arena, right, row)? {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Gt => {
-                    if Self::eval(arena, left, row)?
-                        > Self::eval(arena, right, row)?
-                    {
+                    if Self::eval(arena, left, row)? > Self::eval(arena, right, row)? {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Ge => {
-                    if Self::eval(arena, left, row)?
-                        >= Self::eval(arena, right, row)?
-                    {
+                    if Self::eval(arena, left, row)? >= Self::eval(arena, right, row)? {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Lt => {
-                    if Self::eval(arena, left, row)?
-                        < Self::eval(arena, right, row)?
-                    {
+                    if Self::eval(arena, left, row)? < Self::eval(arena, right, row)? {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Le => {
-                    if Self::eval(arena, left, row)?
-                        <= Self::eval(arena, right, row)?
-                    {
+                    if Self::eval(arena, left, row)? <= Self::eval(arena, right, row)? {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
