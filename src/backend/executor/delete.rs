@@ -26,7 +26,7 @@ impl<V: Vfs> Delete<V> {
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
         while let Some(row) = self.child.next(ctx)? {
             let mut btree = BTree::new(self.root_page, ctx.pager);
-            btree.delete(row.key.into())?;
+            btree.delete(row.key().into())?;
         }
         Ok(None)
     }

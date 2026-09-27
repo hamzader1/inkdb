@@ -2,6 +2,8 @@ use std::borrow::Cow;
 
 use crate::errors::SqliteError;
 use crate::record::{TryAdd, TryDiv, TryMul, TrySub, Value};
+
+use super::ColumnSource;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 
@@ -10,7 +12,7 @@ impl Eval {
     pub fn eval<'a>(
         arena: &ExprArena,
         idx: usize,
-        row: Option<&[Value<'a>]>,
+        row: Option<&'a dyn ColumnSource>,
     ) -> Result<Value<'a>, SqliteError> {
         match arena.nodes[idx] {
             Expr::Number(n) => Ok(Value::Integer(n)),
@@ -18,7 +20,7 @@ impl Eval {
             Expr::StringLitteral(ref str) => Ok(Value::Text(Cow::Owned(str.to_string()))),
             Expr::Bool(b) => Ok(Value::Integer(b as u8 as i64)),
             Expr::ColumnRef(col_idx) => match row {
-                Some(row) => Ok(row[col_idx].clone()),
+                Some(row) => row.column(col_idx),
                 _ => Err(SqliteError::runtime(
                     "Cannot evaluate a column reference without a row: LIMIT and constant expressions must not mention columns",
                 )),
@@ -115,7 +117,7 @@ impl Eval {
                 }
             },
 
-            _ => todo!(),
+            _ => unreachable!(),
         }
     }
 }

@@ -10,11 +10,7 @@ pub struct ExecCtx<'a, V: Vfs> {
 }
 
 impl<'a, V: Vfs> ExecCtx<'a, V> {
-    pub fn new(
-        pager: &'a mut Pager<V>,
-        master: &'a mut Master,
-        arena: &'a ExprArena,
-    ) -> Self {
+    pub fn new(pager: &'a mut Pager<V>, master: &'a mut Master, arena: &'a ExprArena) -> Self {
         Self {
             pager,
             master,

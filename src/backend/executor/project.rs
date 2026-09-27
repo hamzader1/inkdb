@@ -26,7 +26,8 @@ impl<V: Vfs> Project<V> {
 }
 impl<V: Vfs> Project<V> {
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
-        if let Some(mut row) = self.child.next(ctx)? {
+        if let Some(row) = self.child.next(ctx)? {
+            let key = row.key();
             let output_row: Vec<Value<'static>> = self
                 .columns
                 .iter()
@@ -35,8 +36,7 @@ impl<V: Vfs> Project<V> {
                     Ok(value.into_static())
                 })
                 .collect::<Result<Vec<_>, SqliteError>>()?;
-            row.data = output_row;
-            return Ok(Some(row));
+            return Ok(Some(Row::new(key, output_row)));
         }
 
         Ok(None)

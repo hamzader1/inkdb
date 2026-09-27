@@ -82,7 +82,8 @@ impl<V: Vfs> CreateIndex<V> {
             return Ok(None);
         };
         while let Some(row) = self.child.next(ctx)? {
-            let key = index.key_for(&row, row.key());
+            let value = row.value(index.col_idx)?.into_static();
+            let key = index.key_for(value, row.key());
             let bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
             Insert::new(index.index_root_page, Value::Tuple(key), bytes).next(ctx)?;
         }
