@@ -1,4 +1,4 @@
-use crate::SqliteMaster;
+use crate::Master;
 use crate::errors::SqliteError;
 use crate::sql::ast::{Affinity, InsertStmt};
 use crate::util::sqlite_assert_with_runtime_err;
@@ -8,7 +8,7 @@ use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 impl Analyze {
     pub fn analyze_insert_stmt(
         stmt: InsertStmt,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> Result<ResolvedQuery, SqliteError> {
         let InsertStmt {
             table_name,

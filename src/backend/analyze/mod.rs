@@ -1,4 +1,4 @@
-use crate::SqliteMaster;
+use crate::Master;
 use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
@@ -58,6 +58,16 @@ pub fn rowid_of(entry: &[Value<'_>]) -> SqliteResult<u64> {
         .map(|rowid| rowid as u64)
 }
 #[derive(Debug)]
+pub struct ResolvedCountQuery {
+    pub table_name: String,
+    pub root_page: u32,
+    pub arena: ExprArena,
+    pub arg: Option<usize>,
+    pub where_clause: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
     pub meta: CreateTable,
 }
@@ -94,6 +104,7 @@ pub struct ResolvedExplainQuery {
 #[derive(Debug)]
 pub enum ResolvedQuery {
     SelectQuery(ResolvedSelectQuery),
+    CountQuery(ResolvedCountQuery),
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
     CreateIndexQuery(ResolvedCreateIndexQuery),
@@ -106,7 +117,7 @@ pub enum ResolvedQuery {
 }
 
 impl Analyze {
-    pub fn analyze(stmt: Ast, sqlite_master: &SqliteMaster) -> Result<ResolvedQuery, SqliteError> {
+    pub fn analyze(stmt: Ast, sqlite_master: &Master) -> Result<ResolvedQuery, SqliteError> {
         match stmt {
             Ast::SelectStmtAst(select_stmt) => {
                 Self::analyze_select_stmt(select_stmt, sqlite_master)
@@ -138,7 +149,7 @@ impl Analyze {
     }
 
     pub fn get_table<'s>(
-        sqlite_master: &'s SqliteMaster,
+        sqlite_master: &'s Master,
         table_name: &str,
     ) -> Result<&'s Table, SqliteError> {
         sqlite_master

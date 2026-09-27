@@ -1,14 +1,14 @@
 use crate::backend::analyze::ResolvedCreateIndexQuery;
 use crate::errors::SqliteError;
 use crate::sql::ast::{CreateIndex, CreateTable};
-use crate::{SqliteMaster, SqliteResult};
+use crate::{Master, SqliteResult};
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 
 impl Analyze {
     pub(super) fn analyze_create_table_stmt(
         stmt: CreateTable,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> Result<ResolvedQuery, SqliteError> {
         if Self::get_table(sqlite_master, &stmt.name).is_ok() {
             return Err(SqliteError::TableAlreadyExists(stmt.name));
@@ -21,7 +21,7 @@ impl Analyze {
 
     pub fn analyze_create_index_stmt(
         stmt: CreateIndex,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> SqliteResult<ResolvedQuery> {
         let relation = Self::get_table(sqlite_master, &stmt.table)?;
         if sqlite_master.indexes.contains_key(&stmt.name) {

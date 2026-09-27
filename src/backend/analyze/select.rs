@@ -1,16 +1,16 @@
-use crate::SqliteMaster;
+use crate::Master;
 use crate::errors::SqliteError;
 use crate::schema::SQLITE_MASTER;
 
 use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;
 
-use super::{Analyze, ResolvedQuery, ResolvedSelectQuery};
+use super::{Analyze, ResolvedCountQuery, ResolvedQuery, ResolvedSelectQuery};
 
 impl Analyze {
     pub fn analyze_select_stmt(
         select_stmt: SelectStmt,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> Result<ResolvedQuery, SqliteError> {
         let SelectStmt {
             table_name,
@@ -30,6 +30,33 @@ impl Analyze {
         // if table.name == "sqlite_master" {
         //     return Self::handle_sqlite_master_query(select_stmt, sqlite_master);
         // }
+
+        if columns.len() == 1
+            && let Expr::Count { arg } = arena.nodes[columns[0]]
+        {
+            if let Some(arg) = arg {
+                Analyze::fast_bind(table, arg, &mut arena)?;
+            }
+            if let Some(predicate) = where_clause {
+                Analyze::fast_bind(table, predicate, &mut arena)?;
+            }
+            if let Some(limit_expr) = limit {
+                Analyze::fast_bind(table, limit_expr, &mut arena)?;
+            }
+            return Ok(ResolvedQuery::CountQuery(ResolvedCountQuery {
+                table_name: table.name.clone(),
+                root_page: table.root_page,
+                arena,
+                arg,
+                where_clause,
+                limit,
+            }));
+        }
+        if arena.nodes.iter().any(|node| matches!(node, Expr::Count { .. })) {
+            return Err(SqliteError::runtime(
+                "count() cannot be combined with other columns yet",
+            ));
+        }
 
         let has_star = arena.nodes.contains(&Expr::Star);
         // TODO: THIS NEEDS OPTIMAZATION
