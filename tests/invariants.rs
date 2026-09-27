@@ -17,7 +17,7 @@
 mod common;
 
 use common::*;
-use inkdb::SqliteMaster;
+use inkdb::Master;
 use inkdb::db::Database;
 use inkdb::db::header::{
     DATABASE_SIZE_IN_PAGES_OFFSET, FIRST_FREELIST_TRUNK_PAGE_OFFSET,
@@ -112,8 +112,6 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
     free
 }
 
-
-
 struct PageAudit {
     problems: Vec<String>,
     referenced: HashSet<u32>,
@@ -162,14 +160,16 @@ fn audit_page(
     let kind = match page.page_type() {
         Ok(k) => k,
         Err(e) => {
-            ctx.problems.push(format!("page {page_no} bad page type: {e}"));
+            ctx.problems
+                .push(format!("page {page_no} bad page type: {e}"));
             return empty;
         }
     };
     let n = match page.no_of_cells() {
         Ok(n) => n,
         Err(e) => {
-            ctx.problems.push(format!("page {page_no} bad cell count: {e}"));
+            ctx.problems
+                .push(format!("page {page_no} bad cell count: {e}"));
             return empty;
         }
     };
@@ -195,7 +195,6 @@ fn audit_page(
             "page {page_no}: content area {content_area} overlaps the cell pointer array (ends at {cell_first})"
         ));
     }
-
 
     // Cell pointers and spans.
     let mut spans: Vec<(usize, usize)> = Vec::with_capacity(n as usize);
@@ -337,7 +336,6 @@ fn audit_page(
         ));
     }
 
-
     // Keys must ascend across the slots, otherwise every descent misroutes.
     let mut keys: Vec<Value<'static>> = Vec::with_capacity(n as usize);
     for i in 0..n {
@@ -380,9 +378,9 @@ fn audit_page(
     }
     match page.right_most_ptr() {
         Ok(Some(rmp)) => children.push((n, rmp, None)),
-        Ok(None) => ctx
-            .problems
-            .push(format!("page {page_no}: interior page without a right-most child")),
+        Ok(None) => ctx.problems.push(format!(
+            "page {page_no}: interior page without a right-most child"
+        )),
         Err(e) => ctx
             .problems
             .push(format!("page {page_no}: bad right-most pointer: {e}")),
@@ -415,11 +413,10 @@ fn audit_page(
     (subtree_min, subtree_max)
 }
 
-
 /// Full audit: catalog trees, freelist chain, and every page in the file.
 pub fn audit_database(db: &mut Database<DiskVfs>, tag: &str) -> Vec<String> {
     let mut problems = Vec::new();
-    let master = match SqliteMaster::new(&mut db.pager) {
+    let master = match Master::new(&mut db.pager) {
         Ok(m) => m,
         Err(e) => return vec![format!("[{tag}] catalog unreadable: {e}")],
     };

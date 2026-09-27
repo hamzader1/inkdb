@@ -6,7 +6,7 @@
 //! in: every fixture is generated, used, and deleted by the test run.
 
 #![allow(warnings)]
-use inkdb::SqliteMaster;
+use inkdb::Master;
 use inkdb::backend::analyze::Analyze;
 use inkdb::backend::planner::plan::Plan;
 use inkdb::db::Database;
@@ -97,7 +97,7 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     let lexer = Lexer::tokenize(&query).unwrap_or_else(|e| panic!("lex {q:?}: {e}"));
     let parsed =
         Parser::parse(Rc::clone(&query), lexer).unwrap_or_else(|e| panic!("parse {q:?}: {e}"));
-    let master = SqliteMaster::new(&mut db.pager).expect("master");
+    let mut master = Master::new(&mut db.pager).expect("master");
     let resolved =
         Analyze::analyze(parsed, &master).unwrap_or_else(|e| panic!("analyze {q:?}: {e}"));
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master)
@@ -105,7 +105,7 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     let mut n = 0;
     loop {
         println!("query: {}", query);
-        match plan.next(&mut db.pager) {
+        match plan.next(&mut db.pager, &mut master) {
             Ok(Some(_)) => n += 1,
             Ok(None) => break,
             Err(e) => panic!("exec {q:?}: {e}"),
@@ -127,11 +127,11 @@ pub fn run_err(db: &mut Database<DiskVfs>, q: &str) -> String {
     let query: Rc<str> = Rc::from(query.as_str());
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
-    let master = SqliteMaster::new(&mut db.pager).expect("master");
+    let mut master = Master::new(&mut db.pager).expect("master");
     let resolved = Analyze::analyze(parsed, &master).expect("analyze");
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
     loop {
-        match plan.next(&mut db.pager) {
+        match plan.next(&mut db.pager, &mut master) {
             Ok(Some(_)) => {}
             Ok(None) => panic!("expected error, statement succeeded: {q:?}"),
             Err(e) => return format!("{e}"),

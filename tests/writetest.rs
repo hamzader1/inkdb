@@ -110,8 +110,7 @@ fn btree_index_split_roundtrip() {
         }
         {
             let g = pager.get(root).unwrap();
-            let pg =
-                inkdb::storage::page::BTreePage::new(root, 4096, 4096, g.bytes()).unwrap();
+            let pg = inkdb::storage::page::BTreePage::new(root, 4096, 4096, g.bytes()).unwrap();
             if pg.page_type().unwrap() as u8 == 2 || pg.page_type().is_err() {
                 let r = pg.right_most_ptr();
                 static LASTH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -121,12 +120,7 @@ fn btree_index_split_roundtrip() {
                 }
                 let prev = LASTH.swap(h, std::sync::atomic::Ordering::SeqCst);
                 if h != prev && prev != 0 {
-                    eprintln!(
-                        "HDR-CHANGE row={} {:x?} (rmp={:?})",
-                        i,
-                        &g.bytes()[..16],
-                        r
-                    );
+                    eprintln!("HDR-CHANGE row={} {:x?} (rmp={:?})", i, &g.bytes()[..16], r);
                 }
                 let r = r.unwrap();
                 static LAST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

@@ -5,7 +5,9 @@ use common::*;
 use std::collections::{HashMap, HashSet};
 
 /// Refcount walk over the TABLE tree (root 2): reports pages with >1 parent.
-fn walk_table_refs(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>) -> Vec<(u32, Vec<(u32, u16)>)> {
+fn walk_table_refs(
+    db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>,
+) -> Vec<(u32, Vec<(u32, u16)>)> {
     use inkdb::storage::cell::BTreeCell;
     use inkdb::storage::page::BTreePage;
     let ps = db.pager.page_size();
@@ -21,8 +23,12 @@ fn walk_table_refs(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>) -> V
         if seen.len() > 100000 {
             break;
         }
-        let Ok(guard) = db.pager.get(pn) else { continue };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else { continue };
+        let Ok(guard) = db.pager.get(pn) else {
+            continue;
+        };
+        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else {
+            continue;
+        };
         let Ok(t) = page.page_type() else { continue };
         if t.is_leaf() {
             continue;
@@ -74,8 +80,12 @@ fn walk_index_refs(
         if seen.len() > 100000 {
             break;
         }
-        let Ok(guard) = db.pager.get(pn) else { continue };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else { continue };
+        let Ok(guard) = db.pager.get(pn) else {
+            continue;
+        };
+        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else {
+            continue;
+        };
         let Ok(t) = page.page_type() else { continue };
         if t.is_leaf() {
             continue;
@@ -113,7 +123,7 @@ fn bisect_groups() {
     build_users(&path, 512, 20_000);
     let mut db = open_engine(&path);
     run_ok(&mut db, "create index age_index on users(age)");
-    let master = inkdb::SqliteMaster::new(&mut db.pager).unwrap();
+    let master = inkdb::Master::new(&mut db.pager).unwrap();
     let idx_root = master.indexes.values().next().unwrap().root_page;
     let check = |db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>| {
         let mut out = walk_table_refs(db);

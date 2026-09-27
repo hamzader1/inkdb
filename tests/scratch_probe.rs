@@ -55,7 +55,11 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
     }
     let mut multi: Vec<_> = counts.iter().filter(|(_, c)| **c > 1).collect();
     multi.sort_unstable();
-    eprintln!("walk: {} pages, {} multi-referenced", seen.len(), multi.len());
+    eprintln!(
+        "walk: {} pages, {} multi-referenced",
+        seen.len(),
+        multi.len()
+    );
     for (p, c) in multi.iter().take(10) {
         eprintln!("walk: page {p} x{c} parents={:?}", parents.get(p));
     }
@@ -78,7 +82,11 @@ fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32)
     let guard = db.pager.get(pp).unwrap();
     let page = BTreePage::new(pp, ps, us, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
-    eprintln!("dump parent {pp}: kind={:?} cells={n} rmp={:?}", page.page_type().unwrap(), page.right_most_ptr().unwrap());
+    eprintln!(
+        "dump parent {pp}: kind={:?} cells={n} rmp={:?}",
+        page.page_type().unwrap(),
+        page.right_most_ptr().unwrap()
+    );
     for i in 0..n {
         let cell = page.cell(i).unwrap();
         match &cell {
@@ -87,7 +95,10 @@ fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32)
                 eprintln!("dump slot {i}: left={} key={:?}", x.left_child, key);
             }
             BTreeCell::TableInterior(x) => {
-                eprintln!("dump slot {i}: left={} rowid={}", x.left_child, x.rowid_boundary);
+                eprintln!(
+                    "dump slot {i}: left={} rowid={}",
+                    x.left_child, x.rowid_boundary
+                );
             }
             _ => eprintln!("dump slot {i}: leaf?!"),
         }
@@ -101,10 +112,17 @@ fn dump_page_keys(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pn: u
     let guard = db.pager.get(pn).unwrap();
     let page = BTreePage::new(pn, ps, us, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
-    eprintln!("dump page {pn}: kind={:?} cells={n} rmp={:?}", page.page_type().unwrap(), page.right_most_ptr().unwrap());
+    eprintln!(
+        "dump page {pn}: kind={:?} cells={n} rmp={:?}",
+        page.page_type().unwrap(),
+        page.right_most_ptr().unwrap()
+    );
     for i in [0, n.saturating_sub(1)] {
         if let Ok(cell) = page.cell(i) {
-            eprintln!("dump page {pn} edge cell {i}: {:?}", page.record_of(&cell, &mut db.pager).unwrap().first());
+            eprintln!(
+                "dump page {pn} edge cell {i}: {:?}",
+                page.record_of(&cell, &mut db.pager).unwrap().first()
+            );
         }
     }
 }
@@ -116,7 +134,7 @@ fn probe(n: u64, tag: &str) {
     run_ok(&mut db, "create index age_index on users(age)");
     // Index root via the engine catalog (only one index exists).
     let root: u32 = {
-        let master = inkdb::SqliteMaster::new(&mut db.pager).unwrap();
+        let master = inkdb::Master::new(&mut db.pager).unwrap();
         master.indexes.values().next().unwrap().root_page
     };
     walk_refcounts(&mut db, root);

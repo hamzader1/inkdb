@@ -279,3 +279,73 @@ fn index_build_across_divider_width_growth() {
 
 //     cleanup(&path);
 // }
+
+#[test]
+fn mixed_case_table_names_keep_indexes_in_step() {
+    let path = fixture_4k("case");
+    let mut db = open_engine(&path);
+    run_ok(&mut db, "create index age_index on users(age)");
+    // Uppercase SELECT with a WHERE clause: the optimizer resolves the table
+    // by name before it can consider the index.
+    assert_eq!(
+        run_count(&mut db, "select * from USERS where age = 21"),
+        100
+    );
+    // Uppercase INSERT: the planner resolves which indexes to maintain.
+    run_ok(
+        &mut db,
+        "insert into USERS values ('case_row', 21, 1.5, 'dev')",
+    );
+    assert_eq!(
+        run_count(&mut db, "select * from users where age = 21"),
+        101
+    );
+    // Uppercase DELETE without WHERE: the index is wiped along with the table.
+    run_ok(&mut db, "delete from USERS");
+    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 0);
+    commit_and_close(db);
+    assert_eq!(sqlite_count(&path, "1 = 1"), 0);
+    assert_integrity_ok(&path);
+    cleanup(&path);
+}
+
+#[test]
+fn explain_prints_the_bound_predicate() {
+    let path = fixture_4k("explain");
+    let mut db = open_engine(&path);
+    run_ok(&mut db, "create index age_index on users(age)");
+    run_ok(&mut db, "explain select * from users where age = 21");
+    commit_and_close(db);
+    cleanup(&path);
+}
+
+#[test]
+fn arithmetic_never_panics_and_agrees_with_sqlite() {
+    let path = fixture_4k("arith");
+    let mut db = open_engine(&path);
+    assert_eq!(run_count(&mut db, "select name + 1 from users"), 4000);
+    assert_eq!(run_count(&mut db, "select age * 2 - 1 from users"), 4000);
+    let probes = [
+        "name + 1 = 1",
+        "name + name = 0",
+        "age + 9223372036854775807 > 0",
+        "age * 9223372036854775807 > 0",
+        "age - 9223372036854775807 < 0",
+        "age / 0 = 0",
+        "age / 0.0 = 0",
+        "age / 2.0 > 10",
+        "age + 0.5 > 19",
+        "-age = -20",
+        "-age < 0",
+    ];
+    for probe in probes {
+        assert_eq!(
+            run_count(&mut db, &format!("select * from users where {probe}")),
+            sqlite_count(&path, probe) as usize,
+            "{probe}"
+        );
+    }
+    commit_and_close(db);
+    assert_integrity_ok(&path);
+    cleanup(&path);
+}
