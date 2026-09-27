@@ -1,6 +1,6 @@
 use crate::Master;
 use crate::errors::SqliteError;
-use crate::schema::SQLITE_MASTER;
+use crate::schema::MASTER;
 
 use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;
@@ -10,7 +10,7 @@ use super::{Analyze, ResolvedCountQuery, ResolvedQuery, ResolvedSelectQuery};
 impl Analyze {
     pub fn analyze_select_stmt(
         select_stmt: SelectStmt,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> Result<ResolvedQuery, SqliteError> {
         let SelectStmt {
             table_name,
@@ -21,16 +21,12 @@ impl Analyze {
         } = select_stmt.clone();
 
         let table = {
-            if table_name == "sqlite_master" {
-                &*SQLITE_MASTER
+            if table_name == "master" {
+                &*MASTER
             } else {
-                Self::get_table(sqlite_master, &table_name)?
+                Self::get_table(master, &table_name)?
             }
         };
-        // if table.name == "sqlite_master" {
-        //     return Self::handle_sqlite_master_query(select_stmt, sqlite_master);
-        // }
-
         if columns.len() == 1
             && let Expr::Count { arg } = arena.nodes[columns[0]]
         {
@@ -52,7 +48,11 @@ impl Analyze {
                 limit,
             }));
         }
-        if arena.nodes.iter().any(|node| matches!(node, Expr::Count { .. })) {
+        if arena
+            .nodes
+            .iter()
+            .any(|node| matches!(node, Expr::Count { .. }))
+        {
             return Err(SqliteError::runtime(
                 "count() cannot be combined with other columns yet",
             ));
@@ -144,18 +144,4 @@ impl Analyze {
 
         Ok(ResolvedQuery::SelectQuery(stmt))
     }
-
-    // fn handle_sqlite_master_query(
-    //     select_stmt: SelectStmt,
-    //     sqlite_master: &SqliteMaster,
-    // ) -> SqliteResult<ResolvedQuery> {
-    //     sqlite_assert_with_runtime_err(
-    //         select_stmt.table_name == "sqlite_master",
-    //         &format!(
-    //             "sqlite_master_hanlder called with table {}",
-    //             select_stmt.table_name
-    //         ),
-    //     );
-    //     todo!()
-    // }
 }

@@ -7,9 +7,9 @@ use super::{Analyze, ResolvedQuery};
 impl Analyze {
     pub fn analyze_delete_stmt(
         mut stmt: DeleteStmt,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> SqliteResult<ResolvedQuery> {
-        let table = Self::get_table(sqlite_master, &stmt.table_name)?;
+        let table = Self::get_table(master, &stmt.table_name)?;
         if let Some(predicate) = stmt.where_clause {
             let arena = stmt
                 .arena

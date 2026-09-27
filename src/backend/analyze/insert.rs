@@ -8,7 +8,7 @@ use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 impl Analyze {
     pub fn analyze_insert_stmt(
         stmt: InsertStmt,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> Result<ResolvedQuery, SqliteError> {
         let InsertStmt {
             table_name,
@@ -16,10 +16,10 @@ impl Analyze {
             values,
         } = stmt;
 
-        sqlite_assert_with_runtime_err(!table_name.eq_ignore_ascii_case("sqlite_master"), || {
-            "table sqlite_master may not be modified".into()
+        sqlite_assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
+            "table master may not be modified".into()
         })?;
-        let table = Self::get_table(sqlite_master, &table_name)?;
+        let table = Self::get_table(master, &table_name)?;
         // case1: no columns (default for now)
 
         if columns.is_empty() {

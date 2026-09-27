@@ -8,9 +8,9 @@ use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 impl Analyze {
     pub(super) fn analyze_create_table_stmt(
         stmt: CreateTable,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> Result<ResolvedQuery, SqliteError> {
-        if Self::get_table(sqlite_master, &stmt.name).is_ok() {
+        if Self::get_table(master, &stmt.name).is_ok() {
             return Err(SqliteError::TableAlreadyExists(stmt.name));
         }
 
@@ -21,10 +21,10 @@ impl Analyze {
 
     pub fn analyze_create_index_stmt(
         stmt: CreateIndex,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> SqliteResult<ResolvedQuery> {
-        let relation = Self::get_table(sqlite_master, &stmt.table)?;
-        if sqlite_master.indexes.contains_key(&stmt.name) {
+        let relation = Self::get_table(master, &stmt.table)?;
+        if master.indexes.contains_key(&stmt.name) {
             return Err(SqliteError::runtime(format!(
                 "Index with name {} already exists",
                 stmt.name
