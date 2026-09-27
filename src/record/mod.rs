@@ -1,8 +1,10 @@
 pub mod arith;
 pub mod cmp;
+pub mod record;
 pub mod tuple;
 
 pub use arith::{TryAdd, TryDiv, TryMul, TrySub};
+pub use record::Record;
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -56,7 +58,6 @@ impl RecordMetadata {
         Self { serial_type, size }
     }
 }
-pub type RM = RecordMetadata;
 
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
