@@ -40,6 +40,7 @@ impl RollBackTransaction {
             return Err(SqliteError::NoActiveTransaction);
         }
         ctx.pager.rollback()?;
+        ctx.master.is_dirty = true;
         Ok(None)
     }
 }
