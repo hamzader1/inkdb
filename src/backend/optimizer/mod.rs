@@ -13,7 +13,7 @@ use crate::{Master, SqliteResult};
 
 pub fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,
-    sqlite_master: &Master,
+    master: &Master,
     table_name: &str,
     arena: &ExprArena,
     mode: ScanMode,
@@ -21,11 +21,11 @@ pub fn optimize_index_scan<V: Vfs>(
     let Plan::Filter(_) = plan else {
         return Ok(());
     };
-    let Some(relation) = sqlite_master.table(table_name) else {
+    let Some(relation) = master.table(table_name) else {
         return Ok(());
     };
     let mut optimizer = Optimizer {
-        sqlite_master,
+        master,
         relation,
         plan,
         arena,
@@ -38,7 +38,7 @@ pub fn optimize_index_scan<V: Vfs>(
 }
 
 struct Optimizer<'a, V: Vfs> {
-    sqlite_master: &'a Master,
+    master: &'a Master,
     relation: &'a crate::schema::Table,
     plan: &'a mut Plan<V>,
     arena: &'a ExprArena,
@@ -179,7 +179,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
             let col = self.relation.get_col_name(i).unwrap();
 
             let mut index_root_page = None;
-            for index in self.sqlite_master.indexes.values() {
+            for index in self.master.indexes.values() {
                 if index.is_on(&col.name, &self.relation.name) {
                     index_root_page = Some(index.root_page);
                     break;
@@ -270,6 +270,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Ok(Plan::IndexExactMatch(IndexExactMatch::new(
             index_root_page,
             self.relation.root_page,
+            self.relation.name.clone(),
             target,
             scan_guard,
         )?))
