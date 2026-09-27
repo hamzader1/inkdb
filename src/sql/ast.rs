@@ -44,6 +44,10 @@ pub enum Expr {
     Not(usize),
     Star,
 
+    Count {
+        arg: Option<usize>,
+    },
+
     BinaryOp {
         left: usize,
         op: BinaryOperator,
@@ -225,6 +229,8 @@ impl fmt::Display for Expr {
             Expr::Neg(expr) => write!(f, "-{expr}"),
             Expr::Not(expr) => write!(f, "NOT {expr}"),
             Expr::Star => write!(f, "*"),
+            Expr::Count { arg: Some(arg) } => write!(f, "count({arg})"),
+            Expr::Count { arg: None } => write!(f, "count(*)"),
 
             Expr::BinaryOp { left, op, right } => {
                 write!(f, "({left} {op} {right})")

@@ -299,7 +299,6 @@ impl<'a> Lexer<'a> {
                         "CHECK" => TokenKind::Check,
                         "DEFAULT" => TokenKind::Default,
                         "WITHOUT" => TokenKind::Without,
-                        "ROWID" => TokenKind::Rowid,
                         "ON" => TokenKind::On,
                         "DELETE" => TokenKind::Delete,
                         "UPDATE" => TokenKind::Update,

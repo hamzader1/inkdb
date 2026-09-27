@@ -109,8 +109,16 @@ impl Parser {
             return Ok(expr);
         }
 
+        if let Some(Identifier(name)) = self.peek() {
+            let name = name.clone();
+            self.next_token();
+            if self.at(LeftParen) {
+                return self.parse_function(&name);
+            }
+            return Ok(self.arena.push(Expr::Identifier(name)));
+        }
+
         let expr = match self.peek() {
-            Some(Identifier(x)) => self.arena.push(Expr::Identifier(x.clone())),
             Some(String(x)) => self.arena.push(Expr::StringLitteral(x.clone())),
             Some(NumberVar(x)) => self.arena.push(Expr::Number(*x)),
             Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
@@ -129,5 +137,19 @@ impl Parser {
         };
         self.next_token();
         Ok(expr)
+    }
+
+    fn parse_function(&mut self, name: &str) -> Result<usize, SqliteError> {
+        self.expect(LeftParen)?;
+        if name.eq_ignore_ascii_case("count") {
+            let arg = if self.eat(Star) {
+                None
+            } else {
+                Some(self.parse_expression()?)
+            };
+            self.expect(RightParen)?;
+            return Ok(self.arena.push(Expr::Count { arg }));
+        }
+        Err(SqliteError::runtime(format!("unknown function: {name}")))
     }
 }
