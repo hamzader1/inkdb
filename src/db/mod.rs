@@ -75,7 +75,7 @@ impl<V: crate::vfs::Vfs> Database<V> {
         let plan = Plan::create_plan(resolved_query, &mut self.pager, &self.master)?;
         Ok(Statement {
             pager: &mut self.pager,
-            sqlite_master: &mut self.master,
+            master: &mut self.master,
             stmt: plan,
         })
     }
@@ -84,13 +84,13 @@ impl<V: crate::vfs::Vfs> Database<V> {
 #[derive(Debug)]
 pub struct Statement<'a, V: Vfs> {
     pager: &'a mut Pager<V>,
-    sqlite_master: &'a mut Master,
+    master: &'a mut Master,
     stmt: PreparedPlan<V>,
 }
 impl<'a, V: Vfs> Statement<'a, V> {
-    pub(crate) fn rows(&'a mut self) -> impl Iterator<Item = Result<Row, SqliteError>> + 'a {
+    pub fn rows(&'a mut self) -> impl Iterator<Item = Result<Row, SqliteError>> + 'a {
         std::iter::from_fn(
-            move || match self.stmt.next(self.pager, self.sqlite_master) {
+            move || match self.stmt.next(self.pager, self.master) {
                 Ok(Some(row)) => Some(Ok(row)),
                 Ok(None) => None,
                 Err(e) => Some(Err(e)),
