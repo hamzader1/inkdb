@@ -1,11 +1,13 @@
+pub mod arith;
 pub mod cmp;
 pub mod tuple;
+
+pub use arith::{TryAdd, TryDiv, TryMul, TrySub};
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use crate::errors::SqliteError;
-use std::ops::{Add, Div, Mul, Sub};
 #[rustfmt::skip]
 pub const I8_MASK:  i64 = 0x0000_0000_0000_007F;
 pub const I16_MASK: i64 = 0x0000_0000_0000_7FFF;
@@ -164,81 +166,6 @@ impl<'a> Value<'a> {
             Value::Float(n) => Ok(*n),
             Value::Integer(n) => Ok(*n as f64),
             other => Err(SqliteError::type_conversion("REAL", other.type_name())),
-        }
-    }
-}
-
-impl<'a> Add for Value<'a> {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self {
-        match (self, rhs) {
-            (Self::Integer(a), Self::Integer(b)) => Self::Integer(a + b),
-            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 + b),
-            (Self::Float(a), Self::Integer(b)) => Self::Float(a + b as f64),
-            (Self::Float(a), Self::Float(b)) => Self::Float(a + b),
-
-            (Self::Null, _) | (_, Self::Null) => Self::Null,
-
-            (a, b) => panic!("cannot add {a:?} and {b:?}"),
-        }
-    }
-}
-
-impl<'a> Sub for Value<'a> {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self {
-        match (self, rhs) {
-            (Self::Integer(a), Self::Integer(b)) => Self::Integer(a - b),
-            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 - b),
-            (Self::Float(a), Self::Integer(b)) => Self::Float(a - b as f64),
-            (Self::Float(a), Self::Float(b)) => Self::Float(a - b),
-
-            (Self::Null, _) | (_, Self::Null) => Self::Null,
-
-            (a, b) => panic!("cannot subtract {b:?} from {a:?}"),
-        }
-    }
-}
-
-impl<'a> Mul for Value<'a> {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self {
-        match (self, rhs) {
-            (Self::Integer(a), Self::Integer(b)) => Self::Integer(a * b),
-            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 * b),
-            (Self::Float(a), Self::Integer(b)) => Self::Float(a * b as f64),
-            (Self::Float(a), Self::Float(b)) => Self::Float(a * b),
-
-            (Self::Null, _) | (_, Self::Null) => Self::Null,
-
-            (a, b) => panic!("cannot multiply {a:?} and {b:?}"),
-        }
-    }
-}
-
-impl<'a> Div for Value<'a> {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self {
-        match (self, rhs) {
-            (Self::Integer(a), Self::Integer(b)) => {
-                if b == 0 {
-                    return Self::Null;
-                }
-
-                Self::Integer(a / b)
-            }
-
-            (Self::Integer(a), Self::Float(b)) => Self::Float(a as f64 / b),
-            (Self::Float(a), Self::Integer(b)) => Self::Float(a / b as f64),
-            (Self::Float(a), Self::Float(b)) => Self::Float(a / b),
-
-            (Self::Null, _) | (_, Self::Null) => Self::Null,
-
-            (a, b) => panic!("cannot divide {a:?} by {b:?}"),
         }
     }
 }
