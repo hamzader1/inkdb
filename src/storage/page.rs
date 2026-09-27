@@ -519,6 +519,26 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             self.decode_loop_borrowed(&self.bytes()[cell.payload_range()], collector)
         }
     }
+    pub fn get_cell_record_bytes<V: Vfs, C>(
+        &self,
+        cell: &C,
+        pager: &mut Pager<V>,
+    ) -> SqliteResult<Vec<u8>>
+    where
+        C: HasPayload,
+    {
+        match cell.overflow_page() {
+            Some(overflow_page) => OverflowPageRef::get_total_payload(
+                pager,
+                &self.bytes()[cell.payload_range()],
+                cell.payload_len() as usize,
+                self.usable_size,
+                overflow_page,
+            ),
+            None => Ok(self.bytes()[cell.payload_range()].to_vec()),
+        }
+    }
+
     fn decode_loop_owned(
         &self,
         bytes: Vec<u8>,
@@ -530,7 +550,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
-            let record_metadata = Tuple::content_size(serial_type);
+            let record_metadata = Tuple::content_meta(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
             let decoded = decode_sqltype(data, &record_metadata);
             collector.push(into_owned(decoded));
@@ -549,7 +569,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
-            let record_metadata = Tuple::content_size(serial_type);
+            let record_metadata = Tuple::content_meta(serial_type);
             let data = data_cursor.read_to(record_metadata.size as _)?;
             let decoded = decode_sqltype(data, &record_metadata);
             collector.push(into_borrowed(decoded));
