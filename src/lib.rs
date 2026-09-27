@@ -9,7 +9,7 @@ pub mod record;
 mod schema;
 pub mod shell;
 pub mod sql;
-pub use schema::SqliteMaster;
+pub use schema::Master;
 pub mod errors;
 
 mod macros;

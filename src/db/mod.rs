@@ -2,7 +2,7 @@ use crate::backend::analyze::Analyze;
 use crate::backend::executor::{Row, RowWrapper};
 use crate::backend::planner::plan::Plan;
 use crate::backend::planner::prepared_plan::PreparedPlan;
-use crate::{SqliteMaster, SqliteResult};
+use crate::{Master, SqliteResult};
 // use crate::pager::pager::Pager;
 // use crate::vfs::disk::DiskVfs;
 use crate::errors::SqliteError;
@@ -22,7 +22,7 @@ use crate::vfs::disk::{DiskFile, DiskVfs};
 
 pub struct Database<V: crate::vfs::Vfs> {
     pub pager: Pager<V>,
-    pub sqlite_master: SqliteMaster,
+    pub master: Master,
     header: SqliteDatabaseHeader,
 }
 
@@ -42,10 +42,10 @@ impl<V: crate::vfs::Vfs> Database<V> {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
         let mut pager = Pager::new(vfs, source, HeaderCache::from(header))?;
-        let mut sqlite_master = SqliteMaster::new(&mut pager)?;
+        let mut master = Master::new(&mut pager)?;
         Ok(Self {
             pager,
-            sqlite_master,
+            master,
             header,
         })
     }
@@ -57,10 +57,10 @@ impl<V: crate::vfs::Vfs> Database<V> {
         let source = vfs.open(path, SqliteOptions::default())?;
         let header = SqliteDatabaseHeader::parse(&source)?;
         let mut pager = Pager::new(vfs, source, HeaderCache::from(header))?;
-        let mut sqlite_master = SqliteMaster::new(&mut pager)?;
+        let mut master = Master::new(&mut pager)?;
         Ok(Self {
             pager,
-            sqlite_master,
+            master,
             header,
         })
     }
@@ -68,14 +68,14 @@ impl<V: crate::vfs::Vfs> Database<V> {
         let query: Rc<str> = Rc::from(query);
         let lexer = Lexer::tokenize(&query)?;
         let res = Parser::parse(Rc::clone(&query), lexer)?;
-        if self.sqlite_master.is_dirty {
-            self.sqlite_master.parse(&mut self.pager)?;
+        if self.master.is_dirty {
+            self.master.parse(&mut self.pager)?;
         }
-        let resolved_query = Analyze::analyze(res, &self.sqlite_master)?;
-        let plan = Plan::create_plan(resolved_query, &mut self.pager, &self.sqlite_master)?;
+        let resolved_query = Analyze::analyze(res, &self.master)?;
+        let plan = Plan::create_plan(resolved_query, &mut self.pager, &self.master)?;
         Ok(Statement {
             pager: &mut self.pager,
-            sqlite_master: &mut self.sqlite_master,
+            sqlite_master: &mut self.master,
             stmt: plan,
         })
     }
@@ -84,7 +84,7 @@ impl<V: crate::vfs::Vfs> Database<V> {
 #[derive(Debug)]
 pub struct Statement<'a, V: Vfs> {
     pager: &'a mut Pager<V>,
-    sqlite_master: &'a mut SqliteMaster,
+    sqlite_master: &'a mut Master,
     stmt: PreparedPlan<V>,
 }
 impl<'a, V: Vfs> Statement<'a, V> {

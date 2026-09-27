@@ -1,4 +1,4 @@
-use crate::SqliteMaster;
+use crate::Master;
 use crate::backend::executor::Row;
 use crate::backend::executor::context::ExecCtx;
 use crate::errors::SqliteError;
@@ -20,7 +20,7 @@ impl<V: Vfs> PreparedPlan<V> {
     pub fn next(
         &mut self,
         pager: &mut Pager<V>,
-        master: &mut SqliteMaster,
+        master: &mut Master,
     ) -> Result<Option<Row>, SqliteError> {
         if pager.start_transaction() {
             let parent_res = {

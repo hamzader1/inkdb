@@ -3,11 +3,12 @@ use self::Plan::Halt;
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
 use crate::backend::analyze::{
-    ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedInsertQuery, ResolvedQuery,
-    ResolvedSelectQuery,
+    ResolvedCountQuery, ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedInsertQuery,
+    ResolvedQuery, ResolvedSelectQuery,
 };
 use crate::backend::executor::Row;
 use crate::backend::executor::context::ExecCtx;
+use crate::backend::executor::aggregate::Count;
 use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
@@ -28,12 +29,13 @@ use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
-use crate::{SqliteMaster, SqliteResult};
+use crate::{Master, SqliteResult};
 
 #[derive(Debug)]
 pub enum Plan<V: Vfs> {
     TableScan(TableScan<V>),
     Filter(Filter<V>),
+    Count(Count<V>),
     Limit(Limit<V>),
     Project(Project<V>),
     Insert(Insert<'static, V>),
@@ -57,6 +59,7 @@ impl<V: Vfs> Plan<V> {
     pub fn children(&self) -> Vec<&Plan<V>> {
         match self {
             Plan::Filter(f) => vec![f.child()],
+            Plan::Count(c) => vec![c.child()],
             Plan::Limit(l) => vec![l.child()],
             Plan::Project(p) => vec![p.child()],
             Plan::Delete(d) => vec![d.child()],
@@ -104,10 +107,11 @@ impl<V: Vfs> Plan<V> {
     pub fn create_plan(
         resolved_query: ResolvedQuery,
         pager: &mut Pager<V>,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         match resolved_query {
             ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, sqlite_master),
+            ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, sqlite_master),
             ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, sqlite_master),
             ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, sqlite_master),
             ResolvedQuery::CreateTableQuery(stmt) => Ok(PreparedPlan::new(
@@ -146,7 +150,7 @@ impl<V: Vfs> Plan<V> {
 
     fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         let mode = ScanMode::Stable;
         let mut child = Self::TableScan(TableScan::new(
@@ -181,9 +185,42 @@ impl<V: Vfs> Plan<V> {
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
+    fn init_count_plan(
+        resolved_query: ResolvedCountQuery,
+        sqlite_master: &Master,
+    ) -> SqliteResult<PreparedPlan<V>> {
+        let mode = ScanMode::Stable;
+        let mut child = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            mode,
+            resolved_query.table_name.clone(),
+        )?);
+        if let Some(predicate) = resolved_query.where_clause {
+            child = Self::Filter(Filter::new(Box::new(child), predicate));
+            optimize_index_scan(
+                &mut child,
+                sqlite_master,
+                &resolved_query.table_name,
+                &resolved_query.arena,
+                mode,
+            )?;
+            if let Plan::Filter(filter) = &mut child
+                && let Plan::TableScan(scan) = filter.child_mut()
+            {
+                scan.set_predicate(predicate);
+            }
+        }
+        let mut parent = Self::Count(Count::new(Box::new(child), resolved_query.arg));
+        if let Some(limit_expr) = resolved_query.limit {
+            let limit = Eval::eval(&resolved_query.arena, limit_expr, None)?.cast_int()? as usize;
+            parent = Self::Limit(Limit::new(Box::new(parent), limit));
+        }
+        Ok(PreparedPlan::new(parent, resolved_query.arena))
+    }
+
     fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         let mut plan = Plan::PrepareRow(PrepareRow::new(
             None,
@@ -208,7 +245,7 @@ impl<V: Vfs> Plan<V> {
 
     fn init_delete_plan(
         mut resolved_query: ResolvedDeleteQuery,
-        sqlite_master: &SqliteMaster,
+        sqlite_master: &Master,
     ) -> SqliteResult<PreparedPlan<V>> {
         let mode = ScanMode::Volatile;
         let arena = resolved_query.arena.take().unwrap_or_default();
@@ -254,6 +291,7 @@ impl<V: Vfs> Plan<V> {
         match self {
             Self::TableScan(t) => t.next(ctx),
             Self::Filter(f) => f.next(ctx),
+            Self::Count(c) => c.next(ctx),
             Self::Limit(l) => l.next(ctx),
             Self::Project(p) => p.next(ctx),
             Self::Insert(i) => i.next(ctx),
@@ -284,6 +322,10 @@ impl<V: Vfs> Plan<V> {
             Self::Filter(f) => match arena.nodes.get(f.predicate()) {
                 Some(expr) => format!("Filter [{expr:?}]"),
                 None => format!("Filter [pred: {}]", f.predicate()),
+            },
+            Self::Count(c) => match c.arg() {
+                Some(arg) => format!("Count [count(expr {arg})]"),
+                None => "Count [count(*)]".into(),
             },
             Self::Limit(l) => format!("Limit [limit: {}]", l.limit),
             Self::Insert(i) => format!(
@@ -333,7 +375,7 @@ impl<V: Vfs> Plan<V> {
     }
 }
 
-fn index_roots(sqlite_master: &SqliteMaster, table_name: &str) -> SqliteResult<Vec<u32>> {
+fn index_roots(sqlite_master: &Master, table_name: &str) -> SqliteResult<Vec<u32>> {
     Ok(sqlite_master
         .indexes_on(table_name)?
         .into_iter()

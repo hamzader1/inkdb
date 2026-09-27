@@ -107,13 +107,13 @@ impl Index {
 }
 
 #[derive(Debug)]
-pub struct SqliteMaster {
+pub struct Master {
     pub tables: HashMap<String, Table>,
     pub indexes: HashMap<String, Index>,
     pub is_dirty: bool,
 }
 
-impl SqliteMaster {
+impl Master {
     pub fn new<V: crate::vfs::Vfs>(pager: &mut Pager<V>) -> Result<Self, SqliteError> {
         let mut sqlite_master = Self {
             tables: HashMap::new(),
