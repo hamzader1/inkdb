@@ -4,6 +4,7 @@ use crate::errors::SqliteError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
+use crate::record::tuple::Tuple;
 use crate::storage::btree::{CellIndex, compare_index_entry, page_as_ref_with_pager};
 use crate::storage::page::PageRef;
 use crate::vfs::Vfs;
@@ -556,6 +557,34 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         };
         Ok(collected.map(|record| record.into_iter().map(|v| v.to_owned_static()).collect()))
     }
+    pub fn current_record_bytes(
+        &self,
+        pager: &mut Pager<V>,
+    ) -> Result<Option<Vec<u8>>, SqliteError> {
+        let Some(path) = self.stack.last() else {
+            return Ok(None);
+        };
+        let any = AnyPage::parse(
+            path.page_no,
+            pager.page_size(),
+            pager.usable_size(),
+            path.guard.bytes(),
+        )?;
+        if path.cell_idx >= any.no_of_cells()? {
+            return Ok(None);
+        }
+        let i = path.cell_idx;
+        Ok(match &any {
+            AnyPage::TableLeaf(p) => Some(p.get_cell_record_bytes(&p.cell(i)?, pager)?),
+            AnyPage::IndexLeaf(p) => Some(p.get_cell_record_bytes(&p.cell(i)?, pager)?),
+            AnyPage::IndexInterior(p) => Some(p.get_cell_record_bytes(&p.cell(i)?, pager)?),
+            AnyPage::TableInterior(p) => {
+                let cell = p.cell(i)?;
+                Some(Tuple::serialize(&[Value::Integer(cell.row_id() as i64)]))
+            }
+        })
+    }
+
     fn with_page<T, FN>(pager: &mut Pager<V>, page_no: PageNo, f: FN) -> Result<T, SqliteError>
     where
         FN: for<'a> FnOnce(&'a PageRef<'a>) -> Result<T, SqliteError>,
