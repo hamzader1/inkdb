@@ -161,17 +161,17 @@ impl Parser {
             Some(Explain) => {
                 self.expect(Explain)?;
                 let query = self.parse_statement()?;
-                Ok(ExplainStmtAst(ExplainStmt{
-                    query: Box::new(query)
+                Ok(ExplainStmtAst(ExplainStmt {
+                    query: Box::new(query),
                 }))
-            },
+            }
             Some(Select) => self.parse_select(),
             Some(Insert) => self.parse_insert(),
             Some(Delete) => self.parse_delete(),
             Some(Begin) => {
                 self.eat(Begin);
                 Ok(Ast::BeginTransaction)
-            },
+            }
             Some(Commit) => {
                 self.eat(Commit);
                 Ok(Ast::CommitTransaction)
@@ -181,7 +181,7 @@ impl Parser {
                 Ok(Ast::RollbackTransaction)
             }
             _ => Err(SqliteError::Unsupported(
-                "this statement type is not supported yet (only SELECT, INSERT, DELETE, CREATE TABLE and BEGIN/COMMIT/ROLLBACK)".into(),
+                "this statement type is not supported yet ".into(),
             )),
         }
     }
