@@ -4,28 +4,29 @@ use super::*;
 
 pub struct Tuple;
 impl Tuple {
-    pub fn content_size(serial_type: u64) -> RecordMetadata {
+    pub fn content_meta(serial_type: u64) -> RecordMetadata {
+        /*
+         * SerialType and Size
+         */
+        let f = |st, sz| RecordMetadata::new(st, sz);
         match serial_type {
-            0 => RM::new(SERIAL_NULL, 0),
-            1 => RM::new(SERIAL_INT8, 1),
-            2 => RM::new(SERIAL_INT16, 2),
-            3 => RM::new(SERIAL_INT24, 3),
-            4 => RM::new(SERIAL_INT32, 4),
-            5 => RM::new(SERIAL_INT48, 6),
-            6 => RM::new(SERIAL_INT64, 8),
-            7 => RM::new(SERIAL_FLOAT64, 8),
-            8 => RM::new(SERIAL_INT0, 0),
-            9 => RM::new(SERIAL_INT1, 0),
-
+            0 => f(SERIAL_NULL, 0),
+            1 => f(SERIAL_INT8, 1),
+            2 => f(SERIAL_INT16, 2),
+            3 => f(SERIAL_INT24, 3),
+            4 => f(SERIAL_INT32, 4),
+            5 => f(SERIAL_INT48, 6),
+            6 => f(SERIAL_INT64, 8),
+            7 => f(SERIAL_FLOAT64, 8),
+            8 => f(SERIAL_INT0, 0),
+            9 => f(SERIAL_INT1, 0),
+            /*todo: remove this later*/
             // 10 and 11 are reserved.
             10 | 11 => unreachable!(),
-
             // BLOB
-            n if n >= 12 && n % 2 == 0 => RM::new(SERIAL_BLOB_MIN, ((n - 12) / 2) as usize),
-
+            n if n >= 12 && n % 2 == 0 => f(SERIAL_BLOB_MIN, ((n - 12) / 2) as usize),
             // TEXT
-            n if n >= 13 && n % 2 == 1 => RM::new(SERIAL_TEXT_MIN, ((n - 13) / 2) as usize),
-
+            n if n >= 13 && n % 2 == 1 => f(SERIAL_TEXT_MIN, ((n - 13) / 2) as usize),
             _ => unreachable!(),
         }
     }
@@ -99,61 +100,50 @@ pub enum DecodedValue<'a> {
     Text(&'a str),
 }
 
-pub fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RM) -> DecodedValue<'a> {
+pub fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RecordMetadata) -> DecodedValue<'a> {
     let mut buf = [0u8; 8];
 
     match record_metadata.serial_type {
         0 => DecodedValue::Null,
-
         1 => {
             buf[7..8].copy_from_slice(bytes);
             DecodedValue::Integer(i64::from_be_bytes(buf))
         }
-
         2 => {
             buf[6..8].copy_from_slice(bytes);
             DecodedValue::Integer(i64::from_be_bytes(buf))
         }
-
         3 => {
             buf[5..8].copy_from_slice(bytes);
             DecodedValue::Integer(i64::from_be_bytes(buf))
         }
-
         4 => {
             buf[4..8].copy_from_slice(bytes);
             DecodedValue::Integer(i64::from_be_bytes(buf))
         }
-
         5 => {
             buf[2..8].copy_from_slice(bytes);
             DecodedValue::Integer(i64::from_be_bytes(buf))
         }
-
         6 => {
             buf.copy_from_slice(bytes);
             DecodedValue::Integer(i64::from_be_bytes(buf))
         }
-
         7 => {
             let float = f64::from_be_bytes(bytes.try_into().unwrap());
             DecodedValue::Float(float)
         }
-
         8 => DecodedValue::Integer(0),
         9 => DecodedValue::Integer(1),
-
         12 => DecodedValue::Blob(bytes),
-
         13 => {
             let text = str::from_utf8(bytes).expect("Error while parsing string from the bytes");
-
             DecodedValue::Text(text)
         }
-
         _ => unreachable!(),
     }
 }
+
 pub fn into_borrowed<'a>(value: DecodedValue<'a>) -> Value<'a> {
     match value {
         DecodedValue::Null => Value::Null,
@@ -173,6 +163,10 @@ pub fn into_owned(value: DecodedValue<'_>) -> Value<'static> {
         DecodedValue::Text(v) => Value::Text(Cow::Owned(v.to_owned())),
     }
 }
+
+/*
+ * Optimize this by using copy_within.
+ */
 
 impl Tuple {
     pub fn serialize(values: &[Value]) -> Vec<u8> {
