@@ -149,7 +149,11 @@ impl<V: Vfs> Plan<V> {
         sqlite_master: &SqliteMaster,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         let mode = ScanMode::Stable;
-        let mut child = Self::TableScan(TableScan::new(resolved_query.root_page, mode)?);
+        let mut child = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            mode,
+            resolved_query.table_name.clone(),
+        )?);
         if let Some(predicate) = resolved_query.where_clause {
             child = Self::Filter(Filter::new(Box::new(child), predicate));
             optimize_index_scan(
@@ -208,7 +212,11 @@ impl<V: Vfs> Plan<V> {
     ) -> SqliteResult<PreparedPlan<V>> {
         let mode = ScanMode::Volatile;
         let arena = resolved_query.arena.take().unwrap_or_default();
-        let mut parent = Self::TableScan(TableScan::new(resolved_query.root_page, mode)?);
+        let mut parent = Self::TableScan(TableScan::new(
+            resolved_query.root_page,
+            mode,
+            resolved_query.table_name.clone(),
+        )?);
         if let Some(predicate) = resolved_query.where_clause {
             parent = Self::Filter(Filter::new(Box::new(parent), predicate));
             optimize_index_scan(
@@ -234,6 +242,7 @@ impl<V: Vfs> Plan<V> {
         let child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
             ScanMode::Stable,
+            resolved_query.relation_name.clone(),
         )?);
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
         Ok(PreparedPlan::new(parent, ExprArena::new()))

@@ -4,7 +4,6 @@
 pub mod backend;
 mod bytes;
 pub mod db;
-pub mod debug;
 use crate::db::header::SqliteDatabaseHeader;
 pub mod record;
 mod schema;

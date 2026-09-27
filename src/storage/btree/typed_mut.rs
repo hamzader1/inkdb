@@ -84,9 +84,9 @@ pub(crate) fn parse_ref<'b, K: PageKind, V: Vfs>(
     )?;
     if page.page_type()?.as_byte() != K::BYTE {
         return Err(SqliteError::Corrupt(CorruptError::UnexpectedPageKind {
-                page: page_no,
-                expected: kind_name::<K>(),
-            }));
+            page: page_no,
+            expected: kind_name::<K>(),
+        }));
     }
     Ok(TypedPage::wrap(page))
 }

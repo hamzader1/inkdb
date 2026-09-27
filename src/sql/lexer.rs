@@ -452,9 +452,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let invalid = |end| {
-            SqliteError::syntax(SyntaxErrorKind::InvalidNumber, Span(start, end))
-        };
+        let invalid = |end| SqliteError::syntax(SyntaxErrorKind::InvalidNumber, Span(start, end));
         if is_float {
             number
                 .parse::<f64>()
