@@ -26,8 +26,8 @@ pub struct Table {
 
 use std::sync::LazyLock;
 
-pub static SQLITE_MASTER: LazyLock<Table> = LazyLock::new(|| Table {
-    name: "sqlite_master".to_string(),
+pub static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
+    name: "master".to_string(),
     root_page: 1,
     columns: vec![
         Column {
@@ -115,16 +115,20 @@ pub struct Master {
 
 impl Master {
     pub fn new<V: crate::vfs::Vfs>(pager: &mut Pager<V>) -> Result<Self, SqliteError> {
-        let mut sqlite_master = Self {
+        let mut master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),
             is_dirty: false,
         };
-        sqlite_master.parse(pager)?;
-        Ok(sqlite_master)
+        master.parse(pager)?;
+        Ok(master)
     }
 
     pub fn parse<V: Vfs>(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+        /*
+         * Clearing indexes & tables in case master table was dirty and
+         * needs to fetch the new update from disk
+         */
         self.indexes.clear();
         self.tables.clear();
         let mut btree_cursor = BTreeCursor::new(1);
@@ -133,7 +137,7 @@ impl Master {
             self.parse_record(&record)?;
             btree_cursor.next(pager)?;
         }
-        self.is_dirty = false; // we just got the latest update
+        self.is_dirty = false; /* we just got the latest update */
         Ok(())
     }
     pub fn table(&self, table_name: &str) -> Option<&Table> {
