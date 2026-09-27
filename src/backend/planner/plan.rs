@@ -7,8 +7,8 @@ use crate::backend::analyze::{
     ResolvedQuery, ResolvedSelectQuery,
 };
 use crate::backend::executor::Row;
-use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::aggregate::Count;
+use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
 use crate::backend::executor::eval::Eval;
@@ -27,6 +27,7 @@ use crate::backend::executor::truncate::TruncateTable;
 use crate::backend::optimizer::optimize_index_scan;
 use crate::errors::SqliteError;
 use crate::pager::pager::Pager;
+use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{Master, SqliteResult};
@@ -107,13 +108,13 @@ impl<V: Vfs> Plan<V> {
     pub fn create_plan(
         resolved_query: ResolvedQuery,
         pager: &mut Pager<V>,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         match resolved_query {
-            ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, sqlite_master),
-            ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, sqlite_master),
-            ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, sqlite_master),
-            ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, sqlite_master),
+            ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, master),
+            ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, master),
+            ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, master),
+            ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, master),
             ResolvedQuery::CreateTableQuery(stmt) => Ok(PreparedPlan::new(
                 Plan::CreateTable(CreateTable::new(stmt)),
                 ExprArena::new(),
@@ -131,7 +132,7 @@ impl<V: Vfs> Plan<V> {
                 ExprArena::new(),
             )),
             ResolvedQuery::TruncateTable(stmt) => {
-                let indexes = index_roots(sqlite_master, &stmt.table_name)?;
+                let indexes = index_roots(master, &stmt.table_name)?;
                 Ok(PreparedPlan::new(
                     Plan::TruncateTable(TruncateTable::new(stmt.root_page, indexes)),
                     ExprArena::new(),
@@ -139,7 +140,7 @@ impl<V: Vfs> Plan<V> {
             }
             ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
             ResolvedQuery::ExplainQuery(stmt) => {
-                let inner = Self::create_plan(*stmt.query, pager, sqlite_master)?;
+                let inner = Self::create_plan(*stmt.query, pager, master)?;
                 Ok(PreparedPlan::new(
                     Plan::Explain(Explain::new(Box::new(inner.parent))),
                     inner.arena,
@@ -150,7 +151,7 @@ impl<V: Vfs> Plan<V> {
 
     fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         let mode = ScanMode::Stable;
         let mut child = Self::TableScan(TableScan::new(
@@ -162,7 +163,7 @@ impl<V: Vfs> Plan<V> {
             child = Self::Filter(Filter::new(Box::new(child), predicate));
             optimize_index_scan(
                 &mut child,
-                sqlite_master,
+                master,
                 &resolved_query.table_name,
                 &resolved_query.arena,
                 mode,
@@ -177,17 +178,31 @@ impl<V: Vfs> Plan<V> {
             let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;
             child = Self::Limit(Limit::new(Box::new(child), limit));
         }
-        let parent = Self::Project(Project::new(
-            Box::new(child),
-            resolved_query.columns.clone(),
-        ));
+        /*
+         * Optimization: skip the projection when it is an identity projection
+         * (all relation columns are selected in their original order).
+         * Relation t: (C0, C1, C2)
+         * Query on t: (Ci..Ck+i where k <= i<= Rmax)
+         */
+        let columns = resolved_query.columns.clone();
+        let identity = master.table(&resolved_query.table_name).is_some_and(|table| {
+            columns.len() == table.get_cols_len()
+                && columns.iter().enumerate().all(|(position, node)| {
+                    matches!(resolved_query.arena.nodes[*node], Expr::ColumnRef(column) if column == position)
+                })
+        });
+        let parent = if identity {
+            child
+        } else {
+            Self::Project(Project::new(Box::new(child), columns))
+        };
 
         Ok(PreparedPlan::new(parent, resolved_query.arena))
     }
 
     fn init_count_plan(
         resolved_query: ResolvedCountQuery,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> SqliteResult<PreparedPlan<V>> {
         let mode = ScanMode::Stable;
         let mut child = Self::TableScan(TableScan::new(
@@ -199,7 +214,7 @@ impl<V: Vfs> Plan<V> {
             child = Self::Filter(Filter::new(Box::new(child), predicate));
             optimize_index_scan(
                 &mut child,
-                sqlite_master,
+                master,
                 &resolved_query.table_name,
                 &resolved_query.arena,
                 mode,
@@ -220,7 +235,7 @@ impl<V: Vfs> Plan<V> {
 
     fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> Result<PreparedPlan<V>, SqliteError> {
         let mut plan = Plan::PrepareRow(PrepareRow::new(
             None,
@@ -228,7 +243,7 @@ impl<V: Vfs> Plan<V> {
             resolved_query.values,
             None,
         ));
-        for index in sqlite_master.indexes_on(&resolved_query.table_name)? {
+        for index in master.indexes_on(&resolved_query.table_name)? {
             let prepare = PrepareIndex::new(
                 index,
                 Box::new(IndexInsert {
@@ -245,7 +260,7 @@ impl<V: Vfs> Plan<V> {
 
     fn init_delete_plan(
         mut resolved_query: ResolvedDeleteQuery,
-        sqlite_master: &Master,
+        master: &Master,
     ) -> SqliteResult<PreparedPlan<V>> {
         let mode = ScanMode::Volatile;
         let arena = resolved_query.arena.take().unwrap_or_default();
@@ -258,14 +273,14 @@ impl<V: Vfs> Plan<V> {
             parent = Self::Filter(Filter::new(Box::new(parent), predicate));
             optimize_index_scan(
                 &mut parent,
-                sqlite_master,
+                master,
                 &resolved_query.table_name,
                 &arena,
                 mode,
             )?;
         }
 
-        for index in sqlite_master.indexes_on(&resolved_query.table_name)? {
+        for index in master.indexes_on(&resolved_query.table_name)? {
             let prepare = PrepareIndex::new(index, Box::new(IndexDelete), Box::new(parent));
             parent = Plan::PrepareIndex(prepare);
         }
@@ -375,8 +390,8 @@ impl<V: Vfs> Plan<V> {
     }
 }
 
-fn index_roots(sqlite_master: &Master, table_name: &str) -> SqliteResult<Vec<u32>> {
-    Ok(sqlite_master
+fn index_roots(master: &Master, table_name: &str) -> SqliteResult<Vec<u32>> {
+    Ok(master
         .indexes_on(table_name)?
         .into_iter()
         .map(|index| index.index_root_page)
