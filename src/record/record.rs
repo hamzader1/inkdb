@@ -1,0 +1,303 @@
+use std::borrow::Cow;
+
+use crate::SqliteResult;
+use crate::errors::CorruptError;
+use crate::varint::decode_varint;
+
+use super::tuple::{Tuple, decode_sqltype, into_borrowed};
+use super::{SERIAL_BLOB_MIN, SERIAL_TEXT_MIN, Value};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Record<'a> {
+    bytes: &'a [u8],
+    header_len: usize,
+    first_serial_type: usize,
+    fields: usize,
+}
+
+impl<'a> Record<'a> {
+    pub fn new(bytes: &'a [u8]) -> SqliteResult<Self> {
+        let (header_len, consumed) = decode_varint(bytes).ok_or(CorruptError::RecordHeader {
+            claimed: 0,
+            len: bytes.len(),
+        })?;
+        let header_len = header_len as usize;
+        if header_len > bytes.len() || header_len < consumed {
+            return Err(CorruptError::RecordHeader {
+                claimed: header_len,
+                len: bytes.len(),
+            }
+            .into());
+        }
+        let mut field = 0;
+        let mut pos = consumed;
+        let mut payload_len = 0;
+        while pos < header_len {
+            let (serial_type, used) =
+                decode_varint(&bytes[pos..]).ok_or(CorruptError::RecordHeader {
+                    claimed: header_len,
+                    len: bytes.len(),
+                })?;
+            if pos + used > header_len {
+                return Err(CorruptError::RecordHeader {
+                    claimed: header_len,
+                    len: bytes.len(),
+                }
+                .into());
+            }
+            if serial_type == 10 || serial_type == 11 {
+                return Err(CorruptError::ReservedSerialType {
+                    serial_type: serial_type as u8,
+                    field,
+                }
+                .into());
+            }
+            payload_len += Tuple::content_meta(serial_type).size;
+            pos += used;
+            field += 1;
+        }
+        let available = bytes.len() - header_len;
+        if payload_len > available {
+            return Err(CorruptError::TruncatedRecord {
+                field,
+                size: payload_len,
+                available,
+            }
+            .into());
+        }
+        Ok(Self {
+            bytes,
+            header_len,
+            first_serial_type: consumed,
+            fields: field,
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.fields
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fields == 0
+    }
+
+    pub fn header_len(&self) -> usize {
+        self.header_len
+    }
+
+    pub fn bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+
+    pub fn serial_type(&self, field: usize) -> SqliteResult<u8> {
+        Ok(self.field_span(field)?.0)
+    }
+
+    pub fn field_bytes(&self, field: usize) -> SqliteResult<&'a [u8]> {
+        let (_, start, size) = self.field_span(field)?;
+        Ok(&self.bytes[start..start + size])
+    }
+
+    pub fn value(&self, field: usize) -> SqliteResult<Value<'a>> {
+        let (serial_type, start, size) = self.field_span(field)?;
+        let payload = &self.bytes[start..start + size];
+        match Tuple::content_meta(serial_type as u64).serial_type {
+            SERIAL_TEXT_MIN => match std::str::from_utf8(payload) {
+                Ok(text) => Ok(Value::Text(Cow::Borrowed(text))),
+                Err(_) => Err(CorruptError::InvalidUtf8 {
+                    field,
+                    fields: self.fields,
+                }
+                .into()),
+            },
+            SERIAL_BLOB_MIN => Ok(Value::Blob(Cow::Borrowed(payload))),
+            _ => Ok(into_borrowed(decode_sqltype(
+                payload,
+                &Tuple::content_meta(serial_type as u64),
+            ))),
+        }
+    }
+
+    pub fn value_owned(&self, field: usize) -> SqliteResult<Value<'static>> {
+        Ok(self.value(field)?.into_static())
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = SqliteResult<Value<'a>>> + '_ {
+        (0..self.fields).map(|field| self.value(field))
+    }
+
+    pub fn to_values(&self) -> SqliteResult<Vec<Value<'a>>> {
+        self.values().collect()
+    }
+
+    pub fn to_values_owned(&self) -> SqliteResult<Vec<Value<'static>>> {
+        Ok(self
+            .to_values()?
+            .into_iter()
+            .map(Value::into_static)
+            .collect())
+    }
+
+    pub fn last(&self) -> Option<SqliteResult<Value<'a>>> {
+        match self.fields {
+            0 => None,
+            fields => Some(self.value(fields - 1)),
+        }
+    }
+
+    fn field_span(&self, field: usize) -> SqliteResult<(u8, usize, usize)> {
+        if field >= self.fields {
+            return Err(CorruptError::NoSuchField {
+                field,
+                fields: self.fields,
+            }
+            .into());
+        }
+        let mut pos = self.first_serial_type;
+        let mut start = self.header_len;
+        let mut index = 0;
+        while pos < self.header_len {
+            let (serial_type, used) =
+                decode_varint(&self.bytes[pos..]).ok_or(CorruptError::RecordHeader {
+                    claimed: self.header_len,
+                    len: self.bytes.len(),
+                })?;
+            let size = Tuple::content_meta(serial_type).size;
+            if index == field {
+                return Ok((serial_type as u8, start, size));
+            }
+            pos += used;
+            start += size;
+            index += 1;
+        }
+        Err(CorruptError::NoSuchField {
+            field,
+            fields: self.fields,
+        }
+        .into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::record::Record;
+
+    fn int(n: i64) -> Value<'static> {
+        Value::Integer(n)
+    }
+
+    fn real(f: f64) -> Value<'static> {
+        Value::Float(f)
+    }
+
+    fn text(s: &str) -> Value<'static> {
+        Value::Text(Cow::Owned(s.to_string()))
+    }
+
+    fn blob(b: &[u8]) -> Value<'static> {
+        Value::Blob(Cow::Owned(b.to_vec()))
+    }
+
+    fn rows() -> Vec<Vec<Value<'static>>> {
+        vec![
+            vec![],
+            vec![Value::Null],
+            vec![int(0)],
+            vec![int(1)],
+            vec![int(-1)],
+            vec![int(127)],
+            vec![int(128)],
+            vec![int(-32768)],
+            vec![int(70000)],
+            vec![int(i64::MIN)],
+            vec![int(i64::MAX)],
+            vec![real(1.5), real(-0.25), real(0.0)],
+            vec![text("")],
+            vec![text("User-000001")],
+            vec![blob(&[])],
+            vec![blob(&[0xff, 0xfe, 0x00])],
+            vec![text("Position-1"), int(21), real(30013.0), Value::Null],
+            vec![text("a whole record"), int(-7), blob(&[1, 2, 3]), real(2.5)],
+        ]
+    }
+
+    #[test]
+    fn round_trips_every_encoding_the_writer_produces() {
+        for values in rows() {
+            let bytes = Tuple::serialize(&values);
+            let record = Record::new(&bytes).expect("parse");
+            assert_eq!(record.len(), values.len(), "{values:?}");
+            let decoded = record.to_values().expect("decode");
+            assert_eq!(decoded, values, "{values:?}");
+        }
+    }
+
+    #[test]
+    fn decodes_one_field_at_a_time() {
+        let values = vec![text("Position-1"), int(21), real(30013.0), Value::Null];
+        let bytes = Tuple::serialize(&values);
+        let record = Record::new(&bytes).expect("parse");
+        for (field, expected) in values.iter().enumerate() {
+            assert_eq!(&record.value(field).expect("field"), expected);
+        }
+        assert_eq!(record.last().expect("last").expect("field"), Value::Null);
+        assert_eq!(
+            record.field_bytes(0).expect("bytes"),
+            "Position-1".as_bytes()
+        );
+        assert_eq!(record.field_bytes(3).expect("bytes"), &[] as &[u8]);
+        assert_eq!(record.serial_type(0).expect("serial"), 13 + 2 * 10);
+        assert_eq!(record.serial_type(1).expect("serial"), 1);
+        assert_eq!(record.serial_type(2).expect("serial"), 7);
+        assert_eq!(record.serial_type(3).expect("serial"), 0);
+        assert_eq!(record.value_owned(0).expect("owned"), values[0]);
+        assert_eq!(record.to_values_owned().expect("owned"), values);
+    }
+
+    #[test]
+    fn empty_records_have_no_fields() {
+        let bytes = Tuple::serialize(&[]);
+        let record = Record::new(&bytes).expect("parse");
+        assert_eq!(record.len(), 0);
+        assert!(record.is_empty());
+        assert!(record.last().is_none());
+        assert!(record.value(0).is_err());
+        assert_eq!(record.to_values().expect("decode"), Vec::new());
+    }
+
+    #[test]
+    fn corrupt_records_are_errors_not_panics() {
+        assert!(Record::new(&[]).is_err());
+
+        let bytes = Tuple::serialize(&[text("hello"), int(1)]);
+        assert!(Record::new(&bytes[..bytes.len() - 1]).is_err());
+
+        let header_says_more_than_there_is = [9u8, 1];
+        assert!(Record::new(&header_says_more_than_there_is).is_err());
+
+        let reserved_serial_type = [2u8, 10];
+        assert!(Record::new(&reserved_serial_type).is_err());
+
+        let truncated_header = [5u8, 1, 2, 3];
+        assert!(Record::new(&truncated_header).is_err());
+    }
+
+    #[test]
+    fn invalid_utf8_in_a_text_field_is_an_error() {
+        let bytes = [2u8, 13 + 2 * 3, 0xff, 0xfe, 0xfd];
+        let record = Record::new(&bytes).expect("parse");
+        assert_eq!(record.len(), 1);
+        assert!(record.value(0).is_err());
+        assert_eq!(record.field_bytes(0).expect("bytes"), &[0xff, 0xfe, 0xfd]);
+    }
+
+    #[test]
+    fn fields_past_the_end_are_an_error() {
+        let bytes = Tuple::serialize(&[int(1)]);
+        let record = Record::new(&bytes).expect("parse");
+        assert!(record.value(1).is_err());
+        assert!(record.serial_type(7).is_err());
+        assert!(record.field_bytes(2).is_err());
+    }
+}
