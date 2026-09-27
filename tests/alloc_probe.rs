@@ -121,9 +121,18 @@ fn allocation_profile_of_a_full_scan() {
     .expect("null rows");
     drop(conn);
     let mut null_db = open_engine(&nulls);
-    assert_eq!(measure(&mut null_db, "select count(*) from t").first_row, "3");
-    assert_eq!(measure(&mut null_db, "select count(a) from t").first_row, "2");
-    assert_eq!(measure(&mut null_db, "select count(b) from t").first_row, "2");
+    assert_eq!(
+        measure(&mut null_db, "select count(*) from t").first_row,
+        "3"
+    );
+    assert_eq!(
+        measure(&mut null_db, "select count(a) from t").first_row,
+        "2"
+    );
+    assert_eq!(
+        measure(&mut null_db, "select count(b) from t").first_row,
+        "2"
+    );
     commit_and_close(null_db);
     cleanup(&nulls);
 }
