@@ -9,11 +9,11 @@ use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
-use crate::{SqliteMaster, SqliteResult};
+use crate::{Master, SqliteResult};
 
 pub fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,
-    sqlite_master: &SqliteMaster,
+    sqlite_master: &Master,
     table_name: &str,
     arena: &ExprArena,
     mode: ScanMode,
@@ -38,7 +38,7 @@ pub fn optimize_index_scan<V: Vfs>(
 }
 
 struct Optimizer<'a, V: Vfs> {
-    sqlite_master: &'a SqliteMaster,
+    sqlite_master: &'a Master,
     relation: &'a crate::schema::Table,
     plan: &'a mut Plan<V>,
     arena: &'a ExprArena,
