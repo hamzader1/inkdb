@@ -29,7 +29,10 @@ impl<V: Vfs> PreparedPlan<V> {
             };
             match parent_res {
                 Ok(_) => pager.commit()?,
-                _ => pager.rollback()?,
+                _ => {
+                    pager.rollback()?;
+                    master.is_dirty = true;
+                }
             }
             parent_res
         } else {
@@ -39,7 +42,8 @@ impl<V: Vfs> PreparedPlan<V> {
             };
             match parent_res {
                 Err(e) => {
-                    let _ = pager.rollback();
+                    pager.rollback()?;
+                    master.is_dirty = true;
                     Err(e)
                 }
                 ok => ok,
