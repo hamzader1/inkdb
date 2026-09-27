@@ -116,7 +116,7 @@ pub enum RuntimeError {
 pub enum CorruptError {
     #[error("an invariant check failed: {0}")]
     Assertion(String),
-    #[error("sqlite_master record has {columns} columns, expected 5")]
+    #[error("master record has {columns} columns, expected 5")]
     CatalogRecord { columns: usize },
     #[error("index predecessor leaf is empty")]
     EmptyPredecessorLeaf,
@@ -164,6 +164,20 @@ pub enum CorruptError {
     },
     #[error("invalid left child page number: 0")]
     ZeroChildPointer,
+    #[error("record header claims {claimed} bytes but the record is {len} bytes")]
+    RecordHeader { claimed: usize, len: usize },
+    #[error("record field {field} claims {size} bytes but only {available} are available")]
+    TruncatedRecord {
+        field: usize,
+        size: usize,
+        available: usize,
+    },
+    #[error("record field {field} uses reserved serial type {serial_type}")]
+    ReservedSerialType { serial_type: u8, field: usize },
+    #[error("record field {field} of {fields} is not valid UTF-8")]
+    InvalidUtf8 { field: usize, fields: usize },
+    #[error("record has {fields} fields, field {field} was requested")]
+    NoSuchField { field: usize, fields: usize },
 }
 
 #[derive(Debug, Error)]
