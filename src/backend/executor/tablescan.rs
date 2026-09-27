@@ -14,12 +14,13 @@ pub struct TableScan<V: Vfs> {
     pub cursor: BTreeCursor<V>,
     pub guard: Box<dyn ScanGuard<V>>,
     predicate: Option<usize>,
+    table_name: String,
     rows_rejected: u64,
     is_init: bool,
     is_done: bool,
 }
 impl<V: Vfs> TableScan<V> {
-    pub fn new(root_page: u32, mode: ScanMode) -> Result<Self, SqliteError> {
+    pub fn new(root_page: u32, mode: ScanMode, table_name: String) -> Result<Self, SqliteError> {
         let cursor = BTreeCursor::new(root_page);
 
         Ok(Self {
@@ -27,6 +28,7 @@ impl<V: Vfs> TableScan<V> {
             is_done: false,
             guard: mode.guard(),
             predicate: None,
+            table_name,
             is_init: false,
             rows_rejected: 0,
         })
@@ -72,7 +74,17 @@ impl<V: Vfs> TableScan<V> {
 
             let mut rejected = false;
             let values = match self.cursor.current_record::<TableLeaf>(ctx.pager)? {
-                Some(record) => {
+                Some(mut record) => {
+                    {
+                        let Some(table) = ctx.master.table(&self.table_name) else {
+                            unreachable!()
+                        };
+                        if let Some(idx) = table.has_integer_primary_key() {
+                            record[idx] = row_id.into()
+                        }
+                    }
+
+                    // let t = ctx.master.tables.get(k);
                     let keep = match self.predicate {
                         Some(predicate) => {
                             Eval::eval(ctx.arena, predicate, Some(&record))?.to_bool()
