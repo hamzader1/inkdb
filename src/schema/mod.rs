@@ -68,12 +68,23 @@ impl Table {
         self.columns.len()
     }
 
-    pub fn has_int_primary_key(&self) -> bool {
-        self.columns.iter().any(|col| {
-            col.constraints
-                .iter()
-                .any(|cts| cts.contains(&Constraint::PrimaryKey))
-        })
+    pub fn has_integer_primary_key(&self) -> Option<usize> {
+        for col in self.columns.iter() {
+            for ct in col.constraints.iter() {
+                if let Some(idx) = ct.iter().position(|c| c == &Constraint::PrimaryKey) {
+                    return Some(idx);
+                }
+            }
+        }
+        None
+        /*
+         * bool expr
+         */
+        // self.columns.iter().any(|col| {
+        //     col.constraints
+        //         .iter()
+        //         .position(|cts| cts.iter().position(|c| *c == Constraint::PrimaryKey))
+        // })
     }
 }
 
