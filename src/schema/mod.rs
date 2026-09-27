@@ -125,6 +125,8 @@ impl Master {
     }
 
     pub fn parse<V: Vfs>(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+        self.indexes.clear();
+        self.tables.clear();
         let mut btree_cursor = BTreeCursor::new(1);
         btree_cursor.first(pager)?;
         while let Some(record) = btree_cursor.current_record::<TableLeaf>(pager)? {
