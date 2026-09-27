@@ -48,6 +48,9 @@ impl SqliteShell {
             }
         }
     }
+    pub fn test(database: &mut Database<DiskVfs>, cmd: &str) -> SqliteResult<()> {
+        Self::_run(database, cmd)
+    }
     fn _run(database: &mut Database<DiskVfs>, cmd: &str) -> SqliteResult<()> {
         let mut s = database.execute(cmd)?;
         for row in s.rows() {
