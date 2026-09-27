@@ -1,6 +1,7 @@
 use std::ops::{Bound, RangeBounds};
 
 use crate::SqliteResult;
+use crate::record::Record;
 use crate::{
     backend::{
         analyze::{IndexMetadata, rowid_of},
@@ -11,7 +12,7 @@ use crate::{
     errors::SqliteError,
     record::{Value, tuple::Tuple},
     storage::{
-        btree::{BTree, BTreeCursor, IndexLeaf, SeekResult, TableLeaf},
+        btree::{BTree, BTreeCursor, IndexLeaf, SeekResult},
         cell::Encode,
     },
     vfs::Vfs,
@@ -41,7 +42,8 @@ impl<V: Vfs> PrepareIndex<V> {
         let Some(row) = self.child.next(ctx)? else {
             return Ok(None);
         };
-        let key = self.index.key_for(&row, row.key());
+        let value = row.value(self.index.col_idx)?.into_static();
+        let key = self.index.key_for(value, row.key());
         let mut btree = BTree::new(self.index.index_root_page, ctx.pager);
 
         self.action.next(&mut btree, &key)?;
@@ -66,6 +68,7 @@ impl<V: Vfs> PrepareIndex<V> {
 pub struct IndexExactMatch<V: Vfs> {
     index_root_page: u32,
     relation_root_page: u32,
+    relation_name: String,
     target: Value<'static>,
     cursor: BTreeCursor<V>,
     scan_guard: Box<dyn ScanGuard<V>>,
@@ -77,6 +80,7 @@ impl<V: Vfs> IndexExactMatch<V> {
     pub fn new(
         index_root_page: u32,
         relation_root_page: u32,
+        relation_name: String,
         target: Value<'static>,
         scan_guard: Box<dyn ScanGuard<V>>,
     ) -> Result<Self, SqliteError> {
@@ -84,6 +88,7 @@ impl<V: Vfs> IndexExactMatch<V> {
         Ok(Self {
             index_root_page,
             relation_root_page,
+            relation_name,
             target,
             cursor,
             scan_guard,
@@ -115,17 +120,24 @@ impl<V: Vfs> IndexExactMatch<V> {
             return Ok(None);
         }
 
-        let Some(index_record) = self.cursor.current_record::<IndexLeaf>(ctx.pager)? else {
+        let Some(index_bytes) = self.cursor.current_record_bytes(ctx.pager)? else {
             self.is_done = true;
             return Ok(None);
         };
+        let index_record = Record::new(&index_bytes)?;
 
-        if index_record[0] != self.target {
+        if index_record.value(0)? != self.target {
             self.is_done = true;
             return Ok(None);
         }
         let row_id = rowid_of(&index_record)?;
 
+        let pk_as_rowid = {
+            match ctx.master.table(&self.relation_name) {
+                Some(table) => table.has_integer_primary_key(),
+                _ => None,
+            }
+        };
         let mut relation_btree = BTree::new(self.relation_root_page, ctx.pager);
         if relation_btree.seek(&Value::Integer(row_id as i64))? != SeekResult::Exact {
             return Err(CorruptError::IndexEntryWithoutRow {
@@ -137,16 +149,12 @@ impl<V: Vfs> IndexExactMatch<V> {
         }
         let relation_record = relation_btree
             .cursor
-            .current_record::<TableLeaf>(ctx.pager)?
-            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?
-            .iter()
-            .map(|v| v.to_owned_static())
-            .collect();
+            .current_record_bytes(ctx.pager)?
+            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?;
 
-        let row = Row::new(row_id, relation_record);
+        let row = Row::stored_with_rowid(row_id, relation_record, pk_as_rowid);
         self.scan_guard
             .save_or_advance(ctx.pager, &mut self.cursor)?;
-        // self.cursor.save_position(pager)?;
 
         Ok(Some(row))
     }
@@ -244,8 +252,8 @@ impl<V: Vfs> IndexRangeScan<V> {
                 Bound::Excluded(ref i) => {
                     self.cursor
                         .seek_lower_bound(ctx.pager, &Value::Tuple(vec![i.to_owned_static()]))?;
-                    while let Some(record) = self.cursor.current_record::<IndexLeaf>(ctx.pager)?
-                        && &record[0] == i
+                    while let Some(bytes) = self.cursor.current_record_bytes(ctx.pager)?
+                        && Record::new(&bytes)?.value(0)? == *i
                     {
                         self.cursor.next(ctx.pager)?;
                     }
@@ -261,11 +269,12 @@ impl<V: Vfs> IndexRangeScan<V> {
             return Ok(None);
         }
 
-        let Some(index_record) = self.cursor.current_record::<IndexLeaf>(ctx.pager)? else {
+        let Some(index_bytes) = self.cursor.current_record_bytes(ctx.pager)? else {
             self.is_done = true;
             return Ok(None);
         };
-        if !self.range.contains(&index_record[0]) {
+        let index_record = Record::new(&index_bytes)?;
+        if !self.range.contains(&index_record.value(0)?) {
             self.is_done = true;
             return Ok(None);
         }
@@ -281,13 +290,10 @@ impl<V: Vfs> IndexRangeScan<V> {
         }
         let relation_record = relation_btree
             .cursor
-            .current_record::<TableLeaf>(ctx.pager)?
-            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?
-            .iter()
-            .map(|v| v.to_owned_static())
-            .collect();
+            .current_record_bytes(ctx.pager)?
+            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?;
 
-        let row = Row::new(row_id, relation_record);
+        let row = Row::stored(row_id, relation_record);
         self.scan_guard
             .save_or_advance(ctx.pager, &mut self.cursor)?;
         Ok(Some(row))
