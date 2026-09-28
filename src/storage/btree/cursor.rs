@@ -607,6 +607,9 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
         self.last_visited_entry().expect("Path stack is empty")
     }
+    pub fn last_path(&self) -> Option<&Path> {
+        self.stack.last()
+    }
 }
 
 enum Step {
