@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::errors::CorruptError;
 use crate::varint::decode_varint;
 
@@ -16,7 +16,7 @@ pub struct Record<'a> {
 }
 
 impl<'a> Record<'a> {
-    pub fn new(bytes: &'a [u8]) -> SqliteResult<Self> {
+    pub fn new(bytes: &'a [u8]) -> InkResult<Self> {
         let (header_len, consumed) = decode_varint(bytes).ok_or(CorruptError::RecordHeader {
             claimed: 0,
             len: bytes.len(),
@@ -89,16 +89,16 @@ impl<'a> Record<'a> {
         self.bytes
     }
 
-    pub fn serial_type(&self, field: usize) -> SqliteResult<u8> {
+    pub fn serial_type(&self, field: usize) -> InkResult<u8> {
         Ok(self.field_span(field)?.0)
     }
 
-    pub fn field_bytes(&self, field: usize) -> SqliteResult<&'a [u8]> {
+    pub fn field_bytes(&self, field: usize) -> InkResult<&'a [u8]> {
         let (_, start, size) = self.field_span(field)?;
         Ok(&self.bytes[start..start + size])
     }
 
-    pub fn value(&self, field: usize) -> SqliteResult<Value<'a>> {
+    pub fn value(&self, field: usize) -> InkResult<Value<'a>> {
         let (serial_type, start, size) = self.field_span(field)?;
         let payload = &self.bytes[start..start + size];
         match Tuple::content_meta(serial_type as u64).serial_type {
@@ -118,19 +118,19 @@ impl<'a> Record<'a> {
         }
     }
 
-    pub fn value_owned(&self, field: usize) -> SqliteResult<Value<'static>> {
+    pub fn value_owned(&self, field: usize) -> InkResult<Value<'static>> {
         Ok(self.value(field)?.into_static())
     }
 
-    pub fn values(&self) -> impl Iterator<Item = SqliteResult<Value<'a>>> + '_ {
+    pub fn values(&self) -> impl Iterator<Item = InkResult<Value<'a>>> + '_ {
         (0..self.fields).map(|field| self.value(field))
     }
 
-    pub fn to_values(&self) -> SqliteResult<Vec<Value<'a>>> {
+    pub fn to_values(&self) -> InkResult<Vec<Value<'a>>> {
         self.values().collect()
     }
 
-    pub fn to_values_owned(&self) -> SqliteResult<Vec<Value<'static>>> {
+    pub fn to_values_owned(&self) -> InkResult<Vec<Value<'static>>> {
         Ok(self
             .to_values()?
             .into_iter()
@@ -138,14 +138,14 @@ impl<'a> Record<'a> {
             .collect())
     }
 
-    pub fn last(&self) -> Option<SqliteResult<Value<'a>>> {
+    pub fn last(&self) -> Option<InkResult<Value<'a>>> {
         match self.fields {
             0 => None,
             fields => Some(self.value(fields - 1)),
         }
     }
 
-    fn field_span(&self, field: usize) -> SqliteResult<(u8, usize, usize)> {
+    fn field_span(&self, field: usize) -> InkResult<(u8, usize, usize)> {
         if field >= self.fields {
             return Err(CorruptError::NoSuchField {
                 field,

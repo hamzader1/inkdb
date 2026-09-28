@@ -1,5 +1,5 @@
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::InkResult;
+use crate::errors::InkError;
 
 use super::Value;
 
@@ -10,19 +10,19 @@ enum Numeric {
 }
 
 pub trait TryAdd {
-    fn try_add(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>>;
+    fn try_add(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub trait TrySub {
-    fn try_sub(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>>;
+    fn try_sub(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub trait TryMul {
-    fn try_mul(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>>;
+    fn try_mul(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub trait TryDiv {
-    fn try_div(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>>;
+    fn try_div(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 fn numeric_prefix_len(text: &str) -> usize {
@@ -88,7 +88,7 @@ fn numeric_from_text(text: &str) -> Numeric {
     }
 }
 
-fn to_numeric(value: &Value<'_>) -> SqliteResult<Option<Numeric>> {
+fn to_numeric(value: &Value<'_>) -> InkResult<Option<Numeric>> {
     Ok(match value {
         Value::Null => None,
         Value::Integer(n) => Some(Numeric::Int(*n)),
@@ -99,12 +99,12 @@ fn to_numeric(value: &Value<'_>) -> SqliteResult<Option<Numeric>> {
             Err(_) => Numeric::Int(0),
         }),
         Value::Tuple(_) => {
-            return Err(SqliteError::type_conversion("NUMERIC", value.type_name()));
+            return Err(InkError::type_conversion("NUMERIC", value.type_name()));
         }
     })
 }
 
-fn operands(lhs: &Value<'_>, rhs: &Value<'_>) -> SqliteResult<Option<(Numeric, Numeric)>> {
+fn operands(lhs: &Value<'_>, rhs: &Value<'_>) -> InkResult<Option<(Numeric, Numeric)>> {
     let (Some(lhs), Some(rhs)) = (to_numeric(lhs)?, to_numeric(rhs)?) else {
         return Ok(None);
     };
@@ -124,7 +124,7 @@ fn int_op(
 }
 
 impl TryAdd for Value<'_> {
-    fn try_add(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>> {
+    fn try_add(&self, rhs: &Value<'_>) -> InkResult<Value<'static>> {
         Ok(match operands(self, rhs)? {
             None => Value::Null,
             Some((Numeric::Int(a), Numeric::Int(b))) => {
@@ -138,7 +138,7 @@ impl TryAdd for Value<'_> {
 }
 
 impl TrySub for Value<'_> {
-    fn try_sub(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>> {
+    fn try_sub(&self, rhs: &Value<'_>) -> InkResult<Value<'static>> {
         Ok(match operands(self, rhs)? {
             None => Value::Null,
             Some((Numeric::Int(a), Numeric::Int(b))) => {
@@ -152,7 +152,7 @@ impl TrySub for Value<'_> {
 }
 
 impl TryMul for Value<'_> {
-    fn try_mul(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>> {
+    fn try_mul(&self, rhs: &Value<'_>) -> InkResult<Value<'static>> {
         Ok(match operands(self, rhs)? {
             None => Value::Null,
             Some((Numeric::Int(a), Numeric::Int(b))) => {
@@ -166,7 +166,7 @@ impl TryMul for Value<'_> {
 }
 
 impl TryDiv for Value<'_> {
-    fn try_div(&self, rhs: &Value<'_>) -> SqliteResult<Value<'static>> {
+    fn try_div(&self, rhs: &Value<'_>) -> InkResult<Value<'static>> {
         Ok(match operands(self, rhs)? {
             None => Value::Null,
             Some((Numeric::Int(a), Numeric::Int(b))) => {
@@ -222,7 +222,7 @@ mod tests {
         Value::Blob(Cow::Owned(bytes.to_vec()))
     }
 
-    fn value(result: SqliteResult<Value<'static>>) -> Value<'static> {
+    fn value(result: InkResult<Value<'static>>) -> Value<'static> {
         result.expect("these operands must not fail")
     }
 
@@ -328,7 +328,7 @@ mod tests {
     }
 
     impl Op {
-        fn apply(self, lhs: &Value<'_>, rhs: &Value<'_>) -> SqliteResult<Value<'static>> {
+        fn apply(self, lhs: &Value<'_>, rhs: &Value<'_>) -> InkResult<Value<'static>> {
             match self {
                 Op::Add => lhs.try_add(rhs),
                 Op::Sub => lhs.try_sub(rhs),

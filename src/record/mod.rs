@@ -9,7 +9,7 @@ pub use record::Record;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 #[rustfmt::skip]
 pub const I8_MASK:  i64 = 0x0000_0000_0000_007F;
 pub const I16_MASK: i64 = 0x0000_0000_0000_7FFF;
@@ -148,28 +148,28 @@ impl<'a> Value<'a> {
             Value::Tuple(_) => "TUPLE",
         }
     }
-    pub fn to_string(&self) -> Result<String, SqliteError> {
+    pub fn to_string(&self) -> Result<String, InkError> {
         match self {
             Value::Null => Ok("NULL".to_string()),
             Value::Integer(n) => Ok(n.to_string()),
             Value::Float(n) => Ok(n.to_string()),
             Value::Text(txt) => Ok(txt.to_string()),
-            Value::Blob(_) => Err(SqliteError::type_conversion("TEXT", self.type_name())),
+            Value::Blob(_) => Err(InkError::type_conversion("TEXT", self.type_name())),
 
-            Value::Tuple(_) => Err(SqliteError::type_conversion("TEXT", self.type_name())),
+            Value::Tuple(_) => Err(InkError::type_conversion("TEXT", self.type_name())),
         }
     }
-    pub fn cast_int(&self) -> Result<i64, SqliteError> {
+    pub fn cast_int(&self) -> Result<i64, InkError> {
         match self {
             Value::Integer(n) => Ok(*n),
-            other => Err(SqliteError::type_conversion("INTEGER", other.type_name())),
+            other => Err(InkError::type_conversion("INTEGER", other.type_name())),
         }
     }
-    pub fn get_float(&self) -> Result<f64, SqliteError> {
+    pub fn get_float(&self) -> Result<f64, InkError> {
         match self {
             Value::Float(n) => Ok(*n),
             Value::Integer(n) => Ok(*n as f64),
-            other => Err(SqliteError::type_conversion("REAL", other.type_name())),
+            other => Err(InkError::type_conversion("REAL", other.type_name())),
         }
     }
 }
