@@ -1,5 +1,5 @@
 use crate::Master;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::schema::MASTER;
 
 use crate::sql::ast::{Expr, SelectStmt};
@@ -11,13 +11,14 @@ impl Analyze {
     pub fn analyze_select_stmt(
         select_stmt: SelectStmt,
         master: &Master,
-    ) -> Result<ResolvedQuery, SqliteError> {
+    ) -> Result<ResolvedQuery, InkError> {
         let SelectStmt {
             table_name,
             mut arena,
             columns,
             mut where_clause,
             mut limit,
+            mut orderby,
         } = select_stmt.clone();
 
         let table = {
@@ -53,7 +54,7 @@ impl Analyze {
             .iter()
             .any(|node| matches!(node, Expr::Count { .. }))
         {
-            return Err(SqliteError::runtime(
+            return Err(InkError::runtime(
                 "count() cannot be combined with other columns yet",
             ));
         }
@@ -71,6 +72,9 @@ impl Analyze {
             if let Some(limit) = limit {
                 Analyze::fast_bind(table, limit, &mut arena)?;
             }
+            if let Some(orderby) = orderby {
+                Analyze::fast_bind(table, orderby, &mut arena)?;
+            }
             let stmt = ResolvedSelectQuery {
                 table_name,
                 root_page: table.root_page,
@@ -78,6 +82,7 @@ impl Analyze {
                 columns,
                 where_clause,
                 limit,
+                orderby,
             };
             return Ok(ResolvedQuery::SelectQuery(stmt));
         }
@@ -133,6 +138,18 @@ impl Analyze {
             )?;
             *limit = map[*limit];
         }
+
+        if let Some(ref mut orderby) = orderby {
+            Analyze::slow_bind(
+                table,
+                *orderby,
+                &mut arena,
+                &mut new_arena,
+                &mut map,
+                &mut new_cols,
+            )?;
+            *orderby = map[*orderby];
+        }
         let stmt = ResolvedSelectQuery {
             table_name,
             root_page: table.root_page,
@@ -140,6 +157,7 @@ impl Analyze {
             columns: new_cols,
             where_clause,
             limit,
+            orderby,
         };
 
         Ok(ResolvedQuery::SelectQuery(stmt))
