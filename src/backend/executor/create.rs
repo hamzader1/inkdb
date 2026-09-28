@@ -71,6 +71,7 @@ impl<V: Vfs> CreateIndex<V> {
                 None,
                 1,
                 vec![row.iter().map(|v| v.to_owned_static()).collect()],
+                self.meta.relation_name.clone(),
                 None,
             );
             while prepare.next(ctx)?.is_some() {}
@@ -120,6 +121,7 @@ impl CreateTable {
             None,
             1,
             vec![row.iter().map(|v| v.to_owned_static()).collect()],
+            self.meta.meta.name.clone(),
             None,
         );
         while prepare.next(ctx)?.is_some() {}
