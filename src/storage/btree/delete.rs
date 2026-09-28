@@ -1,5 +1,5 @@
-use crate::SqliteError;
-use crate::SqliteResult;
+use crate::InkError;
+use crate::InkResult;
 use crate::errors::CorruptError;
 use crate::pager::pager::PageNo;
 use crate::record::Value;
@@ -11,7 +11,7 @@ use super::kind::AnyPage;
 use crate::storage::btree::CellIndex;
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    pub fn delete_value(&mut self, key: &Value) -> SqliteResult<bool> {
+    pub fn delete_value(&mut self, key: &Value) -> InkResult<bool> {
         let _ = self.cursor.seek_for_delete(self.pager, key)?;
         let Some((page_no, cell_idx)) = self.cursor.last_visited_entry() else {
             return Ok(false);
@@ -59,7 +59,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         self.delete_index_divider(page_no, cell_idx)
     }
 
-    fn delete_index_divider(&mut self, page_no: PageNo, cell_idx: CellIndex) -> SqliteResult<bool> {
+    fn delete_index_divider(&mut self, page_no: PageNo, cell_idx: CellIndex) -> InkResult<bool> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
@@ -80,7 +80,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let n = any.no_of_cells()?;
             if matches!(any, AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_)) {
                 if n == 0 {
-                    return Err(SqliteError::Corrupt(CorruptError::EmptyPredecessorLeaf));
+                    return Err(InkError::Corrupt(CorruptError::EmptyPredecessorLeaf));
                 }
                 self.cursor
                     .stack
@@ -90,7 +90,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let rmp = PageRef::new(pred_no, page_size, usable, guard.bytes())?
                 .right_most_ptr()?
                 .ok_or({
-                    SqliteError::Corrupt(CorruptError::MissingRightMostChild { page: pred_no })
+                    InkError::Corrupt(CorruptError::MissingRightMostChild { page: pred_no })
                 })?;
             self.cursor
                 .stack
@@ -115,7 +115,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             if page.replace_cell(cell_idx, &new_divider)?
                 == crate::storage::page::InsertionState::None
             {
-                return Err(SqliteError::Internal(
+                return Err(InkError::Internal(
                     "index divider repaint does not fit in its parent",
                 ));
             }

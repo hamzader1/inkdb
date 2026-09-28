@@ -1,5 +1,5 @@
-use crate::SqliteResult;
-use crate::errors::{CorruptError, SqliteError};
+use crate::InkResult;
+use crate::errors::{CorruptError, InkError};
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::storage::page::{BTreePage, BTreePageType, PageRef};
@@ -20,18 +20,18 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> AnyPageMut<B> {
         page_size: usize,
         usable_size: usize,
         bytes: B,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         let page = BTreePage::new(page_no, page_size, usable_size, bytes)?;
         Ok(match page.page_type()?.as_byte() {
             TableInterior::BYTE => Self::TableInterior(TypedPage::wrap(page)),
             TableLeaf::BYTE => Self::TableLeaf(TypedPage::wrap(page)),
             IndexInterior::BYTE => Self::IndexInterior(TypedPage::wrap(page)),
             IndexLeaf::BYTE => Self::IndexLeaf(TypedPage::wrap(page)),
-            other => return Err(SqliteError::InvalidPageType(other)),
+            other => return Err(InkError::InvalidPageType(other)),
         })
     }
 
-    pub(crate) fn no_of_cells(&self) -> SqliteResult<u16> {
+    pub(crate) fn no_of_cells(&self) -> InkResult<u16> {
         match self {
             Self::TableInterior(p) => p.no_of_cells(),
             Self::TableLeaf(p) => p.no_of_cells(),
@@ -47,10 +47,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: PageKind> TypedPage<B, K> {
         page_size: usize,
         usable_size: usize,
         bytes: B,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         let page = BTreePage::new(page_no, page_size, usable_size, bytes)?;
         if page.page_type()?.as_byte() != K::BYTE {
-            return Err(SqliteError::Corrupt(CorruptError::UnexpectedPageKind {
+            return Err(InkError::Corrupt(CorruptError::UnexpectedPageKind {
                 page: page_no,
                 expected: kind_name::<K>(),
             }));
@@ -63,7 +63,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: PageKind> TypedPage<B, K> {
         page_size: usize,
         usable_size: usize,
         bytes: B,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         let page_type = BTreePageType::try_from(K::BYTE)?;
         let page =
             BTreePage::new_from_raw_bytes(page_no, page_type, bytes, page_size, usable_size)?;
@@ -75,7 +75,7 @@ pub(crate) fn parse_ref<'b, K: PageKind, V: Vfs>(
     page_no: PageNo,
     guard: &'b PageGuard,
     pager: &Pager<V>,
-) -> SqliteResult<TypedPage<&'b [u8], K>> {
+) -> InkResult<TypedPage<&'b [u8], K>> {
     let page = PageRef::new(
         page_no,
         pager.page_size(),
@@ -83,7 +83,7 @@ pub(crate) fn parse_ref<'b, K: PageKind, V: Vfs>(
         guard.bytes(),
     )?;
     if page.page_type()?.as_byte() != K::BYTE {
-        return Err(SqliteError::Corrupt(CorruptError::UnexpectedPageKind {
+        return Err(InkError::Corrupt(CorruptError::UnexpectedPageKind {
             page: page_no,
             expected: kind_name::<K>(),
         }));

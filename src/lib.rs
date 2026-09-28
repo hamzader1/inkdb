@@ -4,7 +4,7 @@
 pub mod backend;
 mod bytes;
 pub mod db;
-use crate::db::header::SqliteDatabaseHeader;
+use crate::db::header::InkDatabaseHeader;
 pub mod record;
 mod schema;
 pub mod shell;
@@ -19,41 +19,41 @@ mod util;
 
 pub mod varint;
 pub mod vfs;
-use errors::SqliteError;
+use errors::InkError;
 
 pub use storage::cursor::MemCursor;
-pub type DbError = SqliteError;
+pub type DbError = InkError;
 
-pub type Result<T, E = SqliteError> = std::result::Result<T, E>;
+pub type Result<T, E = InkError> = std::result::Result<T, E>;
 
 use self::vfs::Vfs;
-pub type SqliteResult<T> = Result<T, SqliteError>;
+pub type InkResult<T> = Result<T, InkError>;
 use crate::pager::pager::Pager;
 
-pub struct SqliteDatabase<V: Vfs> {
+pub struct InkDatabase<V: Vfs> {
     pub pager: Pager<V>,
-    header: SqliteDatabaseHeader,
+    header: InkDatabaseHeader,
 }
 
-// impl SqliteDatabase<DiskFile> {
-//     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, SqliteError> {
-//         let sqlite_default_vfs = DiskVfs;
-//         Self::with_source(sqlite_default_vfs, db_path)
+// impl InkDatabase<DiskFile> {
+//     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, InkError> {
+//         let default_vfs = DiskVfs;
+//         Self::with_source(default_vfs, db_path)
 //     }
-//     pub fn with_cache<P: AsRef<Path>>(db_path: P, cache_size: usize) -> Result<Self, SqliteError> {
-//         let sqlite_default_vfs = DiskVfs;
-//         Self::with_source_cache(sqlite_default_vfs, db_path, cache_size)
+//     pub fn with_cache<P: AsRef<Path>>(db_path: P, cache_size: usize) -> Result<Self, InkError> {
+//         let default_vfs = DiskVfs;
+//         Self::with_source_cache(default_vfs, db_path, cache_size)
 //     }
 // }
 
 // // 'f file source
-// impl<F: SqliteFile> SqliteDatabase<F> {
-//     pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, SqliteError>
+// impl<F: InkFile> InkDatabase<F> {
+//     pub fn with_source<P: AsRef<Path>, V>(mut vfs: V, path: P) -> Result<Self, InkError>
 //     where
 //         V: Vfs<File = F>,
 //     {
-//         let source = vfs.open(path, SqliteOptions::default())?;
-//         let header = SqliteDatabaseHeader::parse(&source)?;
+//         let source = vfs.open(path, InkOptions::default())?;
+//         let header = InkDatabaseHeader::parse(&source)?;
 //         let pager = Pager::new(
 //             source,
 //             header.database_page_size as _,
@@ -66,12 +66,12 @@ pub struct SqliteDatabase<V: Vfs> {
 //         mut vfs: V,
 //         path: P,
 //         cache_size: usize,
-//     ) -> Result<Self, SqliteError>
+//     ) -> Result<Self, InkError>
 //     where
 //         V: Vfs<File = F>,
 //     {
-//         let source = vfs.open(path, SqliteOptions::default())?;
-//         let header = SqliteDatabaseHeader::parse(&source)?;
+//         let source = vfs.open(path, InkOptions::default())?;
+//         let header = InkDatabaseHeader::parse(&source)?;
 //         let pager = Pager::with_cache(
 //             source,
 //             header.database_page_size as _,
@@ -90,7 +90,7 @@ pub struct SqliteDatabase<V: Vfs> {
 //     fn cursor_at_offset(&self, offset: u64) -> FileCursor<'_, F> {
 //         FileCursor::with_offset(&self.pager.source, offset)
 //     }
-//     pub fn header(&self) -> &'_ SqliteDatabaseHeader {
+//     pub fn header(&self) -> &'_ InkDatabaseHeader {
 //         &self.header
 //     }
 
@@ -102,9 +102,9 @@ pub struct SqliteDatabase<V: Vfs> {
 //         &mut self,
 //         page_no: PageNo,
 //         buff: &mut B,
-//     ) -> Result<(), SqliteError> {
+//     ) -> Result<(), InkError> {
 //         if page_no == 1 {
-//             return Err(SqliteError::Corrupt(
+//             return Err(InkError::Corrupt(
 //                 "Page no '1' cant be used as raw page".into(),
 //             ));
 //         }
@@ -119,19 +119,19 @@ pub struct SqliteDatabase<V: Vfs> {
 //         Ok(())
 //     }
 
-//     fn validate_page<E>(&mut self, page_no: PageNo, exception: Option<E>) -> Result<(), SqliteError>
+//     fn validate_page<E>(&mut self, page_no: PageNo, exception: Option<E>) -> Result<(), InkError>
 //     where
 //         E: Fn(PageNo) -> bool,
 //     {
 //         if let Some(exc) = exception
 //             && exc(page_no)
 //         {
-//             return Err(SqliteError::InternalFmt(format!(
+//             return Err(InkError::InternalFmt(format!(
 //                 "page guard exception rejected page {page_no}"
 //             )));
 //         }
 //         if page_no == 0 || page_no > self.header.database_size_in_pages {
-//             return Err(SqliteError::InvalidPageNumber(page_no));
+//             return Err(InkError::InvalidPageNumber(page_no));
 //         }
 
 //         Ok(())

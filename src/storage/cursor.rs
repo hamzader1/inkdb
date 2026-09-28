@@ -1,4 +1,4 @@
-use crate::SqliteError;
+use crate::InkError;
 use crate::to_int;
 use crate::util::assert_with_corrupt_err;
 use crate::util::assert_with_runtime_err;
@@ -20,7 +20,7 @@ impl<'a> MemCursor<'a> {
     pub fn with_offset<S: AsRef<[u8]> + ?Sized>(
         bytes: &'a S,
         offset: u64,
-    ) -> Result<Self, SqliteError> {
+    ) -> Result<Self, InkError> {
         assert_with_corrupt_err(offset as usize <= bytes.as_ref().len(), || {
             format!(
                 "The given offset ({}) is bigger than the bytes length ({})",
@@ -39,22 +39,22 @@ impl<'a> MemCursor<'a> {
             offset: self.offset,
         }
     }
-    pub fn clone_with_offset(&self, offset: u64) -> Result<Self, SqliteError> {
+    pub fn clone_with_offset(&self, offset: u64) -> Result<Self, InkError> {
         Self::with_offset(self.bytes, offset)
     }
     pub fn set_offset(&mut self, offset: u64) {
         self.offset = offset;
     }
 
-    pub fn move_forward_by(&mut self, steps: u64) -> Result<(), SqliteError> {
-        self.offset = self.offset.checked_add(steps).ok_or(SqliteError::Overflow(
+    pub fn move_forward_by(&mut self, steps: u64) -> Result<(), InkError> {
+        self.offset = self.offset.checked_add(steps).ok_or(InkError::Overflow(
             "Overflow while trying to move the cursor forward".into(),
         ))?;
         Ok(())
     }
 
-    pub fn move_backward_by(&mut self, steps: u64) -> Result<(), SqliteError> {
-        self.offset = self.offset.checked_sub(steps).ok_or(SqliteError::Overflow(
+    pub fn move_backward_by(&mut self, steps: u64) -> Result<(), InkError> {
+        self.offset = self.offset.checked_sub(steps).ok_or(InkError::Overflow(
             "Overflow while trying to move the cursor backward".into(),
         ))?;
         Ok(())
@@ -69,7 +69,7 @@ impl<'a> MemCursor<'a> {
     pub fn read_next_exact<B: AsMut<[u8]> + ?Sized>(
         &mut self,
         buf: &mut B,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let buf = buf.as_mut();
         assert_with_runtime_err(self.offset as usize + buf.len() <= self.bytes.len(), || {
             format!(
@@ -86,30 +86,30 @@ impl<'a> MemCursor<'a> {
         self.offset += buf.len() as u64;
         Ok(())
     }
-    pub fn read_next_u32(&mut self) -> Result<u32, SqliteError> {
+    pub fn read_next_u32(&mut self) -> Result<u32, InkError> {
         let mut buf = [0u8; 4];
         self.read_next_exact(&mut buf)?;
         Ok(to_int!(u32, buf))
     }
 
-    pub fn read_next_u16(&mut self) -> Result<u16, SqliteError> {
+    pub fn read_next_u16(&mut self) -> Result<u16, InkError> {
         let mut buf = [0u8; 2];
         self.read_next_exact(&mut buf)?;
         Ok(to_int!(u16, buf))
     }
 
-    pub fn read_next_u8(&mut self) -> Result<u8, SqliteError> {
+    pub fn read_next_u8(&mut self) -> Result<u8, InkError> {
         let mut buf = [0u8; 1];
         self.read_next_exact(&mut buf)?;
         Ok(to_int!(u8, buf))
     }
-    pub fn read_next_array<const N: usize>(&mut self) -> Result<[u8; N], SqliteError> {
+    pub fn read_next_array<const N: usize>(&mut self) -> Result<[u8; N], InkError> {
         let mut buf = [0u8; N];
         self.read_next_exact(&mut buf)?;
         Ok(buf)
     }
 
-    pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], SqliteError> {
+    pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], InkError> {
         let ahead_by = ahead_by as usize;
         assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
             format!(
@@ -124,7 +124,7 @@ impl<'a> MemCursor<'a> {
         Ok(buf)
     }
 
-    pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], SqliteError> {
+    pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], InkError> {
         let ahead_by = ahead_by as usize;
         assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
             format!(
@@ -143,7 +143,7 @@ impl<'a> MemCursor<'a> {
         &mut self,
         buf: &mut B,
         offset: u64,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let buf = buf.as_mut();
         assert_with_runtime_err(self.offset as usize + buf.len() <= self.bytes.len(), || {
             format!(
@@ -159,24 +159,24 @@ impl<'a> MemCursor<'a> {
         Ok(())
     }
 
-    pub fn read_u32_at(&mut self, offset: u64) -> Result<u32, SqliteError> {
+    pub fn read_u32_at(&mut self, offset: u64) -> Result<u32, InkError> {
         let mut buf = [0u8; 4];
         self.read_at(&mut buf, offset)?;
         Ok(to_int!(u32, buf))
     }
 
-    pub fn read_u16_at(&mut self, offset: u64) -> Result<u16, SqliteError> {
+    pub fn read_u16_at(&mut self, offset: u64) -> Result<u16, InkError> {
         let mut buf = [0u8; 2];
         self.read_at(&mut buf, offset)?;
         Ok(to_int!(u16, buf))
     }
 
-    pub fn read_u8_at(&mut self, offset: u64) -> Result<u8, SqliteError> {
+    pub fn read_u8_at(&mut self, offset: u64) -> Result<u8, InkError> {
         let mut buf = [0u8; 1];
         self.read_at(&mut buf, offset)?;
         Ok(to_int!(u8, buf))
     }
-    pub fn read_array_at<const N: usize>(&mut self) -> Result<[u8; N], SqliteError> {
+    pub fn read_array_at<const N: usize>(&mut self) -> Result<[u8; N], InkError> {
         let mut buf = [0u8; N];
         self.read_next_exact(&mut buf)?;
         Ok(buf)
@@ -185,17 +185,17 @@ impl<'a> MemCursor<'a> {
         &self,
         offset: u64,
         usable_size: usize,
-    ) -> Result<(u64, usize), SqliteError> {
+    ) -> Result<(u64, usize), InkError> {
         let remaining_bytes = self.remaining_varint_bytes(offset, usable_size)?;
         let offset = offset as usize;
         let bytes = &self.bytes[offset..offset + remaining_bytes];
-        decode_varint(bytes).ok_or(SqliteError::InvalidVarint)
+        decode_varint(bytes).ok_or(InkError::InvalidVarint)
     }
-    pub fn read_next_varint(&mut self, usable_size: usize) -> Result<(u64, usize), SqliteError> {
+    pub fn read_next_varint(&mut self, usable_size: usize) -> Result<(u64, usize), InkError> {
         let remaining_bytes = self.remaining_varint_bytes(self.offset, usable_size)?;
         let offset = self.offset as usize;
         let bytes = &self.bytes[offset..offset + remaining_bytes];
-        let (int, consumed) = decode_varint(bytes).ok_or(SqliteError::InvalidVarint)?;
+        let (int, consumed) = decode_varint(bytes).ok_or(InkError::InvalidVarint)?;
         self.offset += consumed as u64;
         Ok((int, consumed))
     }
@@ -204,11 +204,11 @@ impl<'a> MemCursor<'a> {
         &self,
         offset: u64,
         usable_size: usize,
-    ) -> Result<usize, SqliteError> {
+    ) -> Result<usize, InkError> {
         let offset = offset as usize;
         let remaining = usable_size
             .checked_sub(offset)
-            .ok_or(SqliteError::InvalidVarint)?;
+            .ok_or(InkError::InvalidVarint)?;
 
         Ok(remaining.min(9))
     }

@@ -1,6 +1,6 @@
 use super::cursor::MemCursor;
 use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
-use crate::errors::{CorruptError, SqliteError};
+use crate::errors::{CorruptError, InkError};
 
 use crate::pager::pager::PageNo;
 
@@ -91,11 +91,11 @@ impl BTreeCell {
     }
 }
 impl TableInteriorCell {
-    pub fn parse(bytes: &[u8], _: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], _: usize) -> Result<Self, InkError> {
         let mut cursor = MemCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
-            return Err(SqliteError::Corrupt(CorruptError::ZeroChildPointer));
+            return Err(InkError::Corrupt(CorruptError::ZeroChildPointer));
         }
         let (rowid_boundary, _) = cursor.read_next_varint(bytes.len())?;
         Ok(Self {
@@ -105,7 +105,7 @@ impl TableInteriorCell {
     }
 }
 impl TableLeafCell {
-    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, InkError> {
         let mut cursor = MemCursor::new(bytes);
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let (row_id, _) = cursor.read_next_varint(bytes.len())?;
@@ -118,7 +118,7 @@ impl TableLeafCell {
             cursor.move_forward_by(local_payload_size as _)?;
             let overflow_page_int = cursor.read_next_u32()?;
             if overflow_page_int == 0 {
-                return Err(SqliteError::Corrupt(CorruptError::InvalidOverflowPointer));
+                return Err(InkError::Corrupt(CorruptError::InvalidOverflowPointer));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -138,13 +138,13 @@ impl TableLeafCell {
 }
 
 impl IndexInteriorCell {
-    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, InkError> {
         // Page number of left child
         let mut cursor = MemCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
             // use validate function later
-            return Err(SqliteError::Corrupt(CorruptError::ZeroChildPointer));
+            return Err(InkError::Corrupt(CorruptError::ZeroChildPointer));
         }
         // Staged cell bytes can be shorter than a page. Size the varint
         // window by what is actually here, like the table parsers do.
@@ -157,7 +157,7 @@ impl IndexInteriorCell {
             cursor.move_forward_by(payload_size as _)?;
             let overflow_page_int = cursor.read_next_u32()?;
             if overflow_page_int == 0 {
-                return Err(SqliteError::Corrupt(CorruptError::InvalidOverflowPointer));
+                return Err(InkError::Corrupt(CorruptError::InvalidOverflowPointer));
             }
             overflow_page = Some(overflow_page_int)
         }
@@ -177,7 +177,7 @@ impl IndexInteriorCell {
 }
 
 impl IndexLeafCell {
-    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
+    pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, InkError> {
         let mut cursor = MemCursor::new(bytes);
         // Same short buffer rule as above. Exact cell bytes are often
         // smaller than the page usable size during rebalancing.
@@ -190,7 +190,7 @@ impl IndexLeafCell {
             cursor.move_forward_by(payload_size as _)?;
             let overflow_page_int = cursor.read_next_u32()?;
             if overflow_page_int == 0 {
-                return Err(SqliteError::Corrupt(CorruptError::InvalidOverflowPointer));
+                return Err(InkError::Corrupt(CorruptError::InvalidOverflowPointer));
             }
             overflow_page = Some(overflow_page_int)
         }

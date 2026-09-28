@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use self::file::SqliteFile;
+use self::file::InkFile;
 use crate::DbError;
 
 pub mod cursor;
@@ -13,20 +13,20 @@ const READ: u8 = 1 << 0;
 const WRITE: u8 = 1 << 1;
 const CREATE: u8 = 1 << 2;
 
-pub struct SqliteOptions {
+pub struct InkOptions {
     options: u8,
 }
 
 pub trait Vfs: std::fmt::Debug {
-    type File: SqliteFile;
+    type File: InkFile;
 
-    fn open<F: AsRef<Path>>(&mut self, f: F, options: SqliteOptions)
+    fn open<F: AsRef<Path>>(&mut self, f: F, options: InkOptions)
     -> Result<Self::File, DbError>;
     fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, DbError>;
     fn delete_journal(&mut self, db: &Self::File) -> Result<(), DbError>;
     fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, DbError>;
 }
-impl SqliteOptions {
+impl InkOptions {
     pub fn new() -> Self {
         Self { options: 0x00 }
     }
@@ -70,7 +70,7 @@ impl SqliteOptions {
     }
 }
 
-impl Default for SqliteOptions {
+impl Default for InkOptions {
     fn default() -> Self {
         // Opening an exists path
         Self {

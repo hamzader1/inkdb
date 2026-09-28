@@ -1,4 +1,4 @@
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::backend::executor::RowWrapper;
 use crate::db::Database;
 use crate::vfs::disk::DiskVfs;
@@ -6,12 +6,12 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::time::Instant;
 
-pub struct SqliteShell;
-impl SqliteShell {
+pub struct InkShell;
+impl InkShell {
     pub fn run(database: &mut Database<DiskVfs>) {
         let mut rl = DefaultEditor::new().expect("Error initiliazing the shell");
         loop {
-            let command = match SqliteShell::read_command(&mut rl) {
+            let command = match InkShell::read_command(&mut rl) {
                 Ok(cmd) => {
                     let start = Instant::now();
                     match Self::_run(database, &cmd) {
@@ -48,10 +48,10 @@ impl SqliteShell {
             }
         }
     }
-    pub fn test(database: &mut Database<DiskVfs>, cmd: &str) -> SqliteResult<()> {
+    pub fn test(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
         Self::_run(database, cmd)
     }
-    fn _run(database: &mut Database<DiskVfs>, cmd: &str) -> SqliteResult<()> {
+    fn _run(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
         let mut s = database.execute(cmd)?;
         for row in s.rows() {
             println!("{}", RowWrapper(row?));

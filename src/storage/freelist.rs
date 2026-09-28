@@ -1,8 +1,8 @@
 use crate::MemCursor;
 use crate::errors::CorruptError;
 use crate::{
-    SqliteResult,
-    errors::SqliteError,
+    InkResult,
+    errors::InkError,
     pager::pager::{PageNo, Pager},
     util::validate_page_non_one,
     vfs::Vfs,
@@ -20,15 +20,15 @@ impl<'a, V: Vfs> FreeList<'a, V> {
         &mut self,
         first_freelist_truck_page: u32,
         total_free_pages: u32,
-    ) -> SqliteResult<Option<FreeListAllocMeta>> {
+    ) -> InkResult<Option<FreeListAllocMeta>> {
         let current_page_no = first_freelist_truck_page;
         match (current_page_no, total_free_pages) {
             (0, 0) => return Ok(None),
             (0, _) => {
-                return Err(SqliteError::Corrupt(CorruptError::FreelistTrunkMissing));
+                return Err(InkError::Corrupt(CorruptError::FreelistTrunkMissing));
             }
             (_, 0) => {
-                return Err(SqliteError::Corrupt(CorruptError::FreelistCountMissing));
+                return Err(InkError::Corrupt(CorruptError::FreelistCountMissing));
             }
             _ => {}
         };
@@ -73,7 +73,7 @@ impl<'a, V: Vfs> FreeList<'a, V> {
         first_freelist_truck_page: u32,
         total_free_pages: u32,
         usable_size: usize,
-    ) -> Result<FreeListAllocMeta, SqliteError> {
+    ) -> Result<FreeListAllocMeta, InkError> {
         let mut current_page_no = first_freelist_truck_page;
         while current_page_no != 0 {
             let mut guard = self.pager.get_mut(current_page_no)?;
@@ -105,7 +105,7 @@ impl<'a, V: Vfs> FreeList<'a, V> {
         Ok(FreeListAllocMeta::new(None, page_no, total_free_pages + 1))
     }
 
-    pub fn validate_non_one_page(&self, page_no: PageNo) -> SqliteResult<()> {
+    pub fn validate_non_one_page(&self, page_no: PageNo) -> InkResult<()> {
         validate_page_non_one(page_no, self.pager.max_allocation_pages())
     }
 }

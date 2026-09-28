@@ -1,4 +1,4 @@
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::backend::analyze::IndexMetadata;
 use crate::errors::CorruptError;
 use crate::pager::pager::Pager;
@@ -7,7 +7,7 @@ use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 use crate::storage::btree::{BTreeCursor, TableLeaf};
 use crate::vfs::Vfs;
-use crate::{errors::SqliteError, sql::ast::Constraint};
+use crate::{errors::InkError, sql::ast::Constraint};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -114,7 +114,7 @@ pub struct Master {
 }
 
 impl Master {
-    pub fn new<V: crate::vfs::Vfs>(pager: &mut Pager<V>) -> Result<Self, SqliteError> {
+    pub fn new<V: crate::vfs::Vfs>(pager: &mut Pager<V>) -> Result<Self, InkError> {
         let mut master = Self {
             tables: HashMap::new(),
             indexes: HashMap::new(),
@@ -124,7 +124,7 @@ impl Master {
         Ok(master)
     }
 
-    pub fn parse<V: Vfs>(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+    pub fn parse<V: Vfs>(&mut self, pager: &mut Pager<V>) -> InkResult<()> {
         /*
          * Clearing indexes & tables in case master table was dirty and
          * needs to fetch the new update from disk
@@ -146,17 +146,17 @@ impl Master {
             .find(|table| table.name.eq_ignore_ascii_case(table_name))
     }
 
-    pub(crate) fn indexes_on(&self, table_name: &str) -> SqliteResult<Vec<IndexMetadata>> {
+    pub(crate) fn indexes_on(&self, table_name: &str) -> InkResult<Vec<IndexMetadata>> {
         let table = self
             .table(table_name)
-            .ok_or_else(|| SqliteError::TableNotFound(table_name.to_string()))?;
+            .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))?;
         let mut indexes_of_t = Vec::new();
         for index in self.indexes.values() {
             if !index.table.eq_ignore_ascii_case(&table.name) {
                 continue;
             }
             let column_idx = table.get_col_idx(&index.columns[0]).ok_or_else(|| {
-                SqliteError::runtime(format!(
+                InkError::runtime(format!(
                     "Column {} does not exist on table {}",
                     index.columns[0], table.name
                 ))
@@ -170,7 +170,7 @@ impl Master {
         Ok(indexes_of_t)
     }
 
-    fn parse_record(&mut self, record: &[Value]) -> Result<(), SqliteError> {
+    fn parse_record(&mut self, record: &[Value]) -> Result<(), InkError> {
         if record.len() != 5 {
             return Err(CorruptError::CatalogRecord {
                 columns: record.len(),
@@ -196,7 +196,7 @@ impl Master {
         self.parse_from_ast(ast, record)
     }
 
-    fn parse_from_ast(&mut self, ast: Ast, record: &[Value]) -> Result<(), SqliteError> {
+    fn parse_from_ast(&mut self, ast: Ast, record: &[Value]) -> Result<(), InkError> {
         match ast {
             CreateTableAst(ast) => {
                 let table = Table {

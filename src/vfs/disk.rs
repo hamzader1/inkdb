@@ -1,9 +1,9 @@
 use crate::DbError;
 #[cfg(unix)]
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 
-use super::file::SqliteFile;
-use super::{SqliteOptions, Vfs};
+use super::file::InkFile;
+use super::{InkOptions, Vfs};
 use std::fs::OpenOptions;
 
 #[cfg(unix)]
@@ -35,7 +35,7 @@ impl Vfs for DiskVfs {
     fn open<F: AsRef<std::path::Path>>(
         &mut self,
         f: F,
-        options: super::SqliteOptions,
+        options: super::InkOptions,
     ) -> Result<Self::File, crate::DbError> {
         let options = OpenOptions::from(options);
         let file = options.open(&f)?;
@@ -45,7 +45,7 @@ impl Vfs for DiskVfs {
         })
     }
     fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, crate::DbError> {
-        self.open(Self::journal_path(db), super::SqliteOptions::all())
+        self.open(Self::journal_path(db), super::InkOptions::all())
     }
     fn delete_journal(&mut self, db: &Self::File) -> Result<(), crate::DbError> {
         match std::fs::remove_file(Self::journal_path(db)) {
@@ -60,7 +60,7 @@ impl Vfs for DiskVfs {
             return Ok(None);
         }
         let mut vfs = DiskVfs;
-        let file = vfs.open(path, super::SqliteOptions::default())?;
+        let file = vfs.open(path, super::InkOptions::default())?;
         let len = file.len()?;
         let mut bytes = vec![0u8; len as _];
         file.read_exact_at(0, &mut bytes)?;
@@ -69,7 +69,7 @@ impl Vfs for DiskVfs {
 }
 
 #[cfg(unix)]
-impl SqliteFile for DiskFile {
+impl InkFile for DiskFile {
     fn path(&self) -> PathBuf {
         self.path.parent().unwrap().to_path_buf()
     }
@@ -90,7 +90,7 @@ impl SqliteFile for DiskFile {
         let file_len = self.file.metadata()?.len();
 
         if (offset as usize) + buff.len() > file_len as usize {
-            return Err(SqliteError::FileRange(format!(
+            return Err(InkError::FileRange(format!(
                 "read of {} bytes at offset {offset} exceeds file length {file_len} (grow the file with set_len first)",
                 buff.len()
             )));
@@ -104,7 +104,7 @@ impl SqliteFile for DiskFile {
         let file_len = self.file.metadata()?.len();
 
         if (offset as usize) + buff.len() > file_len as usize {
-            return Err(SqliteError::FileRange(format!(
+            return Err(InkError::FileRange(format!(
                 "write of {} bytes at offset {offset} exceeds file length {file_len} (grow the file with set_len first)",
                 buff.len()
             )));
@@ -126,7 +126,7 @@ impl SqliteFile for DiskFile {
 }
 
 #[cfg(windows)]
-impl SqliteFile for DiskFile {
+impl InkFile for DiskFile {
     fn path(&self) -> PathBuf {
         self.path.parent().unwrap().to_path_buf()
     }
@@ -144,12 +144,12 @@ impl SqliteFile for DiskFile {
     }
 
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), DbError> {
-        use crate::SqliteError;
+        use crate::InkError;
 
         let file_len = self.file.metadata()?.len();
 
         if offset as usize + buf.len() > file_len as usize {
-            return Err(SqliteError::FileRange(
+            return Err(InkError::FileRange(
                 format!(
                     "read of {} bytes at offset {offset} exceeds file length {file_len}",
                     buf.len()
@@ -178,12 +178,12 @@ impl SqliteFile for DiskFile {
     }
 
     fn write_all_at(&self, offset: u64, buf: &[u8]) -> Result<(), DbError> {
-        use crate::SqliteError;
+        use crate::InkError;
 
         let file_len = self.file.metadata()?.len();
 
         if offset as usize + buf.len() > file_len as usize {
-            return Err(SqliteError::FileRange(
+            return Err(InkError::FileRange(
                 format!(
                     "write of {} bytes at offset {offset} exceeds file length {file_len}",
                     buf.len()
@@ -222,8 +222,8 @@ impl SqliteFile for DiskFile {
     }
 }
 
-impl From<SqliteOptions> for OpenOptions {
-    fn from(value: SqliteOptions) -> Self {
+impl From<InkOptions> for OpenOptions {
+    fn from(value: InkOptions) -> Self {
         let mut options = OpenOptions::new();
 
         options.read(value.can_read());

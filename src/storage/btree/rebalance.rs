@@ -1,5 +1,5 @@
-use crate::SqliteResult;
-use crate::errors::{CorruptError, SqliteError};
+use crate::InkResult;
+use crate::errors::{CorruptError, InkError};
 use crate::pager::pager::PageNo;
 use crate::storage::page::{BTreePage, InsertionState, PageMut, PageRef};
 use crate::vfs::Vfs;
@@ -19,7 +19,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         right_page: PageNo,
         parent_no: PageNo,
         divider_idx: CellIndex,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
@@ -82,7 +82,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         rmp: Option<PageNo>,
         parent_no: PageNo,
         divider_idx: CellIndex,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
@@ -94,7 +94,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             page.reset_for_rebuild()?;
             for (i, cell) in pool.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::InternalFmt(format!(
+                    return Err(InkError::InternalFmt(format!(
                         "merge: combined cells do not fit in page {right_page}"
                     )));
                 }
@@ -131,13 +131,13 @@ impl<'a, V: Vfs> BTree<'a, V> {
         parent_no: PageNo,
         divider_idx: CellIndex,
         sep_cell: &[u8],
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
         let n = pool.len();
         if n < 3 {
-            return Err(SqliteError::Internal(
+            return Err(InkError::Internal(
                 "redistribute: not enough cells to spread over two pages",
             ));
         }
@@ -172,7 +172,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             page.reset_for_rebuild()?;
             for (i, cell) in right_share.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::InternalFmt(format!(
+                    return Err(InkError::InternalFmt(format!(
                         "redistribute: right share does not fit in page {right_page}"
                     )));
                 }
@@ -194,7 +194,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             };
             for (i, cell) in keep.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::InternalFmt(format!(
+                    return Err(InkError::InternalFmt(format!(
                         "redistribute: left share does not fit in page {left_page}"
                     )));
                 }
@@ -208,7 +208,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut parent = PageMut::new(parent_no, page_size, usable, bytes)?;
             if parent.replace_cell(divider_idx, &plan.parent_cell)? == InsertionState::None {
-                return Err(SqliteError::Internal(
+                return Err(InkError::Internal(
                     "redistribute: parent separator does not fit",
                 ));
             }
@@ -218,7 +218,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    pub(crate) fn fix_page_underflow(&mut self, child: PageNo) -> SqliteResult<()> {
+    pub(crate) fn fix_page_underflow(&mut self, child: PageNo) -> InkResult<()> {
         let Some(child_path) = self.cursor.stack.pop() else {
             return Ok(());
         };
@@ -252,7 +252,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 children.push(u32::from_be_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]));
             }
             children.push(parent.right_most_ptr()?.ok_or({
-                SqliteError::Corrupt(CorruptError::MissingRightMostChild { page: parent_no })
+                InkError::Corrupt(CorruptError::MissingRightMostChild { page: parent_no })
             })?);
             if slot == 0 {
                 (child, children[1], 0)
@@ -278,7 +278,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         }
     }
 
-    fn collapse_root(&mut self, root_no: PageNo) -> SqliteResult<()> {
+    fn collapse_root(&mut self, root_no: PageNo) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
@@ -294,7 +294,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         if is_leaf || n > 0 {
             return Ok(());
         }
-        let child_no = rmp.ok_or(SqliteError::Internal(
+        let child_no = rmp.ok_or(InkError::Internal(
             "empty interior root has no right-most child",
         ))?;
 
@@ -317,7 +317,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             )?;
             for (i, cell) in cells.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::Internal(
+                    return Err(InkError::Internal(
                         "root collapse: child cells do not fit in the root",
                     ));
                 }
@@ -331,7 +331,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
     }
 }
 
-fn stage<K: PageKind>(page: &TypedPage<&[u8], K>) -> SqliteResult<Vec<Vec<u8>>> {
+fn stage<K: PageKind>(page: &TypedPage<&[u8], K>) -> InkResult<Vec<Vec<u8>>> {
     let n = page.no_of_cells()?;
     let mut cells = Vec::with_capacity(n as usize);
     for i in 0..n {

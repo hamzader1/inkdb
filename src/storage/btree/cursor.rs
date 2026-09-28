@@ -1,6 +1,6 @@
 use super::kind::HasChild;
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::InkResult;
+use crate::errors::InkError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
@@ -90,7 +90,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     /*
      * optimize these two functions below
      */
-    pub fn save_position(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+    pub fn save_position(&mut self, pager: &mut Pager<V>) -> InkResult<()> {
         if let Some(last_entry) = self.stack.last() {
             let guard = pager.get(last_entry.page_no)?;
             let page = AnyPage::parse(
@@ -113,7 +113,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         }
         Ok(())
     }
-    pub fn restore_position(&mut self, pager: &mut Pager<V>) -> SqliteResult<RestorePosition> {
+    pub fn restore_position(&mut self, pager: &mut Pager<V>) -> InkResult<RestorePosition> {
         let Some(key) = self.saved_key.take() else {
             return Ok(RestorePosition::Empty);
         };
@@ -155,7 +155,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         Ok(RestorePosition::Next)
     }
 
-    pub fn skip_past_end(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+    pub fn skip_past_end(&mut self, pager: &mut Pager<V>) -> InkResult<()> {
         loop {
             let Some(path) = self.stack.last() else {
                 self.state = CursorState::AfterLast;
@@ -177,7 +177,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         &mut self,
         pager: &mut Pager<V>,
         target: &Value<'_>,
-    ) -> SqliteResult<SeekResult> {
+    ) -> InkResult<SeekResult> {
         let res = self.seek_internal(pager, target, true)?;
         self.skip_past_end(pager)?;
         Ok(res)
@@ -191,14 +191,14 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         &mut self,
         pager: &mut Pager<V>,
         target: &Value<'_>,
-    ) -> Result<SeekResult, SqliteError> {
+    ) -> Result<SeekResult, InkError> {
         self.seek_internal(pager, target, false)
     }
     pub fn seek_for_delete(
         &mut self,
         pager: &mut Pager<V>,
         target: &Value<'_>,
-    ) -> Result<SeekResult, SqliteError> {
+    ) -> Result<SeekResult, InkError> {
         self.seek_internal(pager, target, true)
     }
     fn seek_internal(
@@ -206,7 +206,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         pager: &mut Pager<V>,
         target: &Value,
         stop_at_interior: bool,
-    ) -> SqliteResult<SeekResult> {
+    ) -> InkResult<SeekResult> {
         self.clear_path();
         let mut page_no = self.root;
         loop {
@@ -275,7 +275,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             }
         }
     }
-    pub fn next(&mut self, pager: &mut Pager<V>) -> SqliteResult<()> {
+    pub fn next(&mut self, pager: &mut Pager<V>) -> InkResult<()> {
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
@@ -335,7 +335,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         &mut self,
         pager: &mut Pager<V>,
         page_no: PageNo,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
@@ -359,13 +359,13 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             };
         }
     }
-    pub fn first(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
+    pub fn first(&mut self, pager: &mut Pager<V>) -> Result<(), InkError> {
         self.clear_path();
         let root = self.root;
         self.descend_to_first(pager, root)
     }
 
-    pub fn prev(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
+    pub fn prev(&mut self, pager: &mut Pager<V>) -> Result<(), InkError> {
         while let Some(path) = self.stack.pop() {
             let Path {
                 page_no,
@@ -420,7 +420,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         Ok(())
     }
 
-    pub fn last(&mut self, pager: &mut Pager<V>) -> Result<(), SqliteError> {
+    pub fn last(&mut self, pager: &mut Pager<V>) -> Result<(), InkError> {
         self.clear_path();
         let root = self.root;
         self.descend_to_last(pager, root)
@@ -429,7 +429,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         &mut self,
         pager: &mut Pager<V>,
         page_no: PageNo,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
@@ -459,7 +459,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn current<K: PageKind>(
         &self,
         pager: &mut Pager<V>,
-    ) -> Result<Option<K::Cell>, SqliteError> {
+    ) -> Result<Option<K::Cell>, InkError> {
         if let Some(path) = self.stack.last() {
             let Path {
                 page_no,
@@ -479,7 +479,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         }
         Ok(None)
     }
-    pub fn max_row_id(&mut self, pager: &mut Pager<V>) -> SqliteResult<u64> {
+    pub fn max_row_id(&mut self, pager: &mut Pager<V>) -> InkResult<u64> {
         self.last(pager)?;
         if let Some(path) = self.stack.last() {
             let page = AnyPage::parse(
@@ -491,11 +491,11 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             let inner = match page {
                 AnyPage::TableLeaf(ref inner) => inner,
                 AnyPage::TableInterior(_) => {
-                    return Err(SqliteError::Internal(
+                    return Err(InkError::Internal(
                         "Cursor::last ends in a interior table",
                     ));
                 }
-                _ => return Err(SqliteError::Internal("Index pages has no RowId")),
+                _ => return Err(InkError::Internal("Index pages has no RowId")),
             };
             let n_of_cells = inner.no_of_cells()?;
             if n_of_cells == 0 {
@@ -505,7 +505,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 return Ok(cell.row_id);
             }
         }
-        Err(SqliteError::Internal(
+        Err(InkError::Internal(
             "Cusror stack is empty after seeking to last",
         ))
     }
@@ -519,7 +519,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn current_page_as_ref<'a>(
         &'a self,
         pager: &mut Pager<V>,
-    ) -> Result<Option<PageRef<'a>>, SqliteError> {
+    ) -> Result<Option<PageRef<'a>>, InkError> {
         if let Some(path) = self.stack.last() {
             let page = page_as_ref_with_pager(path.page_no, &path.guard, pager)?;
             return Ok(Some(page));
@@ -529,7 +529,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn current_record<'a, K: PageKind>(
         &'a self,
         pager: &mut Pager<V>,
-    ) -> Result<Option<Vec<Value<'a>>>, SqliteError>
+    ) -> Result<Option<Vec<Value<'a>>>, InkError>
     where
         K::Cell: HasPayload + Cell,
     {
@@ -560,7 +560,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn current_record_bytes(
         &self,
         pager: &mut Pager<V>,
-    ) -> Result<Option<Vec<u8>>, SqliteError> {
+    ) -> Result<Option<Vec<u8>>, InkError> {
         let Some(path) = self.stack.last() else {
             return Ok(None);
         };
@@ -585,9 +585,9 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         })
     }
 
-    fn with_page<T, FN>(pager: &mut Pager<V>, page_no: PageNo, f: FN) -> Result<T, SqliteError>
+    fn with_page<T, FN>(pager: &mut Pager<V>, page_no: PageNo, f: FN) -> Result<T, InkError>
     where
-        FN: for<'a> FnOnce(&'a PageRef<'a>) -> Result<T, SqliteError>,
+        FN: for<'a> FnOnce(&'a PageRef<'a>) -> Result<T, InkError>,
     {
         let page_guard = pager.get(page_no)?;
         let page = PageRef::new(
@@ -648,7 +648,7 @@ fn leaf_next_step(cell_index: u16, max: u16) -> Step {
 fn table_interior_prev_step(
     p: &TypedPage<&[u8], TableInterior>,
     cell_idx: CellIndex,
-) -> SqliteResult<Step> {
+) -> InkResult<Step> {
     if cell_idx == 0 {
         return Ok(Step::PopParent);
     }
@@ -662,7 +662,7 @@ fn table_interior_next_step(
     p: &TypedPage<&[u8], TableInterior>,
     cell_index: u16,
     max: u16,
-) -> SqliteResult<Step> {
+) -> InkResult<Step> {
     if cell_index == max {
         return Ok(Step::PopParent);
     }
@@ -684,7 +684,7 @@ fn index_interior_prev_step(
     p: &TypedPage<&[u8], IndexInterior>,
     cell_idx: CellIndex,
     yielded: bool,
-) -> SqliteResult<Step> {
+) -> InkResult<Step> {
     if yielded {
         if cell_idx < p.no_of_cells()? {
             return Ok(Step::Descend {
@@ -711,7 +711,7 @@ fn index_interior_next_step(
     cell_index: u16,
     max: u16,
     yielded: bool,
-) -> SqliteResult<Step> {
+) -> InkResult<Step> {
     if cell_index >= max {
         return Ok(Step::PopParent);
     }
@@ -739,7 +739,7 @@ pub(crate) fn search_row_ids<B: AsRef<[u8]>, K: PageKind, V: Vfs>(
     page: &TypedPage<B, K>,
     _pager: &mut Pager<V>,
     target: u64,
-) -> SqliteResult<(bool, u16)>
+) -> InkResult<(bool, u16)>
 where
     K::Cell: HasRowId,
 {
@@ -763,7 +763,7 @@ pub(crate) fn search_indexes<B: AsRef<[u8]>, K: IndexKind, V: Vfs>(
     page: &TypedPage<B, K>,
     pager: &mut Pager<V>,
     target: &Value,
-) -> SqliteResult<IndexSearchResult>
+) -> InkResult<IndexSearchResult>
 where
     K::Cell: HasPayload,
 {

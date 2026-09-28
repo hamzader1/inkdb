@@ -1,5 +1,5 @@
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::InkResult;
+use crate::errors::InkError;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::cell::{IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
@@ -47,12 +47,12 @@ impl PageKind for IndexLeaf {
 }
 #[allow(clippy::len_without_is_empty)]
 pub trait Cell: Sized {
-    fn parse(bytes: &[u8], usable_size: usize) -> SqliteResult<Self>;
+    fn parse(bytes: &[u8], usable_size: usize) -> InkResult<Self>;
     fn len(&self) -> usize;
     fn rebase(&mut self, base: usize);
 }
 impl Cell for TableInteriorCell {
-    fn parse(bytes: &[u8], usable_size: usize) -> SqliteResult<Self> {
+    fn parse(bytes: &[u8], usable_size: usize) -> InkResult<Self> {
         Self::parse(bytes, usable_size)
     }
     fn len(&self) -> usize {
@@ -61,7 +61,7 @@ impl Cell for TableInteriorCell {
     fn rebase(&mut self, _base: usize) {}
 }
 impl Cell for IndexInteriorCell {
-    fn parse(bytes: &[u8], usable_size: usize) -> SqliteResult<Self> {
+    fn parse(bytes: &[u8], usable_size: usize) -> InkResult<Self> {
         Self::parse(bytes, usable_size)
     }
     fn len(&self) -> usize {
@@ -83,7 +83,7 @@ impl Cell for IndexInteriorCell {
     }
 }
 impl Cell for TableLeafCell {
-    fn parse(bytes: &[u8], usable_size: usize) -> SqliteResult<Self> {
+    fn parse(bytes: &[u8], usable_size: usize) -> InkResult<Self> {
         Self::parse(bytes, usable_size)
     }
     fn len(&self) -> usize {
@@ -105,7 +105,7 @@ impl Cell for TableLeafCell {
     }
 }
 impl Cell for IndexLeafCell {
-    fn parse(bytes: &[u8], usable_size: usize) -> SqliteResult<Self> {
+    fn parse(bytes: &[u8], usable_size: usize) -> InkResult<Self> {
         Self::parse(bytes, usable_size)
     }
     fn len(&self) -> usize {
@@ -201,17 +201,17 @@ impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K>
 where
     K::Cell: HasChild,
 {
-    pub(crate) fn child(&self, i: u16) -> SqliteResult<u32> {
+    pub(crate) fn child(&self, i: u16) -> InkResult<u32> {
         Ok(self.cell(i)?.left_child())
     }
-    pub(crate) fn rmp(&self) -> SqliteResult<u32> {
-        self.inner.right_most_ptr()?.ok_or(SqliteError::Internal(
+    pub(crate) fn rmp(&self) -> InkResult<u32> {
+        self.inner.right_most_ptr()?.ok_or(InkError::Internal(
             "interior page has no right-most pointer",
         ))
     }
 }
 impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K> {
-    pub fn cell(&self, i: u16) -> SqliteResult<K::Cell> {
+    pub fn cell(&self, i: u16) -> InkResult<K::Cell> {
         let cell_offset = self.inner.cell_ptr(i)? as usize;
         let mut cell =
             K::Cell::parse(&self.inner.bytes()[cell_offset..], self.inner.usable_size())?;
@@ -224,11 +224,11 @@ impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K>
 where
     K::Cell: HasRowId,
 {
-    pub(crate) fn row_id(&self, i: u16) -> SqliteResult<u64> {
+    pub(crate) fn row_id(&self, i: u16) -> InkResult<u64> {
         let cell_offset = self.inner.cell_ptr(i)? as usize;
         Ok(K::Cell::parse(&self.inner.bytes()[cell_offset..], self.inner.usable_size())?.row_id())
     }
-    pub(crate) fn row_id_key(&self, i: u16) -> SqliteResult<Value<'static>> {
+    pub(crate) fn row_id_key(&self, i: u16) -> InkResult<Value<'static>> {
         Ok(Value::Integer(self.cell(i)?.row_id() as _))
     }
 }
@@ -241,7 +241,7 @@ where
         &self,
         i: u16,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         let cell = &self.cell(i)?;
         let record = self.inner.get_cell_record_v2(cell, pager)?;
         Ok(Value::Tuple(record).to_owned_static())
@@ -270,21 +270,21 @@ impl<B: AsRef<[u8]>> AnyPage<B> {
         page_size: usize,
         usable_size: usize,
         b: B,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         let btree_page = BTreePage::new(page_no, page_size, usable_size, b)?;
         match btree_page.page_type()?.as_byte() {
             TableInterior::BYTE => Ok(Self::TableInterior(TypedPage::wrap(btree_page))),
             TableLeaf::BYTE => Ok(Self::TableLeaf(TypedPage::wrap(btree_page))),
             IndexInterior::BYTE => Ok(Self::IndexInterior(TypedPage::wrap(btree_page))),
             IndexLeaf::BYTE => Ok(Self::IndexLeaf(TypedPage::wrap(btree_page))),
-            other => Err(SqliteError::InvalidPageType(other)),
+            other => Err(InkError::InvalidPageType(other)),
         }
     }
     pub(crate) fn cell_key<V: Vfs>(
         &self,
         i: u16,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         let key = {
             match self {
                 AnyPage::TableInterior(p) => p.row_id_key(i)?,
@@ -296,7 +296,7 @@ impl<B: AsRef<[u8]>> AnyPage<B> {
         Ok(key)
     }
 
-    pub(crate) fn no_of_cells(&self) -> SqliteResult<u16> {
+    pub(crate) fn no_of_cells(&self) -> InkResult<u16> {
         match self {
             AnyPage::TableInterior(p) => p.no_of_cells(),
             AnyPage::TableLeaf(p) => p.no_of_cells(),

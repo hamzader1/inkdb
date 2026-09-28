@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use super::file::SqliteFile;
+use super::file::InkFile;
 use super::temp::create_temp_dir;
 use crate::DbError;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::vfs::Vfs;
 
 const MEM_B: &str = "__INK_MEMORY_BUFFER";
@@ -41,7 +41,7 @@ impl Vfs for MemVfs {
     fn open<F: AsRef<Path>>(
         &mut self,
         f: F,
-        _options: super::SqliteOptions,
+        _options: super::InkOptions,
     ) -> Result<Self::File, DbError> {
         if let Some(bytes) = self.db_buffers.get(&f.as_ref().to_path_buf()) {
             return Ok(MemFile::new(Rc::clone(bytes)));
@@ -88,7 +88,7 @@ impl MemFile {
     }
 }
 
-impl SqliteFile for MemFile {
+impl InkFile for MemFile {
     fn name(&self) -> &str {
         MEM_B
     }
@@ -106,7 +106,7 @@ impl SqliteFile for MemFile {
         let end = start + buff.len();
 
         if end > bytes.len() {
-            return Err(SqliteError::FileRange(format!(
+            return Err(InkError::FileRange(format!(
                 "read of {} bytes at offset {offset} exceeds buffer length {}",
                 buff.len(),
                 bytes.len()
@@ -125,7 +125,7 @@ impl SqliteFile for MemFile {
         let end = start + buff.len();
 
         if end > bytes.len() {
-            return Err(SqliteError::FileRange(format!(
+            return Err(InkError::FileRange(format!(
                 "write of {} bytes at offset {offset} exceeds buffer length {}",
                 buff.len(),
                 bytes.len()

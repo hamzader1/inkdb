@@ -1,5 +1,5 @@
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::InkResult;
+use crate::errors::InkError;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::cell::Encode;
@@ -68,29 +68,29 @@ pub trait CellOps: PageKind + Sized {
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
         key: &Value,
-    ) -> SqliteResult<CellIndex>;
+    ) -> InkResult<CellIndex>;
 
     fn key_of<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         i: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>>;
+    ) -> InkResult<Value<'static>>;
 
     fn divider_of_cell<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         i: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Divider>;
+    ) -> InkResult<Divider>;
 
     fn promote<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         split_at: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Promotion>;
+    ) -> InkResult<Promotion>;
 }
 
 pub trait InteriorOps: RebalanceOps {
-    fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> SqliteResult<PageNo>;
+    fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> InkResult<PageNo>;
 
     fn right_divider(old_cell: &[u8], old_key: Value<'static>, right_bound: Divider) -> Divider;
 }
@@ -110,7 +110,7 @@ pub trait RebalanceOps: CellOps {
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,
         usable: usize,
-    ) -> SqliteResult<Option<Vec<u8>>>;
+    ) -> InkResult<Option<Vec<u8>>>;
 
     fn redistribute(
         left_share: &[Vec<u8>],
@@ -119,7 +119,7 @@ pub trait RebalanceOps: CellOps {
         left_rmp: Option<PageNo>,
         sep_cell: &[u8],
         usable: usize,
-    ) -> SqliteResult<Redistribute>;
+    ) -> InkResult<Redistribute>;
 }
 
 impl CellOps for TableInterior {
@@ -127,7 +127,7 @@ impl CellOps for TableInterior {
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
         key: &Value,
-    ) -> SqliteResult<CellIndex> {
+    ) -> InkResult<CellIndex> {
         let row_id = key.cast_int()? as u64;
         let (_, idx) = search_row_ids(page, pager, row_id)?;
         Ok(idx)
@@ -137,7 +137,7 @@ impl CellOps for TableInterior {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         _pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         Ok(Value::Integer(page.cell(i)?.rowid_boundary as i64))
     }
 
@@ -145,7 +145,7 @@ impl CellOps for TableInterior {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         _pager: &mut Pager<V>,
-    ) -> SqliteResult<Divider> {
+    ) -> InkResult<Divider> {
         Ok(Divider::RowId(page.cell(i)?.rowid_boundary))
     }
 
@@ -153,7 +153,7 @@ impl CellOps for TableInterior {
         page: &TypedPage<B, Self>,
         split_at: CellIndex,
         _pager: &mut Pager<V>,
-    ) -> SqliteResult<Promotion> {
+    ) -> InkResult<Promotion> {
         let i = split_at - 1;
         let cell = page.cell(i)?;
         Ok(Promotion {
@@ -165,7 +165,7 @@ impl CellOps for TableInterior {
 }
 
 impl InteriorOps for TableInterior {
-    fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> SqliteResult<PageNo> {
+    fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> InkResult<PageNo> {
         Ok(page.cell(i)?.left_child)
     }
 
@@ -179,7 +179,7 @@ impl CellOps for TableLeaf {
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
         key: &Value,
-    ) -> SqliteResult<CellIndex> {
+    ) -> InkResult<CellIndex> {
         let row_id = key.cast_int()? as u64;
         let (_, idx) = search_row_ids(page, pager, row_id)?;
         Ok(idx)
@@ -189,7 +189,7 @@ impl CellOps for TableLeaf {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         _pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         Ok(Value::Integer(page.cell(i)?.row_id as i64))
     }
 
@@ -197,7 +197,7 @@ impl CellOps for TableLeaf {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         _pager: &mut Pager<V>,
-    ) -> SqliteResult<Divider> {
+    ) -> InkResult<Divider> {
         Ok(Divider::RowId(page.cell(i)?.row_id))
     }
 
@@ -205,7 +205,7 @@ impl CellOps for TableLeaf {
         page: &TypedPage<B, Self>,
         split_at: CellIndex,
         _pager: &mut Pager<V>,
-    ) -> SqliteResult<Promotion> {
+    ) -> InkResult<Promotion> {
         Ok(Promotion {
             divider: Divider::RowId(page.cell(split_at - 1)?.row_id),
             consumed: Consumed::None,
@@ -223,7 +223,7 @@ impl CellOps for IndexInterior {
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
         key: &Value,
-    ) -> SqliteResult<CellIndex> {
+    ) -> InkResult<CellIndex> {
         let idx = match search_indexes(page, pager, key)? {
             IndexSearchResult::Exact(i)
             | IndexSearchResult::EqualPrefix(i)
@@ -236,7 +236,7 @@ impl CellOps for IndexInterior {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         page.index_payload_key(i, pager)
     }
 
@@ -244,7 +244,7 @@ impl CellOps for IndexInterior {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Divider> {
+    ) -> InkResult<Divider> {
         let cell = page.cell_bytes_as_ref(i)?[4..].to_vec();
         let key = page.index_payload_key(i, pager)?;
         Ok(Divider::Entry {
@@ -257,7 +257,7 @@ impl CellOps for IndexInterior {
         page: &TypedPage<B, Self>,
         split_at: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Promotion> {
+    ) -> InkResult<Promotion> {
         let i = split_at - 1;
         let left_child = page.cell(i)?.left_child;
         Ok(Promotion {
@@ -269,7 +269,7 @@ impl CellOps for IndexInterior {
 }
 
 impl InteriorOps for IndexInterior {
-    fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> SqliteResult<PageNo> {
+    fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> InkResult<PageNo> {
         Ok(page.cell(i)?.left_child)
     }
 
@@ -286,7 +286,7 @@ impl CellOps for IndexLeaf {
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
         key: &Value,
-    ) -> SqliteResult<CellIndex> {
+    ) -> InkResult<CellIndex> {
         let idx = match search_indexes(page, pager, key)? {
             IndexSearchResult::Exact(i)
             | IndexSearchResult::EqualPrefix(i)
@@ -299,7 +299,7 @@ impl CellOps for IndexLeaf {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         page.index_payload_key(i, pager)
     }
 
@@ -307,7 +307,7 @@ impl CellOps for IndexLeaf {
         page: &TypedPage<B, Self>,
         i: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Divider> {
+    ) -> InkResult<Divider> {
         let cell = page.cell_bytes_as_ref(i)?.to_vec();
         let key = page.index_payload_key(i, pager)?;
         Ok(Divider::Entry {
@@ -320,7 +320,7 @@ impl CellOps for IndexLeaf {
         page: &TypedPage<B, Self>,
         split_at: CellIndex,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Promotion> {
+    ) -> InkResult<Promotion> {
         let i = split_at - 1;
         Ok(Promotion {
             divider: Self::divider_of_cell(page, i, pager)?,
@@ -339,7 +339,7 @@ impl RebalanceOps for TableLeaf {
         _sep_cell: &[u8],
         _left_rmp: Option<PageNo>,
         _usable: usize,
-    ) -> SqliteResult<Option<Vec<u8>>> {
+    ) -> InkResult<Option<Vec<u8>>> {
         Ok(None)
     }
 
@@ -350,10 +350,10 @@ impl RebalanceOps for TableLeaf {
         _left_rmp: Option<PageNo>,
         _sep_cell: &[u8],
         usable: usize,
-    ) -> SqliteResult<Redistribute> {
+    ) -> InkResult<Redistribute> {
         let last = left_share
             .last()
-            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
+            .ok_or(InkError::Internal("redistribute: empty left share"))?;
         let row_id = TableLeafCell::parse(last, usable)?.row_id;
         Ok(Redistribute {
             parent_cell: Encode::encode_table_interior_cell(left_page, row_id),
@@ -368,7 +368,7 @@ impl RebalanceOps for IndexLeaf {
         sep_cell: &[u8],
         _left_rmp: Option<PageNo>,
         _usable: usize,
-    ) -> SqliteResult<Option<Vec<u8>>> {
+    ) -> InkResult<Option<Vec<u8>>> {
         Ok(Some(sep_cell[4..].to_vec()))
     }
 
@@ -379,10 +379,10 @@ impl RebalanceOps for IndexLeaf {
         _left_rmp: Option<PageNo>,
         _sep_cell: &[u8],
         _usable: usize,
-    ) -> SqliteResult<Redistribute> {
+    ) -> InkResult<Redistribute> {
         let promoted = left_share
             .last()
-            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
+            .ok_or(InkError::Internal("redistribute: empty left share"))?;
         Ok(Redistribute {
             parent_cell: Encode::encode_index_interior_cell(left_page, promoted),
             drop_left_last: true,
@@ -396,8 +396,8 @@ impl RebalanceOps for TableInterior {
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,
         usable: usize,
-    ) -> SqliteResult<Option<Vec<u8>>> {
-        let left_rmp = left_rmp.ok_or(SqliteError::Internal(
+    ) -> InkResult<Option<Vec<u8>>> {
+        let left_rmp = left_rmp.ok_or(InkError::Internal(
             "pull_down: left interior has no right child",
         ))?;
         let sep = TableInteriorCell::parse(sep_cell, usable)?;
@@ -414,10 +414,10 @@ impl RebalanceOps for TableInterior {
         _left_rmp: Option<PageNo>,
         _sep_cell: &[u8],
         usable: usize,
-    ) -> SqliteResult<Redistribute> {
+    ) -> InkResult<Redistribute> {
         let promoted = left_share
             .last()
-            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
+            .ok_or(InkError::Internal("redistribute: empty left share"))?;
         let promoted_cell = TableInteriorCell::parse(promoted, usable)?;
         Ok(Redistribute {
             parent_cell: Encode::encode_table_interior_cell(
@@ -435,8 +435,8 @@ impl RebalanceOps for IndexInterior {
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,
         _usable: usize,
-    ) -> SqliteResult<Option<Vec<u8>>> {
-        let left_rmp = left_rmp.ok_or(SqliteError::Internal(
+    ) -> InkResult<Option<Vec<u8>>> {
+        let left_rmp = left_rmp.ok_or(InkError::Internal(
             "pull_down: left interior has no right child",
         ))?;
         Ok(Some(Encode::encode_index_interior_cell(
@@ -452,10 +452,10 @@ impl RebalanceOps for IndexInterior {
         _left_rmp: Option<PageNo>,
         _sep_cell: &[u8],
         usable: usize,
-    ) -> SqliteResult<Redistribute> {
+    ) -> InkResult<Redistribute> {
         let promoted = left_share
             .last()
-            .ok_or(SqliteError::Internal("redistribute: empty left share"))?;
+            .ok_or(InkError::Internal("redistribute: empty left share"))?;
         let promoted_cell = IndexInteriorCell::parse(promoted, usable)?;
         Ok(Redistribute {
             parent_cell: Encode::encode_index_interior_cell(left_page, &promoted[4..]),

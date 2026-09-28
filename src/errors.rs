@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::pager::pager::PageNo;
 use crate::sql::tokens::{Span, TokenKind};
 #[derive(Debug, Error)]
-pub enum SqliteError {
+pub enum InkError {
     #[error("Failed to open database file: {0}")]
     DatabaseOpenFailure(#[from] std::io::Error),
 
@@ -187,7 +187,7 @@ pub struct SyntaxError {
     pub span: Span,
 }
 
-impl SqliteError {
+impl InkError {
     pub fn runtime(message: impl Into<String>) -> Self {
         Self::Runtime(RuntimeError::Message(message.into()))
     }
@@ -226,8 +226,8 @@ pub enum SyntaxErrorKind {
     ExpectedEoi(TokenKind),
 }
 
-pub fn render_syntax_error(sql: &str, err: &SqliteError) -> Option<String> {
-    let SqliteError::Syntax(syntax) = err else {
+pub fn render_syntax_error(sql: &str, err: &InkError) -> Option<String> {
+    let InkError::Syntax(syntax) = err else {
         return None;
     };
     let Span(start, end) = syntax.span;

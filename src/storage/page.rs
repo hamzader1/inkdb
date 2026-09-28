@@ -2,8 +2,8 @@ use super::btree::CellIndex;
 use super::btree::kind::HasPayload;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::cursor::MemCursor;
-use crate::SqliteResult;
-use crate::errors::{CorruptError, SqliteError};
+use crate::InkResult;
+use crate::errors::{CorruptError, InkError};
 use crate::pager::pager::PageNo;
 use crate::pager::pager::Pager;
 use crate::record::Value;
@@ -40,7 +40,7 @@ pub const RIGHT_MOST_POINTER_SIZE: usize = 4;
 pub const LEFT_CHILD_POINTER_SIZE: usize = 4;
 pub const OVERFLOW_POINTER_SIZE: usize = 4;
 
-pub const SQLITE3_HEADER_SIZE: usize = 100;
+pub const HEADER_SIZE: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -86,9 +86,9 @@ impl BTreePageType {
 }
 
 impl TryFrom<u8> for BTreePageType {
-    type Error = SqliteError;
+    type Error = InkError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::get(value).ok_or(SqliteError::InvalidPageType(value))
+        Self::get(value).ok_or(InkError::InvalidPageType(value))
     }
 }
 
@@ -107,7 +107,7 @@ impl<'a> OverflowPageRef<'a> {
     pub fn new<T: AsRef<[u8]> + ?Sized>(
         bytes: &'a T,
         usable_size: usize,
-    ) -> Result<Self, SqliteError> {
+    ) -> Result<Self, InkError> {
         let data = bytes.as_ref();
         assert_with_corrupt_err(data.len() >= usable_size, || {
             "not enough bytes in overflow page".into()
@@ -116,7 +116,7 @@ impl<'a> OverflowPageRef<'a> {
         let next_page_buffer = match data[0..4].as_array::<4>() {
             Some(buf) => buf,
             _ => {
-                return Err(SqliteError::Corrupt(CorruptError::OverflowNextPointer));
+                return Err(InkError::Corrupt(CorruptError::OverflowNextPointer));
             }
         };
         let next_page = u32::from_be_bytes(*next_page_buffer);
@@ -137,7 +137,7 @@ pub struct FreeCell {
 }
 
 impl FreeCell {
-    pub fn parse(ptr: u16, bytes: &[u8]) -> SqliteResult<Self> {
+    pub fn parse(ptr: u16, bytes: &[u8]) -> InkResult<Self> {
         let mut cursor = MemCursor::with_offset(bytes, ptr as _)?;
         let next = cursor.read_next_u16()?;
         let size = cursor.read_next_u16()?;
@@ -156,10 +156,10 @@ impl<'a> OverflowPageRef<'a> {
         total_payload_length: usize,
         usable_size: usize,
         first_overflow_page: PageNo,
-    ) -> Result<Vec<u8>, SqliteError> {
+    ) -> Result<Vec<u8>, InkError> {
         let mut remaining = total_payload_length
             .checked_sub(local_payload_bytes.len())
-            .ok_or(SqliteError::Corrupt(CorruptError::OverflowPayloadTooLong))?;
+            .ok_or(InkError::Corrupt(CorruptError::OverflowPayloadTooLong))?;
         let mut current_page = first_overflow_page;
         let mut total_collected_payload: Vec<u8> = Vec::new();
         total_collected_payload.extend_from_slice(local_payload_bytes);
@@ -172,7 +172,7 @@ impl<'a> OverflowPageRef<'a> {
             remaining -= bytes_to_read;
             if remaining == 0 {
                 if overflow_page.next != 0 {
-                    return Err(SqliteError::CorruptedPage {
+                    return Err(InkError::CorruptedPage {
                         page: current_page,
                         reason: "overflow chain continues after payload is complete".into(),
                     });
@@ -180,7 +180,7 @@ impl<'a> OverflowPageRef<'a> {
                 break;
             }
             if overflow_page.next == 0 {
-                return Err(SqliteError::CorruptedPage {
+                return Err(InkError::CorruptedPage {
                     page: current_page,
                     reason: "overflow chain ends before payload is complete".into(),
                 });
@@ -190,7 +190,7 @@ impl<'a> OverflowPageRef<'a> {
 
         assert_one(
             total_collected_payload.len() == total_payload_length,
-            SqliteError::Corrupt(CorruptError::OverflowPayloadMismatch),
+            InkError::Corrupt(CorruptError::OverflowPayloadMismatch),
         )?;
 
         Ok(total_collected_payload)
@@ -204,7 +204,7 @@ pub struct PageIterator<'r, 'p, V: crate::vfs::Vfs> {
 }
 
 impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
-    type Item = SqliteResult<Vec<Value<'r>>>;
+    type Item = InkResult<Vec<Value<'r>>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.page.no_of_cells().unwrap_or(0) {
             return None;
@@ -268,7 +268,7 @@ pub struct BTreePage<B> {
 }
 
 impl<B: AsRef<[u8]>> BTreePage<B> {
-    pub fn assert_invariants(&self) -> SqliteResult<()> {
+    pub fn assert_invariants(&self) -> InkResult<()> {
         let hdr = self.header_size()? as usize;
         let n = self.no_of_cells()? as usize;
         let cca = self.cell_content_area()? as usize;
@@ -313,7 +313,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         page_size: usize,
         usable_size: usize,
         bytes: B,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         let header_offset = if page_no == 1 { 100 } else { 0 };
         let this = BTreePage {
             page_no,
@@ -334,18 +334,18 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
     }
-    pub fn u8_at(&self, off: usize) -> SqliteResult<u8> {
+    pub fn u8_at(&self, off: usize) -> InkResult<u8> {
         self.with_cursor_read_at(off, |cursor| cursor.read_next_u8())
     }
-    pub fn u16_at(&self, off: usize) -> SqliteResult<u16> {
+    pub fn u16_at(&self, off: usize) -> InkResult<u16> {
         self.with_cursor_read_at(off, |cursor| cursor.read_next_u16())
     }
-    pub fn u32_at(&self, off: usize) -> SqliteResult<u32> {
+    pub fn u32_at(&self, off: usize) -> InkResult<u32> {
         self.with_cursor_read_at(off, |cursor| cursor.read_next_u32())
     }
-    pub fn with_cursor_read_at<F, R>(&self, off: usize, f: F) -> SqliteResult<R>
+    pub fn with_cursor_read_at<F, R>(&self, off: usize, f: F) -> InkResult<R>
     where
-        F: FnOnce(&mut MemCursor) -> SqliteResult<R>,
+        F: FnOnce(&mut MemCursor) -> InkResult<R>,
     {
         let mut cursor = MemCursor::with_offset(self.bytes(), off as _)?;
         f(&mut cursor)
@@ -353,22 +353,22 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     pub fn with_header_offset(&self, off: usize) -> usize {
         self.header_offset as usize + off
     }
-    pub fn header_size(&self) -> SqliteResult<u8> {
+    pub fn header_size(&self) -> InkResult<u8> {
         Ok(self.header_offset + self.page_type()?.header_size())
     }
-    pub fn page_type(&self) -> SqliteResult<BTreePageType> {
+    pub fn page_type(&self) -> InkResult<BTreePageType> {
         BTreePageType::try_from(self.u8_at(self.header_offset as _)?)
     }
-    pub fn no_of_cells(&self) -> SqliteResult<u16> {
+    pub fn no_of_cells(&self) -> InkResult<u16> {
         self.u16_at(self.with_header_offset(CELL_COUNT_OFFSET))
     }
-    pub fn cell_content_area(&self) -> SqliteResult<u16> {
+    pub fn cell_content_area(&self) -> InkResult<u16> {
         self.u16_at(self.with_header_offset(CELL_CONTENT_AREA_OFFSET))
     }
-    fn frag_cnt(&self) -> SqliteResult<u8> {
+    fn frag_cnt(&self) -> InkResult<u8> {
         self.u8_at(self.with_header_offset(FRAGMENTED_FREE_BYTES_OFFSET))
     }
-    pub fn right_most_ptr(&self) -> SqliteResult<Option<u32>> {
+    pub fn right_most_ptr(&self) -> InkResult<Option<u32>> {
         if self.page_type()?.is_interior() {
             return Ok(Some(
                 self.u32_at(self.with_header_offset(RIGHT_MOST_POINTER_OFFSET))?,
@@ -376,18 +376,18 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         }
         Ok(None)
     }
-    pub fn first_freeblock(&self) -> SqliteResult<u16> {
+    pub fn first_freeblock(&self) -> InkResult<u16> {
         self.u16_at(self.with_header_offset(FIRST_FREEBLOCK_OFFSET))
     }
 
-    pub fn cell_ptr(&self, i: u16) -> SqliteResult<u16> {
+    pub fn cell_ptr(&self, i: u16) -> InkResult<u16> {
         if i >= self.no_of_cells()? {
-            return Err(SqliteError::InvalidCellPointer(i));
+            return Err(InkError::InvalidCellPointer(i));
         }
         self.u16_at((self.header_size()? as u16 + i * 2) as usize)
     }
     #[allow(clippy::chunks_exact_to_as_chunks)]
-    pub fn cell_ptrs(&self) -> SqliteResult<impl Iterator<Item = u16> + '_> {
+    pub fn cell_ptrs(&self) -> InkResult<impl Iterator<Item = u16> + '_> {
         let start = self.header_size()? as usize;
         let no_of_cells = self.no_of_cells()? as usize;
         Ok(self.bytes()[start..start + no_of_cells * 2]
@@ -395,23 +395,23 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             .map(|c| u16::from_be_bytes([c[0], c[1]])))
     }
 
-    pub fn cell(&self, i: u16) -> SqliteResult<BTreeCell> {
+    pub fn cell(&self, i: u16) -> InkResult<BTreeCell> {
         let cell_offset = self.cell_ptr(i)?;
         self.parse_cell_at(cell_offset)
     }
-    pub fn is_index(&self) -> SqliteResult<bool> {
+    pub fn is_index(&self) -> InkResult<bool> {
         Ok(self.page_type()? == BTreePageType::InteriorIndex
             || self.page_type()? == BTreePageType::LeafIndex)
     }
 
-    pub fn freespace(&self) -> SqliteResult<usize> {
+    pub fn freespace(&self) -> InkResult<usize> {
         let freeblocks_size = self.total_freeblocks_size()?;
         let total_free_bytes =
             freeblocks_size + self.frag_cnt()? as usize + self.cell_content_area()? as usize
                 - (self.header_size()? as u16 + self.no_of_cells()? * 2) as usize;
         Ok(total_free_bytes)
     }
-    fn total_freeblocks_size(&self) -> SqliteResult<usize> {
+    fn total_freeblocks_size(&self) -> InkResult<usize> {
         if self.first_freeblock()? == 0 {
             return Ok(0);
         }
@@ -429,14 +429,14 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
 
         Ok(total_size as _)
     }
-    pub fn is_underflow(&self) -> SqliteResult<bool> {
+    pub fn is_underflow(&self) -> InkResult<bool> {
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
     pub fn record_of_cell<V: crate::vfs::Vfs>(
         &self,
         cell_idx: u16,
         pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'_>>, SqliteError> {
+    ) -> Result<Vec<Value<'_>>, InkError> {
         let mut records = Vec::new();
         let cell = self.cell(cell_idx)?;
         self.get_cell_record(pager, &cell, &mut records)?;
@@ -448,7 +448,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         &self,
         cell: &BTreeCell,
         pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'_>>, SqliteError> {
+    ) -> Result<Vec<Value<'_>>, InkError> {
         let mut records = Vec::new();
         self.get_cell_record(pager, cell, &mut records)?;
         Ok(records)
@@ -459,7 +459,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         cell_idx: u16,
         pager: &mut Pager<V>,
         records: &mut Vec<Value<'a>>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let cell = self.cell(cell_idx)?;
         self.get_cell_record(pager, &cell, records)
     }
@@ -469,7 +469,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         cell: &BTreeCell,
         pager: &mut Pager<V>,
         records: &mut Vec<Value<'a>>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         self.get_cell_record(pager, cell, records)
     }
 
@@ -477,7 +477,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         &self,
         cell: &C,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Vec<Value<'_>>>
+    ) -> InkResult<Vec<Value<'_>>>
     where
         C: HasPayload,
     {
@@ -504,7 +504,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         pager: &mut Pager<V>,
         cell: &BTreeCell,
         collector: &mut Vec<Value<'a>>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         if let Some(overflow_page) = cell.overflow_page() {
             let vec = OverflowPageRef::get_total_payload(
                 pager,
@@ -522,7 +522,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         &self,
         cell: &C,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Vec<u8>>
+    ) -> InkResult<Vec<u8>>
     where
         C: HasPayload,
     {
@@ -542,7 +542,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         &self,
         bytes: Vec<u8>,
         collector: &mut Vec<Value<'_>>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let mut header_cursor = MemCursor::new(bytes.as_slice());
         let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
         let mut remaining = (header_size as usize) - consumed;
@@ -561,7 +561,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         &self,
         bytes: &'a [u8],
         collector: &mut Vec<Value<'a>>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let mut header_cursor = MemCursor::new(bytes);
         let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
         let mut remaining = (header_size as usize) - consumed;
@@ -580,7 +580,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         &self,
         cell: &BTreeCell,
         pager: &mut Pager<V>,
-    ) -> SqliteResult<Value<'static>> {
+    ) -> InkResult<Value<'static>> {
         match cell {
             BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into()),
             BTreeCell::TableInterior(table_interior) => Ok(table_interior.rowid_boundary.into()),
@@ -594,7 +594,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             }
         }
     }
-    pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
+    pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, InkError> {
         let start = cell_ptr as usize;
         assert_with_corrupt_err(
             start >= self.header_size()? as usize && start < self.usable_size,
@@ -634,7 +634,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         }
         Ok(cell)
     }
-    pub fn cell_span(&self, cell_ptr: u16) -> SqliteResult<std::ops::Range<usize>> {
+    pub fn cell_span(&self, cell_ptr: u16) -> InkResult<std::ops::Range<usize>> {
         let start = cell_ptr as usize;
         let cell = self.parse_cell_at(cell_ptr)?;
         let end = match self.page_type()? {
@@ -676,22 +676,22 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         };
         Ok(start..end)
     }
-    pub fn cell_bytes_as_ref(&self, cell_index: u16) -> SqliteResult<&[u8]> {
+    pub fn cell_bytes_as_ref(&self, cell_index: u16) -> InkResult<&[u8]> {
         let cell_offset = self.cell_ptr(cell_index)?;
         let cell_span = self.cell_span(cell_offset)?;
         Ok(&self.bytes()[cell_span])
     }
-    pub fn remaining_space(&self) -> SqliteResult<usize> {
+    pub fn remaining_space(&self) -> InkResult<usize> {
         Ok(self.cell_content_area()? as usize
             - (self.no_of_cells()? * 2) as usize
             - (self.header_size()?) as usize)
     }
 
-    pub fn is_leaf(&self) -> SqliteResult<bool> {
+    pub fn is_leaf(&self) -> InkResult<bool> {
         Ok(self.page_type()?.is_leaf())
     }
 
-    pub fn is_interior(&self) -> SqliteResult<bool> {
+    pub fn is_interior(&self) -> InkResult<bool> {
         Ok(self.page_type()?.is_interior())
     }
 }
@@ -704,7 +704,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         mut bytes: B,
         page_size: usize,
         usable_size: usize,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         let header_offset = if page_no == 1 { 100 } else { 0 };
         let bytes_mut = bytes.as_mut();
         bytes_mut[header_offset as usize..(header_offset as usize) + 1]
@@ -736,7 +736,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
     fn set_u32_at(&mut self, o: usize, v: u32) {
         self.bytes_mut()[o..o + 4].copy_from_slice(&v.to_be_bytes());
     }
-    pub fn set_page_type(&mut self, page_type: BTreePageType) -> SqliteResult<()> {
+    pub fn set_page_type(&mut self, page_type: BTreePageType) -> InkResult<()> {
         let byte = page_type.as_byte();
         let offset = self
             .downgrade()?
@@ -744,31 +744,31 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         self.set_u8_at(offset, byte);
         Ok(())
     }
-    fn set_no_of_cells(&mut self, n: u16) -> SqliteResult<()> {
+    fn set_no_of_cells(&mut self, n: u16) -> InkResult<()> {
         let o = self.downgrade()?.with_header_offset(CELL_COUNT_OFFSET);
         self.set_u16_at(o, n);
         Ok(())
     }
-    fn set_cell_content_area(&mut self, n: u16) -> SqliteResult<()> {
+    fn set_cell_content_area(&mut self, n: u16) -> InkResult<()> {
         let o = self
             .downgrade()?
             .with_header_offset(CELL_CONTENT_AREA_OFFSET);
         self.set_u16_at(o, n);
         Ok(())
     }
-    fn set_frag_cnt(&mut self, n: u8) -> SqliteResult<()> {
+    fn set_frag_cnt(&mut self, n: u8) -> InkResult<()> {
         let o = self
             .downgrade()?
             .with_header_offset(FRAGMENTED_FREE_BYTES_OFFSET);
         self.set_u8_at(o, n);
         Ok(())
     }
-    fn set_first_freeblock(&mut self, n: u16) -> SqliteResult<()> {
+    fn set_first_freeblock(&mut self, n: u16) -> InkResult<()> {
         let o = self.downgrade()?.with_header_offset(FIRST_FREEBLOCK_OFFSET);
         self.set_u16_at(o, n);
         Ok(())
     }
-    pub fn set_right_most_ptr(&mut self, r: u32) -> SqliteResult<()> {
+    pub fn set_right_most_ptr(&mut self, r: u32) -> InkResult<()> {
         assert_with_runtime_err(self.downgrade()?.page_type()?.is_interior(), || {
             "SetRightMostPointer called on a leaf".into()
         })?;
@@ -778,7 +778,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         self.set_u32_at(o, r);
         Ok(())
     }
-    pub fn reset_for_rebuild(&mut self) -> SqliteResult<()> {
+    pub fn reset_for_rebuild(&mut self) -> InkResult<()> {
         self.set_cell_content_area(self.usable_size as _)?;
         self.set_first_freeblock(0)?;
         self.set_frag_cnt(0)?;
@@ -789,7 +789,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         Ok(())
     }
 
-    fn downgrade(&mut self) -> SqliteResult<PageRef<'_>> {
+    fn downgrade(&mut self) -> InkResult<PageRef<'_>> {
         BTreePage::<&[u8]>::new(
             self.page_no,
             self.page_size,
@@ -808,7 +808,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
      * the header when taking from the head) is relinked to it.
 
     */
-    pub fn get_freeblock(&mut self, size: u16) -> SqliteResult<Option<u16>> {
+    pub fn get_freeblock(&mut self, size: u16) -> InkResult<Option<u16>> {
         let page_ref = self.downgrade()?;
         if page_ref.first_freeblock()? == 0 {
             return Ok(None);
@@ -867,7 +867,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         &mut self,
         content: &T,
         cell_idx: CellIndex,
-    ) -> Result<InsertionState, SqliteError> {
+    ) -> Result<InsertionState, InkError> {
         let content = content.as_ref();
         let page = self.downgrade()?;
         let gap = page
@@ -904,7 +904,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         // }
         Ok(InsertionState::Inserted)
     }
-    fn defragment(&mut self) -> SqliteResult<()> {
+    fn defragment(&mut self) -> InkResult<()> {
         let page = self.as_ref()?;
         let mut cells = Vec::new();
         let mut cells_len = Vec::new();
@@ -968,7 +968,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         offset: usize,
         i: u16,
         from_top: bool,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         self.bytes_mut()[offset..offset + content.len()].copy_from_slice(content);
         let arr = self.downgrade()?.header_size()? as u16;
         let n = self.downgrade()?.no_of_cells()?;
@@ -982,9 +982,9 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         }
         Ok(())
     }
-    pub fn copy_data_from(&mut self, other: &Self) -> Result<(), SqliteError> {
+    pub fn copy_data_from(&mut self, other: &Self) -> Result<(), InkError> {
         if self.usable_size != other.usable_size || self.bytes_mut().len() < other.usable_size {
-            return Err(SqliteError::Internal(
+            return Err(InkError::Internal(
                 "copy_data_from between pages with different usable sizes",
             ));
         }
@@ -1002,7 +1002,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         }
         Ok(())
     }
-    pub fn as_ref(&self) -> SqliteResult<PageRef<'_>> {
+    pub fn as_ref(&self) -> InkResult<PageRef<'_>> {
         BTreePage::<&[u8]>::new(
             self.page_no,
             self.page_size,
@@ -1010,10 +1010,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             self.bytes.as_ref(),
         )
     }
-    pub fn as_mut_view(&mut self) -> SqliteResult<PageRef<'_>> {
+    pub fn as_mut_view(&mut self) -> InkResult<PageRef<'_>> {
         self.downgrade()
     }
-    pub fn insert_freeblock(&mut self, offset: usize, size: usize) -> SqliteResult<()> {
+    pub fn insert_freeblock(&mut self, offset: usize, size: usize) -> InkResult<()> {
         let hdr = self.downgrade()?.header_size()? as usize;
         assert_with_corrupt_err(offset >= hdr && offset + size <= self.usable_size, || {
             format!(
@@ -1201,17 +1201,17 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
 
         Ok(())
     }
-    pub fn cell_size(&mut self, i: u16) -> SqliteResult<usize> {
+    pub fn cell_size(&mut self, i: u16) -> InkResult<usize> {
         let s = self.downgrade()?;
         let cell_sp = s.cell_span(s.cell_ptr(i)?)?;
         Ok(cell_sp.end - cell_sp.start)
     }
-    pub fn cell_size_by_offset(&mut self, offset: u16) -> SqliteResult<usize> {
+    pub fn cell_size_by_offset(&mut self, offset: u16) -> InkResult<usize> {
         assert!((offset as usize) < self.usable_size);
         let cell_sp = self.downgrade()?.cell_span(offset)?;
         Ok(cell_sp.end - cell_sp.start)
     }
-    pub fn remove_cell(&mut self, cell_idx: CellIndex) -> SqliteResult<()> {
+    pub fn remove_cell(&mut self, cell_idx: CellIndex) -> InkResult<()> {
         let s = self.downgrade()?;
         let cell_ptr = s.cell_ptr(cell_idx)?;
         let cell_span = s.cell_span(cell_ptr)?;
@@ -1222,7 +1222,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         self.set_no_of_cells(n - 1)?;
         Ok(())
     }
-    fn remove_cell_pointer_entry(&mut self, i: u16) -> SqliteResult<()> {
+    fn remove_cell_pointer_entry(&mut self, i: u16) -> InkResult<()> {
         let n = self.downgrade()?.no_of_cells()? as usize;
         debug_assert!(n > i as usize, "Cell index out of the cell pointer array");
         // header_size() already includes header_offset — do not add it again.
@@ -1235,11 +1235,11 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         &mut self,
         i: u16,
         content: impl AsRef<[u8]>,
-    ) -> SqliteResult<InsertionState> {
+    ) -> InkResult<InsertionState> {
         let content = content.as_ref();
         let n = self.no_of_cells()? as usize;
         if i as usize >= n {
-            return Err(SqliteError::InternalFmt(format!(
+            return Err(InkError::InternalFmt(format!(
                 "replace_cell: index {i} out of bounds (page holds {n} cells)"
             )));
         }
@@ -1267,7 +1267,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
                 // lied. Put the old body back: None must mean untouched.
                 match self.insert_cell(&old, i)? {
                     InsertionState::Inserted => Ok(InsertionState::None),
-                    _ => Err(SqliteError::Corrupt(CorruptError::ReplaceCellRefused)),
+                    _ => Err(InkError::Corrupt(CorruptError::ReplaceCellRefused)),
                 }
             }
         }

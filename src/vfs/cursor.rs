@@ -1,13 +1,13 @@
 use crate::{DbError, to_int};
 
-use super::file::SqliteFile;
+use super::file::InkFile;
 
 pub struct FileCursor<'source, S: ?Sized> {
     s: &'source S,
     offset: u64,
 }
 
-impl<'source, S: ?Sized + SqliteFile> FileCursor<'source, S> {
+impl<'source, S: ?Sized + InkFile> FileCursor<'source, S> {
     pub fn new(s: &'source S) -> Self {
         Self { s, offset: 0 }
     }

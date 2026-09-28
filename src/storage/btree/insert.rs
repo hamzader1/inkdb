@@ -1,5 +1,5 @@
-use crate::SqliteResult;
-use crate::errors::{CorruptError, SqliteError};
+use crate::InkResult;
+use crate::errors::{CorruptError, InkError};
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::btree::CellIndex;
@@ -28,7 +28,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    pub fn insert_value(&mut self, key: &Value, cell_bytes: &[u8]) -> SqliteResult<()> {
+    pub fn insert_value(&mut self, key: &Value, cell_bytes: &[u8]) -> InkResult<()> {
         self.cursor.seek(self.pager, key)?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
 
@@ -134,7 +134,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         page_no: PageNo,
         key: &Value,
         cell_bytes: &[u8],
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         let split = self.split_page::<K>(page_no)?;
 
         self.cursor.stack.pop();
@@ -159,7 +159,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         parent_no: PageNo,
         child: PageNo,
         divider: &Divider,
-    ) -> SqliteResult<(CellIndex, ParentSlot)> {
+    ) -> InkResult<(CellIndex, ParentSlot)> {
         let key = divider.key();
         let guard = self.pager.get(parent_no)?;
         let page = parse_ref::<P, V>(parent_no, &guard, self.pager)?;
@@ -172,7 +172,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let cell = page.cell_bytes_as_ref(idx)?.to_vec();
         let points_at = P::child_of(&page, idx)?;
         if points_at != child {
-            return Err(SqliteError::Corrupt(CorruptError::ParentSlotMismatch {
+            return Err(InkError::Corrupt(CorruptError::ParentSlotMismatch {
                 parent: parent_no,
                 slot: idx,
                 points_at,
@@ -190,19 +190,19 @@ impl<'a, V: Vfs> BTree<'a, V> {
     }
 }
 
-pub(crate) fn guard_not_mutable() -> SqliteError {
-    SqliteError::Internal("btree: page guard is not mutable")
+pub(crate) fn guard_not_mutable() -> InkError {
+    InkError::Internal("btree: page guard is not mutable")
 }
 
-fn not_a_leaf(page_no: PageNo) -> SqliteError {
-    SqliteError::Corrupt(CorruptError::UnexpectedPageKind {
+fn not_a_leaf(page_no: PageNo) -> InkError {
+    InkError::Corrupt(CorruptError::UnexpectedPageKind {
         page: page_no,
         expected: "leaf",
     })
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
-    fn split_page<K: CellOps>(&mut self, page_no: PageNo) -> SqliteResult<Split> {
+    fn split_page<K: CellOps>(&mut self, page_no: PageNo) -> InkResult<Split> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
 
@@ -211,7 +211,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let page = parse_ref::<K, V>(page_no, &guard, self.pager)?;
             let n = page.no_of_cells()?;
             if n < 2 {
-                return Err(SqliteError::InternalFmt(format!(
+                return Err(InkError::InternalFmt(format!(
                     "split: page {page_no} holds {n} cell(s)"
                 )));
             }
@@ -229,7 +229,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         };
 
         if promo.consumed == Consumed::LastOfLeft && split_at < 2 {
-            return Err(SqliteError::InternalFmt(format!(
+            return Err(InkError::InternalFmt(format!(
                 "split: page {page_no} has too few cells to promote one"
             )));
         }
@@ -262,7 +262,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             for (i, len) in right_cells.iter().enumerate() {
                 let bytes = &cells[start..len + start];
                 if page.insert_cell(&bytes, i as _)? == InsertionState::None {
-                    return Err(SqliteError::InternalFmt(format!(
+                    return Err(InkError::InternalFmt(format!(
                         "split: right half of page {page_no} does not fit in page {right_page}"
                     )));
                 }
@@ -270,7 +270,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             }
             // for (i, cell) in right_cells.iter().enumerate() {
             //     if page.insert_cell(cell, i as u16)? == InsertionState::None {
-            //         return Err(SqliteError::InternalFmt(format!(
+            //         return Err(InkError::InternalFmt(format!(
             //             "split: right half of page {page_no} does not fit in page {right_page}"
             //         )));
             //     }
@@ -288,7 +288,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             for (i, len) in left_cells.iter().enumerate() {
                 let bytes = &cells[start..len + start];
                 if page.insert_cell(&bytes, i as u16)? == InsertionState::None {
-                    return Err(SqliteError::InternalFmt(format!(
+                    return Err(InkError::InternalFmt(format!(
                         "split: left half of page {page_no} does not fit"
                     )));
                 }
@@ -314,7 +314,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         })
     }
 
-    fn grow_root<K: CellOps, R: InteriorOps>(&mut self, split: &Split) -> SqliteResult<Split> {
+    fn grow_root<K: CellOps, R: InteriorOps>(&mut self, split: &Split) -> InkResult<Split> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
         let old_root = split.left_page;
@@ -346,7 +346,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             for i in 0..old_left_page.no_of_cells()? {
                 let cell = old_left_page.cell_bytes_as_ref(i as _)?;
                 if page.insert_cell(&cell, i as CellIndex)? == InsertionState::None {
-                    return Err(SqliteError::InternalFmt(format!(
+                    return Err(InkError::InternalFmt(format!(
                         "grow_root: left half does not fit in page {new_left}"
                     )));
                 }
@@ -362,7 +362,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page = TypedPage::<&mut [u8], R>::fresh(old_root, page_size, usable, bytes)?;
             if page.insert_cell(&divider_cell, 0)? == InsertionState::None {
-                return Err(SqliteError::Internal(
+                return Err(InkError::Internal(
                     "grow_root: divider does not fit in a fresh root",
                 ));
             }
@@ -385,7 +385,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         idx: CellIndex,
         slot: ParentSlot,
         split: &Split,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         enum Plan {
             MoveHeader,
             KeepOld {
@@ -481,7 +481,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         split: &Split,
         key: &Value,
         cell_bytes: &[u8],
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
         let target = if *key <= split.divider.key() {
@@ -495,7 +495,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let mut page = TypedPage::<&mut [u8], K>::parse_mut(target, page_size, usable, bytes)?;
         let idx = K::slot_for(&page, self.pager, key)?;
         if page.insert_cell(&cell_bytes, idx)? == InsertionState::None {
-            return Err(SqliteError::InternalFmt(format!(
+            return Err(InkError::InternalFmt(format!(
                 "split: cell does not fit in page {target} right after its split"
             )));
         }

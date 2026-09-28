@@ -13,7 +13,7 @@ pub use kind::{IndexInterior, IndexLeaf, TableInterior, TableLeaf};
 
 use std::cmp::Ordering;
 
-use crate::SqliteError;
+use crate::InkError;
 use crate::pager::guard::PageGuard;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
@@ -25,7 +25,7 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b PageGuard,
     pager: &Pager<V>,
-) -> Result<PageRef<'b>, SqliteError> {
+) -> Result<PageRef<'b>, InkError> {
     PageRef::new(
         page_no,
         pager.page_size(),
@@ -38,9 +38,9 @@ pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b mut PageGuard,
     pager: &Pager<V>,
-) -> Result<crate::storage::page::PageMut<'b>, SqliteError> {
+) -> Result<crate::storage::page::PageMut<'b>, InkError> {
     let bytes = guard.bytes_as_mut().ok_or({
-        SqliteError::Internal("page_as_mut_with_pager: guard is not a mutable borrow")
+        InkError::Internal("page_as_mut_with_pager: guard is not a mutable borrow")
     })?;
     crate::storage::page::PageMut::new(page_no, pager.page_size(), pager.usable_size(), bytes)
 }
@@ -48,17 +48,17 @@ pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
 pub(crate) fn compare_index_entry(
     entry: &[Value],
     target: &Value,
-) -> Result<(Ordering, bool), SqliteError> {
+) -> Result<(Ordering, bool), InkError> {
     let keys = match target {
         Value::Tuple(cols) => cols,
         _ => {
-            return Err(SqliteError::Internal(
+            return Err(InkError::Internal(
                 "index seek target must be a tuple of key columns",
             ));
         }
     };
     if keys.len() > entry.len() {
-        return Err(SqliteError::InternalFmt(format!(
+        return Err(InkError::InternalFmt(format!(
             "index seek target has {} columns but entries hold {}",
             keys.len(),
             entry.len()
