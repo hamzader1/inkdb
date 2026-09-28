@@ -20,17 +20,18 @@ use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::prepare::PrepareRow;
 use crate::backend::executor::scan_guard::ScanMode;
+use crate::backend::executor::sort::Sort;
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
 use crate::backend::executor::truncate::TruncateTable;
 use crate::backend::optimizer::optimize_index_scan;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
-use crate::{Master, SqliteResult};
+use crate::{InkResult, Master};
 
 #[derive(Debug)]
 pub enum Plan<V: Vfs> {
@@ -51,6 +52,7 @@ pub enum Plan<V: Vfs> {
     BeginTransaction(BeginTransaction),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
+    Sort(Sort<V>),
     Explain(Explain<V>),
     Terminate(Terminate<V>),
     Halt,
@@ -68,6 +70,7 @@ impl<V: Vfs> Plan<V> {
             Plan::CreateIndex(ci) => vec![ci.child()],
             Plan::Terminate(t) => vec![t.child()],
             Plan::Explain(e) => vec![e.child()],
+            Plan::Sort(s) => vec![s.child()],
             _ => Vec::new(),
         }
     }
@@ -109,7 +112,7 @@ impl<V: Vfs> Plan<V> {
         resolved_query: ResolvedQuery,
         pager: &mut Pager<V>,
         master: &Master,
-    ) -> Result<PreparedPlan<V>, SqliteError> {
+    ) -> Result<PreparedPlan<V>, InkError> {
         match resolved_query {
             ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, master),
             ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, master),
@@ -152,7 +155,7 @@ impl<V: Vfs> Plan<V> {
     fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
         master: &Master,
-    ) -> Result<PreparedPlan<V>, SqliteError> {
+    ) -> Result<PreparedPlan<V>, InkError> {
         let mode = ScanMode::Stable;
         let mut child = Self::TableScan(TableScan::new(
             resolved_query.root_page,
@@ -173,6 +176,9 @@ impl<V: Vfs> Plan<V> {
             {
                 scan.set_predicate(predicate);
             }
+        }
+        if let Some(orderby) = resolved_query.orderby {
+            child = Self::Sort(Sort::new(Box::new(child), orderby));
         }
         if let Some(limit) = resolved_query.limit {
             let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;
@@ -203,7 +209,7 @@ impl<V: Vfs> Plan<V> {
     fn init_count_plan(
         resolved_query: ResolvedCountQuery,
         master: &Master,
-    ) -> SqliteResult<PreparedPlan<V>> {
+    ) -> InkResult<PreparedPlan<V>> {
         let mode = ScanMode::Stable;
         let mut child = Self::TableScan(TableScan::new(
             resolved_query.root_page,
@@ -236,7 +242,7 @@ impl<V: Vfs> Plan<V> {
     fn init_insert_plan(
         resolved_query: ResolvedInsertQuery,
         master: &Master,
-    ) -> Result<PreparedPlan<V>, SqliteError> {
+    ) -> Result<PreparedPlan<V>, InkError> {
         let mut plan = Plan::PrepareRow(PrepareRow::new(
             None,
             resolved_query.root_page,
@@ -262,7 +268,7 @@ impl<V: Vfs> Plan<V> {
     fn init_delete_plan(
         mut resolved_query: ResolvedDeleteQuery,
         master: &Master,
-    ) -> SqliteResult<PreparedPlan<V>> {
+    ) -> InkResult<PreparedPlan<V>> {
         let mode = ScanMode::Volatile;
         let arena = resolved_query.arena.take().unwrap_or_default();
         let mut parent = Self::TableScan(TableScan::new(
@@ -291,7 +297,7 @@ impl<V: Vfs> Plan<V> {
 
     fn init_create_index_plan(
         resolved_query: ResolvedCreateIndexQuery,
-    ) -> SqliteResult<PreparedPlan<V>> {
+    ) -> InkResult<PreparedPlan<V>> {
         let child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
             ScanMode::Stable,
@@ -303,7 +309,7 @@ impl<V: Vfs> Plan<V> {
 }
 
 impl<V: Vfs> Plan<V> {
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         match self {
             Self::TableScan(t) => t.next(ctx),
             Self::Filter(f) => f.next(ctx),
@@ -324,6 +330,7 @@ impl<V: Vfs> Plan<V> {
             Self::PrepareIndex(pi) => pi.next(ctx),
             Self::PrepareRow(pr) => pr.next(ctx),
             Self::Explain(e) => e.next(ctx),
+            Self::Sort(s) => s.next(ctx),
             Halt => Ok(None),
         }
     }
@@ -386,12 +393,13 @@ impl<V: Vfs> Plan<V> {
             Self::RollbackTransaction(_) => "RollbackTransaction".into(),
             Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
+            Self::Sort(s) => format!("Sort [i: {}]", s.id()),
             Halt => "Halt".into(),
         }
     }
 }
 
-fn index_roots(master: &Master, table_name: &str) -> SqliteResult<Vec<u32>> {
+fn index_roots(master: &Master, table_name: &str) -> InkResult<Vec<u32>> {
     Ok(master
         .indexes_on(table_name)?
         .into_iter()
@@ -413,7 +421,7 @@ impl<V: Vfs> Terminate<V> {
         &self.child
     }
 
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         while self.child.next(ctx)?.is_some() {}
         Ok(None)
     }
@@ -433,7 +441,7 @@ impl<V: Vfs> Explain<V> {
         &self.child
     }
 
-    fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         println!("{}", PlanTree::new(&self.child, ctx.arena));
         Ok(None)
     }
