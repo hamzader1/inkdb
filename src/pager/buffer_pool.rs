@@ -1,7 +1,7 @@
 use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::frame::{Frame, FrameId, FrameIndex};
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::InkResult;
+use crate::errors::InkError;
 use crate::pager::pager::PageNo;
 use crate::util::assert_one;
 use std::collections::HashMap;
@@ -45,11 +45,11 @@ impl BufferPool {
             clock_hand: 0,
         }
     }
-    fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), SqliteError> {
+    fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), InkError> {
         assert_one(
             self.page_table.contains_key(&page_no)
                 && *self.page_table.get(&page_no).unwrap() == frame_id,
-            SqliteError::InternalFmt(format!(
+            InkError::InternalFmt(format!(
                 "buffer pool evict: frame {frame_id} does not map page {page_no}"
             )),
         )?;
@@ -119,7 +119,7 @@ impl BufferPool {
         }
     }
 
-    pub fn acquire(&mut self, page_no: PageNo) -> SqliteResult<Acquire> {
+    pub fn acquire(&mut self, page_no: PageNo) -> InkResult<Acquire> {
         if let Some(frameid) = self.lookup(page_no) {
             let frame = &self.frame_buffer[frameid];
             frame.set(REFERENCED);
@@ -146,7 +146,7 @@ impl BufferPool {
                 laps += 1;
                 // TODO: Explain why more than 2 laps
                 if laps > 2 {
-                    return Err(SqliteError::BufferPoolExhausted);
+                    return Err(InkError::BufferPoolExhausted);
                 }
             }
             let frame = &mut self.frame_buffer[clock_hand];
@@ -206,10 +206,10 @@ impl BufferPool {
     pub fn unpin(&self, frame_id: FrameId) {
         self.frame_buffer[frame_id].decr_pin_count();
     }
-    pub fn borrow(&self, frameid: FrameId, page_no: PageNo) -> SqliteResult<()> {
+    pub fn borrow(&self, frameid: FrameId, page_no: PageNo) -> InkResult<()> {
         let frame = &self.frame_buffer[frameid];
         if frame.borrow.get() < 0 {
-            return Err(SqliteError::runtime(format!(
+            return Err(InkError::runtime(format!(
                 "Page no '{}' already borrowed as mut",
                 page_no
             )));
@@ -217,10 +217,10 @@ impl BufferPool {
         frame.borrow.set(frame.borrow.get() + 1);
         Ok(())
     }
-    pub fn exclusive_borrow(&self, frameid: FrameId, page_no: PageNo) -> SqliteResult<()> {
+    pub fn exclusive_borrow(&self, frameid: FrameId, page_no: PageNo) -> InkResult<()> {
         let frame = &self.frame_buffer[frameid];
         if frame.borrow.get() != 0 {
-            return Err(SqliteError::runtime(format!(
+            return Err(InkError::runtime(format!(
                 "Page no '{}' already borrowed as ref",
                 page_no
             )));

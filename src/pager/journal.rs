@@ -1,10 +1,10 @@
-use crate::errors::SqliteError;
-use crate::vfs::file::SqliteFile;
+use crate::errors::InkError;
+use crate::vfs::file::InkFile;
 
 use super::raw_journal::{JournalMeta, RawJournal};
 
 #[derive(Debug, Default)]
-pub enum Journal<J: SqliteFile> {
+pub enum Journal<J: InkFile> {
     #[default]
     Disabled,
     Idle(RawJournal),
@@ -15,13 +15,13 @@ pub enum Journal<J: SqliteFile> {
     },
 }
 
-impl<J: SqliteFile> Journal<J> {
+impl<J: InkFile> Journal<J> {
     pub fn enable(&mut self, journal_metadata: JournalMeta) {
         if let Self::Disabled = self {
             *self = Self::Idle(RawJournal::new(journal_metadata));
         }
     }
-    pub fn init(&mut self, file: J) -> Result<(), SqliteError> {
+    pub fn init(&mut self, file: J) -> Result<(), InkError> {
         if let Self::Idle(_) = self {
             let Self::Idle(raw) = std::mem::replace(self, Self::Disabled) else {
                 unreachable!()
@@ -37,7 +37,7 @@ impl<J: SqliteFile> Journal<J> {
         Ok(())
     }
 
-    pub fn persist_tail(&mut self) -> Result<(), SqliteError> {
+    pub fn persist_tail(&mut self) -> Result<(), InkError> {
         if let Self::Open { raw, file, durable } = self {
             let start = super::raw_journal::JOURNAL_HEADER_SIZE
                 + *durable as usize * (raw.page_size as usize + 4);

@@ -1,6 +1,6 @@
-use crate::errors::SqliteError;
-use crate::vfs::file::SqliteFile;
-use crate::{MemCursor, SqliteResult, size_of};
+use crate::errors::InkError;
+use crate::vfs::file::InkFile;
+use crate::{MemCursor, InkResult, size_of};
 
 use super::pager::PageNo;
 
@@ -50,7 +50,7 @@ impl RawJournal {
         }
     }
 
-    pub fn init<J: SqliteFile>(&mut self, file: &J) -> Result<(), SqliteError> {
+    pub fn init<J: InkFile>(&mut self, file: &J) -> Result<(), InkError> {
         file.set_len(self.buffer.len())?;
         file.write_all_at(0, &self.buffer[0..JOURNAL_HEADER_SIZE])?;
         Ok(())
@@ -61,7 +61,7 @@ impl RawJournal {
         self.buffer.extend_from_slice(data);
         self.page_count += 1;
     }
-    pub fn commit<J: SqliteFile>(&mut self, file: &J) -> Result<(), SqliteError> {
+    pub fn commit<J: InkFile>(&mut self, file: &J) -> Result<(), InkError> {
         // The page count IS the commit record: it must be durable in the
         // same write as the data. Writing data first with count 0 and
         // patching after leaves a crash window where recovery discards
@@ -88,7 +88,7 @@ impl RawJournal {
         self.page_count = 0;
     }
 
-    pub fn parse_recovery(bytes: Vec<u8>) -> Result<Option<RecoverMetadata>, SqliteError> {
+    pub fn parse_recovery(bytes: Vec<u8>) -> Result<Option<RecoverMetadata>, InkError> {
         let mut cursor = MemCursor::new(&bytes);
         let magic = cursor.read_to(size_of!(u64) as _)?;
         let page_count = cursor.read_next_u32()?;
@@ -109,7 +109,7 @@ impl RawJournal {
         Ok(Some(metadata))
     }
 
-    pub fn persist_tail<J: SqliteFile>(&mut self, file: &J, start: usize) -> SqliteResult<()> {
+    pub fn persist_tail<J: InkFile>(&mut self, file: &J, start: usize) -> InkResult<()> {
         let end = JOURNAL_HEADER_SIZE + (self.page_count * (self.page_size as u32 + 4)) as usize;
         assert!(start <= end);
         if start == end {
@@ -178,7 +178,7 @@ impl JournalIter {
         }
     }
 
-    pub fn iter<'a>(&'a mut self) -> Result<Option<JournalPage<'a>>, SqliteError> {
+    pub fn iter<'a>(&'a mut self) -> Result<Option<JournalPage<'a>>, InkError> {
         if self.hint == self.count {
             return Ok(None);
         }

@@ -2,7 +2,7 @@ use crate::assert_all;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy)]
-pub struct SqliteMetadata {
+pub struct InkMetadata {
     pub page_size                 : usize,
     pub usable_size               : usize,
     pub max_allocated_pages       : usize,
@@ -10,7 +10,7 @@ pub struct SqliteMetadata {
     pub total_freelist_pages      : u32
 }
 
-impl SqliteMetadata {
+impl InkMetadata {
     pub fn new(
         page_size: usize,
         usable_size: usize,

@@ -3,10 +3,10 @@ use std::ptr::NonNull;
 
 use crate::db::header::{
     DATABASE_SIZE_IN_PAGES_OFFSET, DATABASE_SIZE_IN_PAGES_SIZE, FIRST_FREELIST_TRUNK_PAGE_OFFSET,
-    FIRST_FREELIST_TRUNK_PAGE_SIZE, SqliteDatabaseHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
+    FIRST_FREELIST_TRUNK_PAGE_SIZE, InkDatabaseHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
     TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
-use crate::errors::{CorruptError, SqliteError};
+use crate::errors::{CorruptError, InkError};
 use crate::util::assert_with_runtime_err;
 
 use super::buffer_pool::{Acquire, BufferPool};
@@ -16,8 +16,8 @@ use super::journal::Journal;
 use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::Statistics;
 use crate::vfs::Vfs;
-use crate::vfs::file::SqliteFile;
-use crate::{DbError, MemCursor, SqliteResult};
+use crate::vfs::file::InkFile;
+use crate::{DbError, MemCursor, InkResult};
 
 pub type PageNo = u32;
 
@@ -62,8 +62,8 @@ impl HeaderCache {
     }
 }
 
-impl From<SqliteDatabaseHeader> for HeaderCache {
-    fn from(value: SqliteDatabaseHeader) -> Self {
+impl From<InkDatabaseHeader> for HeaderCache {
+    fn from(value: InkDatabaseHeader) -> Self {
         HeaderCache::new(
             value.database_page_size,
             value.database_page_size - value.reserved_space as u32,
@@ -75,7 +75,7 @@ impl From<SqliteDatabaseHeader> for HeaderCache {
 }
 
 impl<V: Vfs> Pager<V> {
-    pub fn new(vfs: V, source: V::File, header: HeaderCache) -> Result<Self, SqliteError> {
+    pub fn new(vfs: V, source: V::File, header: HeaderCache) -> Result<Self, InkError> {
         let journal_meta = JournalMeta {
             db_size: source.len().expect("len") as _,
             p_size: header.page_size as _,
@@ -101,7 +101,7 @@ impl<V: Vfs> Pager<V> {
         source: V::File,
         header: HeaderCache,
         cache_size: usize,
-    ) -> Result<Self, SqliteError> {
+    ) -> Result<Self, InkError> {
         let journal_meta = JournalMeta {
             db_size: source.len().expect("len") as _,
             p_size: header.page_size as _,
@@ -135,7 +135,7 @@ impl<V: Vfs> Pager<V> {
     }
     pub fn validate_page(page_no: PageNo, max_pages: u32) -> Result<(), DbError> {
         if page_no == 0 || page_no > max_pages {
-            return Err(SqliteError::InvalidPageNumber(page_no));
+            return Err(InkError::InvalidPageNumber(page_no));
         }
         Ok(())
     }
@@ -164,7 +164,7 @@ impl<V: Vfs> Pager<V> {
     }
 
     // Todo: temporary turn off for the borrow guard
-    pub fn get(&mut self, page_no: PageNo) -> SqliteResult<PageGuard> {
+    pub fn get(&mut self, page_no: PageNo) -> InkResult<PageGuard> {
         Self::validate_page(page_no, self.header.max_allocated_pages)?;
         match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
@@ -200,7 +200,7 @@ impl<V: Vfs> Pager<V> {
         }
     }
     // Todo: temporary turn off for the borrow guard
-    pub fn get_mut(&mut self, page_no: PageNo) -> SqliteResult<PageGuard> {
+    pub fn get_mut(&mut self, page_no: PageNo) -> InkResult<PageGuard> {
         Self::validate_page(page_no, self.header.max_allocated_pages)?;
         debug_assert!(self.in_transaction, "get mut forbidden outside of txn");
         let frameid = match self.buffer_pool.acquire(page_no)? {
@@ -258,13 +258,13 @@ impl<V: Vfs> Pager<V> {
         self.statistics.inc_disk_write();
         Ok(())
     }
-    pub fn flush_all(&mut self) -> SqliteResult<()> {
+    pub fn flush_all(&mut self) -> InkResult<()> {
         while let Some((page_no, frameid)) = self.buffer_pool.pop_dirty() {
             self.flush_page(page_no, frameid)?;
         }
         Ok(())
     }
-    pub fn commit(&mut self) -> Result<(), SqliteError> {
+    pub fn commit(&mut self) -> Result<(), InkError> {
         if let Journal::Open { raw, file, .. } = &mut self.journal {
             raw.commit(file)?;
             self.flush_all()?;
@@ -279,7 +279,7 @@ impl<V: Vfs> Pager<V> {
         self.in_transaction = false;
         Ok(())
     }
-    pub fn rollback(&mut self) -> Result<(), SqliteError> {
+    pub fn rollback(&mut self) -> Result<(), InkError> {
         if let Journal::Open { raw, .. } = &mut self.journal {
             let db_size = raw.db_size;
             let mut iterator = raw.make_iterator();
@@ -318,7 +318,7 @@ impl<V: Vfs> Pager<V> {
         self.in_transaction = false;
         Ok(())
     }
-    pub fn recover_from_crash(&mut self) -> Result<(), SqliteError> {
+    pub fn recover_from_crash(&mut self) -> Result<(), InkError> {
         let Some(bytes) = self.vfs.read_journal(&self.source)? else {
             return Ok(());
         };
@@ -344,7 +344,7 @@ impl<V: Vfs> Pager<V> {
         self.flushed.clear();
         Ok(())
     }
-    pub fn allocate_new_page(&mut self) -> Result<PageNo, SqliteError> {
+    pub fn allocate_new_page(&mut self) -> Result<PageNo, InkError> {
         let first = self.header.first_freelist_truck_page;
         let total = self.header.total_freelist_pages;
         if let Some((allocated, next_head, next_total)) = self.freelist_alloc(first, total)? {
@@ -366,19 +366,19 @@ impl<V: Vfs> Pager<V> {
         &mut self,
         first: u32,
         total: u32,
-    ) -> SqliteResult<Option<(PageNo, u32, u32)>> {
+    ) -> InkResult<Option<(PageNo, u32, u32)>> {
         match (first, total) {
             (0, 0) => return Ok(None),
             (0, _) => {
-                return Err(SqliteError::Corrupt(CorruptError::FreelistTrunkMissing));
+                return Err(InkError::Corrupt(CorruptError::FreelistTrunkMissing));
             }
             (_, 0) => {
-                return Err(SqliteError::Corrupt(CorruptError::FreelistCountMissing));
+                return Err(InkError::Corrupt(CorruptError::FreelistCountMissing));
             }
             _ => {}
         };
         if first == 1 {
-            return Err(SqliteError::Corrupt(CorruptError::FreelistPageIsHeader));
+            return Err(InkError::Corrupt(CorruptError::FreelistPageIsHeader));
         }
         let mut guard = self.get_mut(first)?;
         let bytes = guard.bytes_as_mut_unchecked();
@@ -391,12 +391,12 @@ impl<V: Vfs> Pager<V> {
         cursor.move_forward_by((4 * (leaf_count - 1)) as _)?;
         let last_leaf = cursor.read_next_u32()?;
         if last_leaf == 1 {
-            return Err(SqliteError::Corrupt(CorruptError::FreelistLeafIsHeader));
+            return Err(InkError::Corrupt(CorruptError::FreelistLeafIsHeader));
         }
         bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
         Ok(Some((last_leaf, first, total - 1)))
     }
-    pub fn dealloc(&mut self, page_no: PageNo) -> SqliteResult<()> {
+    pub fn dealloc(&mut self, page_no: PageNo) -> InkResult<()> {
         let first = self.header.first_freelist_truck_page;
         let total = self.header.total_freelist_pages;
         let usable_size = self.header.usable_size;
@@ -418,7 +418,7 @@ impl<V: Vfs> Pager<V> {
         first: u32,
         total: u32,
         usable_size: usize,
-    ) -> SqliteResult<(u32, u32)> {
+    ) -> InkResult<(u32, u32)> {
         let mut current = first;
         while current != 0 {
             let next_page_no;
@@ -448,7 +448,7 @@ impl<V: Vfs> Pager<V> {
         }
         Ok((page_no, total + 1))
     }
-    pub fn update_max_allocated_pages(&mut self) -> Result<(), SqliteError> {
+    pub fn update_max_allocated_pages(&mut self) -> Result<(), InkError> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
         bytes[DATABASE_SIZE_IN_PAGES_OFFSET
@@ -456,7 +456,7 @@ impl<V: Vfs> Pager<V> {
             .copy_from_slice(&(self.header.max_allocated_pages).to_be_bytes());
         Ok(())
     }
-    pub fn update_first_freelist_truck_page(&mut self) -> Result<(), SqliteError> {
+    pub fn update_first_freelist_truck_page(&mut self) -> Result<(), InkError> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
         bytes[FIRST_FREELIST_TRUNK_PAGE_OFFSET
@@ -464,7 +464,7 @@ impl<V: Vfs> Pager<V> {
             .copy_from_slice(&(self.header.first_freelist_truck_page).to_be_bytes());
         Ok(())
     }
-    pub fn update_total_free_pages(&mut self) -> SqliteResult<()> {
+    pub fn update_total_free_pages(&mut self) -> InkResult<()> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
         bytes[TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET
