@@ -1,4 +1,4 @@
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::record::Value;
 
 use super::parser::ExprArena;
@@ -99,6 +99,7 @@ pub struct SelectStmt {
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>, // same arena used twice
     pub limit: Option<usize>,
+    pub orderby: Option<usize>, /*The order ignored for now*/
 }
 
 #[derive(Debug)]
@@ -133,16 +134,14 @@ pub enum Affinity {
 }
 
 impl<'a> TryFrom<&Value<'a>> for Affinity {
-    type Error = SqliteError;
+    type Error = InkError;
     fn try_from(value: &Value<'a>) -> Result<Self, Self::Error> {
         match value {
             Value::Integer(_) => Ok(Affinity::Int),
             Value::Float(_) => Ok(Affinity::Float),
             Value::Text(_) => Ok(Affinity::Text),
             Value::Blob(_) => Ok(Affinity::Blob),
-            _ => Err(SqliteError::runtime(
-                "Null cannot be used as column affinity",
-            )),
+            _ => Err(InkError::runtime("Null cannot be used as column affinity")),
         }
     }
 }

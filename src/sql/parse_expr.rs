@@ -1,14 +1,14 @@
 use super::ast::{BinaryOperator, Expr};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 
 impl Parser {
-    pub fn parse_expression(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_expression(&mut self) -> Result<usize, InkError> {
         self.parse_logical_or()
     }
 
-    pub fn parse_logical_or(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_logical_or(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_logical_and()?;
 
         while self.eat(Or) {
@@ -19,7 +19,7 @@ impl Parser {
         Ok(left)
     }
 
-    pub fn parse_logical_and(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_logical_and(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_condition()?;
         while self.eat(And) {
             let right = self.parse_condition()?;
@@ -28,7 +28,7 @@ impl Parser {
         Ok(left)
     }
 
-    pub fn parse_condition(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_condition(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_addition()?;
         while self.at(Equals)
             || self.at(NotEquals)
@@ -56,7 +56,7 @@ impl Parser {
         }
         Ok(left)
     }
-    pub fn parse_addition(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_addition(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_multiplication()?;
         while self.at(Plus) || self.at(Minus) {
             if self.eat(Plus) {
@@ -70,7 +70,7 @@ impl Parser {
         }
         Ok(left)
     }
-    pub fn parse_multiplication(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_multiplication(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_unary()?;
         while self.at(Star) || self.at(Slash) {
             if self.eat(Star) {
@@ -84,7 +84,7 @@ impl Parser {
         }
         Ok(left)
     }
-    fn parse_unary(&mut self) -> Result<usize, SqliteError> {
+    fn parse_unary(&mut self) -> Result<usize, InkError> {
         if self.eat(Minus) {
             let idx = self.parse_factor()?;
 
@@ -102,7 +102,7 @@ impl Parser {
             self.parse_factor()
         }
     }
-    pub fn parse_factor(&mut self) -> Result<usize, SqliteError> {
+    pub fn parse_factor(&mut self) -> Result<usize, InkError> {
         if self.eat(LeftParen) {
             let expr = self.parse_expression()?;
             self.expect(RightParen)?;
@@ -124,13 +124,13 @@ impl Parser {
             Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
             Some(BoolVar(x)) => self.arena.push(Expr::Bool(*x)),
             Some(other) => {
-                return Err(SqliteError::runtime(format!(
+                return Err(InkError::runtime(format!(
                     "Unexpected token {:?} in expression: expected a column name, string, number, boolean or '('",
                     other
                 )));
             }
             None => {
-                return Err(SqliteError::runtime(
+                return Err(InkError::runtime(
                     "Unexpected end of input, expected a value",
                 ));
             }
@@ -139,7 +139,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_function(&mut self, name: &str) -> Result<usize, SqliteError> {
+    fn parse_function(&mut self, name: &str) -> Result<usize, InkError> {
         self.expect(LeftParen)?;
         if name.eq_ignore_ascii_case("count") {
             let arg = if self.eat(Star) {
@@ -150,6 +150,6 @@ impl Parser {
             self.expect(RightParen)?;
             return Ok(self.arena.push(Expr::Count { arg }));
         }
-        Err(SqliteError::runtime(format!("unknown function: {name}")))
+        Err(InkError::runtime(format!("unknown function: {name}")))
     }
 }

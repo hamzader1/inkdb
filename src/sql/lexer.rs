@@ -1,4 +1,4 @@
-use crate::errors::{SqliteError, SyntaxErrorKind};
+use crate::errors::{InkError, SyntaxErrorKind};
 
 use super::tokens::{Span, Token, TokenKind};
 
@@ -10,7 +10,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn tokenize(input: &str) -> Result<Vec<Token>, SqliteError> {
+    pub fn tokenize(input: &str) -> Result<Vec<Token>, InkError> {
         let mut lexer_config = Lexer {
             input,
             chars: input.chars().peekable(),
@@ -25,7 +25,7 @@ impl<'a> Lexer<'a> {
         Some(ch)
     }
 
-    fn tokenize_input(&mut self) -> Result<Vec<Token>, SqliteError> {
+    fn tokenize_input(&mut self) -> Result<Vec<Token>, InkError> {
         let mut tokens: Vec<Token> = Vec::new();
         let mut parenth_stack: Vec<usize> = Vec::new();
         let mut quotes_stack: Vec<usize> = Vec::new();
@@ -59,7 +59,7 @@ impl<'a> Lexer<'a> {
                     }
 
                     if !quotes_stack.is_empty() {
-                        return Err(SqliteError::syntax(
+                        return Err(InkError::syntax(
                             SyntaxErrorKind::UnterminatedString,
                             Span(quotes_stack.pop().unwrap(), self.pos),
                         ));
@@ -106,7 +106,7 @@ impl<'a> Lexer<'a> {
                     let start = self.pos;
 
                     if parenth_stack.is_empty() {
-                        return Err(SqliteError::syntax(
+                        return Err(InkError::syntax(
                             SyntaxErrorKind::UnmatchedClosingParenthesis,
                             Span(start, start + 1),
                         ));
@@ -136,7 +136,7 @@ impl<'a> Lexer<'a> {
 
                         push_token(&mut tokens, TokenKind::NotEquals, start, self.pos);
                     } else {
-                        return Err(SqliteError::syntax(
+                        return Err(InkError::syntax(
                             SyntaxErrorKind::UnexpectedChar(char),
                             Span(start, self.pos),
                         ));
@@ -375,7 +375,7 @@ impl<'a> Lexer<'a> {
 
                 // Anything unsupported
                 _ => {
-                    return Err(SqliteError::syntax(
+                    return Err(InkError::syntax(
                         SyntaxErrorKind::UnexpectedChar(char),
                         Span(self.pos, self.pos + 1),
                     ));
@@ -385,7 +385,7 @@ impl<'a> Lexer<'a> {
 
         // Check for unclosed '('
         if let Some(start) = parenth_stack.pop() {
-            return Err(SqliteError::syntax(
+            return Err(InkError::syntax(
                 SyntaxErrorKind::UnclosedParenthesis,
                 Span(start, self.pos),
             ));
@@ -393,7 +393,7 @@ impl<'a> Lexer<'a> {
 
         Ok(tokens)
     }
-    fn extract_number(&mut self) -> Result<TokenKind, SqliteError> {
+    fn extract_number(&mut self) -> Result<TokenKind, InkError> {
         let start = self.pos;
         let mut number = String::new();
         let mut is_float = false;
@@ -451,7 +451,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let invalid = |end| SqliteError::syntax(SyntaxErrorKind::InvalidNumber, Span(start, end));
+        let invalid = |end| InkError::syntax(SyntaxErrorKind::InvalidNumber, Span(start, end));
         if is_float {
             number
                 .parse::<f64>()

@@ -6,8 +6,8 @@ use super::{
     tokens::Span,
 };
 use crate::{
-    SqliteResult,
-    errors::{SqliteError, SyntaxErrorKind},
+    InkResult,
+    errors::{InkError, SyntaxErrorKind},
     util::assert_with_internal_err,
 };
 
@@ -52,7 +52,7 @@ impl Parser {
             arena: ExprArena::new(),
         }
     }
-    pub fn parse(query: Rc<str>, tokens: Vec<Token>) -> Result<Ast, SqliteError> {
+    pub fn parse(query: Rc<str>, tokens: Vec<Token>) -> Result<Ast, InkError> {
         let mut parser = Parser {
             query,
             tokens,
@@ -97,11 +97,11 @@ impl Parser {
         self.tokens.get(self.pos).unwrap().span.clone()
     }
 
-    pub fn expect(&mut self, t_kind: TokenKind) -> Result<(), SqliteError> {
+    pub fn expect(&mut self, t_kind: TokenKind) -> Result<(), InkError> {
         if !self.at(t_kind.clone()) {
             match self.peek() {
                 Some(t) => {
-                    return Err(SqliteError::syntax(
+                    return Err(InkError::syntax(
                         SyntaxErrorKind::TokenMismatch {
                             expected: t_kind,
                             actual: t.clone(),
@@ -110,7 +110,7 @@ impl Parser {
                     ));
                 }
                 _ => {
-                    return Err(SqliteError::syntax(
+                    return Err(InkError::syntax(
                         SyntaxErrorKind::UnexpectedEndOfExpression(t_kind),
                         self.default_end_span(),
                     ));
@@ -120,9 +120,9 @@ impl Parser {
         self.pos += 1;
         Ok(())
     }
-    pub fn expect_eof(&self) -> SqliteResult<()> {
+    pub fn expect_eof(&self) -> InkResult<()> {
         if self.peek().is_some() {
-            return Err(SqliteError::syntax(
+            return Err(InkError::syntax(
                 SyntaxErrorKind::ExpectedEoi(self.tokens[self.pos].kind.clone()),
                 self.current_token_span(),
             ));
@@ -132,7 +132,7 @@ impl Parser {
     pub fn default_end_span(&self) -> Span {
         Span(self.query.len(), self.query.len() + 1)
     }
-    pub fn expect_ident(&mut self) -> Result<String, SqliteError> {
+    pub fn expect_ident(&mut self) -> Result<String, InkError> {
         match self.peek() {
             Some(TokenKind::Identifier(_)) => match self.next_token() {
                 Some(Token {
@@ -143,19 +143,19 @@ impl Parser {
                 _ => unreachable!(),
             },
 
-            Some(tkind) => Err(SqliteError::syntax(
+            Some(tkind) => Err(InkError::syntax(
                 SyntaxErrorKind::ExpectedIdentifier(tkind.clone()),
                 self.current_token_span(),
             )),
 
-            None => Err(SqliteError::syntax(
+            None => Err(InkError::syntax(
                 SyntaxErrorKind::UnexpectedEndOfExpression(TokenKind::Identifier(String::new())),
                 self.default_end_span(),
             )),
         }
     }
 
-    pub fn parse_statement(&mut self) -> Result<Ast, SqliteError> {
+    pub fn parse_statement(&mut self) -> Result<Ast, InkError> {
         match self.peek() {
             Some(Create) => self.parse_create(),
             Some(Explain) => {
@@ -180,7 +180,7 @@ impl Parser {
                 self.eat(RollBack);
                 Ok(Ast::RollbackTransaction)
             }
-            _ => Err(SqliteError::Unsupported(
+            _ => Err(InkError::Unsupported(
                 "this statement type is not supported yet ".into(),
             )),
         }

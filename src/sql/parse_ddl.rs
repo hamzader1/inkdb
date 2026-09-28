@@ -2,29 +2,29 @@ use super::ast::Constraint;
 use super::ast::*;
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 
 impl Parser {
-    pub fn parse_create(&mut self) -> Result<Ast, SqliteError> {
+    pub fn parse_create(&mut self) -> Result<Ast, InkError> {
         self.expect(Create)?;
         let unique = self.eat(Unique);
         match self.peek() {
             Some(Table) => {
                 if unique {
-                    return Err(SqliteError::runtime(
+                    return Err(InkError::runtime(
                         "CREATE UNIQUE TABLE is invalid: UNIQUE applies to CREATE INDEX, not CREATE TABLE",
                     ));
                 }
                 self.parse_create_table()
             }
             Some(Index) => self.parse_create_index(unique),
-            _ => Err(SqliteError::runtime(
+            _ => Err(InkError::runtime(
                 "Expected TABLE or INDEX after CREATE (e.g. CREATE TABLE ... or CREATE INDEX ...)",
             )),
         }
     }
 
-    fn parse_create_table(&mut self) -> Result<Ast, SqliteError> {
+    fn parse_create_table(&mut self) -> Result<Ast, InkError> {
         self.expect(Table)?;
         let name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(LeftParen)?;
@@ -43,7 +43,7 @@ impl Parser {
         }))
     }
 
-    fn parse_create_index(&mut self, unique: bool) -> Result<Ast, SqliteError> {
+    fn parse_create_index(&mut self, unique: bool) -> Result<Ast, InkError> {
         self.expect(Index)?;
         if self.eat(If) {
             self.expect(Not)?;
@@ -71,7 +71,7 @@ impl Parser {
     }
 
     /// not parse_columns since [`SelectStmt`] (and Insert later) reserved it
-    fn parse_create_column(&mut self) -> Result<Column, SqliteError> {
+    fn parse_create_column(&mut self) -> Result<Column, InkError> {
         let name = self.expect_ident()?.to_ascii_lowercase();
         let mut affinity: Option<Affinity> = None;
         let mut constraints = Vec::new();
@@ -115,7 +115,7 @@ impl Parser {
         }
 
         let affinity = affinity.ok_or_else(|| {
-            SqliteError::runtime(format!("Column '{name}' is missing a data type: expected INTEGER, TEXT, FLOAT, BOOL or BLOB"))
+            InkError::runtime(format!("Column '{name}' is missing a data type: expected INTEGER, TEXT, FLOAT, BOOL or BLOB"))
         })?;
 
         Ok(Column {
@@ -134,9 +134,9 @@ impl Parser {
         slot: &mut Option<Affinity>,
         affinity: Affinity,
         name: &str,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         if slot.is_some() {
-            return Err(SqliteError::runtime(format!(
+            return Err(InkError::runtime(format!(
                 "Duplicate data type for column '{name}': each column takes exactly one type"
             )));
         }
@@ -144,7 +144,7 @@ impl Parser {
         Ok(())
     }
 
-    fn eat_type_size(&mut self) -> Result<(), SqliteError> {
+    fn eat_type_size(&mut self) -> Result<(), InkError> {
         if !self.eat(LeftParen) {
             return Ok(());
         }
@@ -152,13 +152,13 @@ impl Parser {
             match self.next_token() {
                 Some(t) if matches!(t.kind, NumberVar(_)) => {}
                 _ => {
-                    return Err(SqliteError::runtime(
+                    return Err(InkError::runtime(
                         "Invalid token in type size: expected a number like VARCHAR(100)",
                     ));
                 }
             }
             if !self.eat(Comma) && !self.at(RightParen) {
-                return Err(SqliteError::runtime(
+                return Err(InkError::runtime(
                     "Expected ',' or ')' in type size: e.g. DECIMAL(10, 2)",
                 ));
             }
