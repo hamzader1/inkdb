@@ -1,4 +1,4 @@
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::errors::CorruptError;
 use crate::record::{Record, Value};
 
@@ -14,6 +14,7 @@ pub mod limit;
 pub mod prepare;
 pub mod project;
 pub mod scan_guard;
+pub mod sort;
 pub mod tablescan;
 pub mod transaction;
 pub mod truncate;
@@ -64,14 +65,21 @@ impl Row {
         self.key
     }
 
-    pub fn record(&self) -> SqliteResult<Option<Record<'_>>> {
-        match (&self.columns, self.rowid_column) {
-            (Columns::Stored(bytes), None) => Ok(Some(Record::new(bytes)?)),
-            _ => Ok(None),
+    pub fn stored_bytes(&self) -> Option<&[u8]> {
+        match &self.columns {
+            Columns::Stored(bytes) => Some(bytes),
+            Columns::Computed(_) => None,
         }
     }
 
-    pub fn value(&self, index: usize) -> SqliteResult<Value<'_>> {
+    pub fn raw_record(&self) -> InkResult<Option<Record<'_>>> {
+        match self.stored_bytes() {
+            Some(bytes) => Ok(Some(Record::new(bytes)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn value(&self, index: usize) -> InkResult<Value<'_>> {
         if self.rowid_column == Some(index) {
             return Ok(Value::Integer(self.key as i64));
         }
@@ -101,10 +109,10 @@ impl Row {
         self.len() == 0
     }
 
-    pub fn to_values(&self) -> SqliteResult<Vec<Value<'static>>> {
+    pub fn to_values(&self) -> InkResult<Vec<Value<'static>>> {
         match (&self.columns, self.rowid_column) {
             (Columns::Computed(values), _) => Ok(values.clone()),
-            (Columns::Stored(_), None) => match self.record()? {
+            (Columns::Stored(_), None) => match self.raw_record()? {
                 Some(record) => record.to_values_owned(),
                 None => Ok(Vec::new()),
             },
@@ -132,12 +140,12 @@ impl<'a> RowView<'a> {
 }
 
 pub trait ColumnSource {
-    fn column(&self, index: usize) -> SqliteResult<Value<'_>>;
+    fn column(&self, index: usize) -> InkResult<Value<'_>>;
     fn column_count(&self) -> usize;
 }
 
 impl ColumnSource for RowView<'_> {
-    fn column(&self, index: usize) -> SqliteResult<Value<'_>> {
+    fn column(&self, index: usize) -> InkResult<Value<'_>> {
         if self.rowid_column == Some(index) {
             return Ok(Value::Integer(self.key as i64));
         }
@@ -150,7 +158,7 @@ impl ColumnSource for RowView<'_> {
 }
 
 impl ColumnSource for Row {
-    fn column(&self, index: usize) -> SqliteResult<Value<'_>> {
+    fn column(&self, index: usize) -> InkResult<Value<'_>> {
         self.value(index)
     }
 
@@ -160,7 +168,7 @@ impl ColumnSource for Row {
 }
 
 impl ColumnSource for Record<'_> {
-    fn column(&self, index: usize) -> SqliteResult<Value<'_>> {
+    fn column(&self, index: usize) -> InkResult<Value<'_>> {
         self.value(index)
     }
 
@@ -170,7 +178,7 @@ impl ColumnSource for Record<'_> {
 }
 
 impl ColumnSource for [Value<'static>] {
-    fn column(&self, index: usize) -> SqliteResult<Value<'_>> {
+    fn column(&self, index: usize) -> InkResult<Value<'_>> {
         self.get(index).cloned().ok_or_else(|| {
             CorruptError::NoSuchField {
                 field: index,
@@ -189,23 +197,12 @@ pub struct RowWrapper(pub Row);
 
 impl std::fmt::Display for RowWrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0.record().map_err(|_| std::fmt::Error)? {
-            Some(record) => {
-                for (i, value) in record.values().enumerate() {
-                    write!(f, "{}", value.map_err(|_| std::fmt::Error)?)?;
-                    if i + 1 < record.len() {
-                        write!(f, ", ")?;
-                    }
-                }
-            }
-            None => {
-                let values = self.0.to_values().map_err(|_| std::fmt::Error)?;
-                for (i, value) in values.iter().enumerate() {
-                    write!(f, "{value}")?;
-                    if i + 1 < values.len() {
-                        write!(f, ", ")?;
-                    }
-                }
+        let columns = self.0.len();
+        for index in 0..columns {
+            let value = self.0.value(index).map_err(|_| std::fmt::Error)?;
+            write!(f, "{value}")?;
+            if index + 1 < columns {
+                write!(f, ", ")?;
             }
         }
         Ok(())

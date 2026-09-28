@@ -1,6 +1,6 @@
 use crate::{
     backend::executor::Row,
-    errors::SqliteError,
+    errors::InkError,
     pager::pager::Pager,
     storage::{btree::page_as_mut_with_pager, page::BTreePageType, page::PageMut as BTreePageMut},
     vfs::Vfs,
@@ -39,7 +39,7 @@ impl TruncateTable {
         }
     }
 
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         Self::dfs(self.root_page, self.root_page, ctx.pager)?;
         let mut guard = ctx.pager.get_mut(self.root_page)?;
         BTreePageMut::new_from_raw_bytes(
@@ -65,7 +65,7 @@ impl TruncateTable {
      *      Back to row by row delete or add a linked list of overflow pages
      *
      * */
-    fn dfs<V: Vfs>(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), SqliteError> {
+    fn dfs<V: Vfs>(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), InkError> {
         let (is_leaf, children, rmp) = {
             let mut guard = pager.get_mut(page_no)?;
             let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;

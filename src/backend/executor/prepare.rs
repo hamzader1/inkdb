@@ -39,7 +39,7 @@ impl<V: Vfs> PrepareRow<V> {
         }
     }
 
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if self.pos >= self.rows.len() {
             return Ok(None);
         }
@@ -59,7 +59,7 @@ impl<V: Vfs> PrepareRow<V> {
                 .current_cell::<TableLeaf>()?
                 .is_some_and(|x| Value::Integer(x.row_id as _) == inner[idx]);
             if is_duplicated {
-                return Err(SqliteError::runtime(format!(
+                return Err(InkError::runtime(format!(
                     "Unique UNIQUE constraint failed on {}.{}",
                     t.name,
                     t.get_col_name(idx).unwrap().name
@@ -83,7 +83,7 @@ impl<V: Vfs> PrepareRow<V> {
     }
 }
 use crate::backend::executor::Row;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 
 use super::context::ExecCtx;
 use super::insert::Insert;

@@ -1,6 +1,6 @@
 use crate::backend::executor::eval::Eval;
 use crate::backend::planner::plan::Plan;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::vfs::Vfs;
 
 use super::Row;
@@ -27,7 +27,7 @@ impl<V: Vfs> Filter<V> {
 }
 
 impl<V: Vfs> Filter<V> {
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         loop {
             let row = match self.child.next(ctx)? {
                 Some(row) => row,

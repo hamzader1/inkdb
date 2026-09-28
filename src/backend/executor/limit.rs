@@ -1,5 +1,5 @@
 use crate::backend::planner::plan::Plan;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::vfs::Vfs;
 
 use super::Row;
@@ -23,7 +23,7 @@ impl<V: Vfs> Limit<V> {
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if self.is_done {
             return Ok(None);
         }

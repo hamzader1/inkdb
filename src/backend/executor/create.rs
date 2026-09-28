@@ -1,6 +1,6 @@
 use crate::backend::analyze::{IndexMetadata, ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
 use crate::backend::planner::plan::Plan;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::record::Value;
 use crate::storage::btree::BTree;
 use crate::storage::page::{BTreePageType, PageMut as BTreePageMut};
@@ -30,7 +30,7 @@ pub struct CreateIndex<V: Vfs> {
     meta: ResolvedCreateIndexQuery,
 }
 impl<V: Vfs> CreateIndex<V> {
-    pub fn new(child: Box<Plan<V>>, meta: ResolvedCreateIndexQuery) -> Result<Self, SqliteError> {
+    pub fn new(child: Box<Plan<V>>, meta: ResolvedCreateIndexQuery) -> Result<Self, InkError> {
         Ok(Self {
             child,
             index: None,
@@ -47,7 +47,7 @@ impl<V: Vfs> CreateIndex<V> {
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if !self.is_init {
             let new_page = ctx.pager.allocate_new_page()?;
             let mut guard = ctx.pager.get_mut(new_page)?;
@@ -97,7 +97,7 @@ impl CreateTable {
         Self { meta }
     }
 
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         let name = &self.meta.meta.name;
         let new_page = BTree::new(1, ctx.pager).allocate_page()?;
         let mut guard = ctx.pager.get_mut(new_page)?;

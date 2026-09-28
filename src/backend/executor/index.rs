@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::record::Record;
 use crate::{
     backend::{
@@ -9,7 +9,7 @@ use crate::{
         planner::plan::Plan,
     },
     errors::CorruptError,
-    errors::SqliteError,
+    errors::InkError,
     record::{Value, tuple::Tuple},
     storage::{
         btree::{BTree, BTreeCursor, IndexLeaf, SeekResult},
@@ -38,7 +38,7 @@ impl<V: Vfs> PrepareIndex<V> {
             child,
         }
     }
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         let Some(row) = self.child.next(ctx)? else {
             return Ok(None);
         };
@@ -83,7 +83,7 @@ impl<V: Vfs> IndexExactMatch<V> {
         relation_name: String,
         target: Value<'static>,
         scan_guard: Box<dyn ScanGuard<V>>,
-    ) -> Result<Self, SqliteError> {
+    ) -> Result<Self, InkError> {
         let cursor = BTreeCursor::new(index_root_page);
         Ok(Self {
             index_root_page,
@@ -105,7 +105,7 @@ impl<V: Vfs> IndexExactMatch<V> {
     pub fn target(&self) -> &Value<'_> {
         &self.target
     }
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if !self.is_init {
             self.cursor
                 .seek_lower_bound(ctx.pager, &Value::Tuple(vec![self.target.clone()]))?;
@@ -150,7 +150,7 @@ impl<V: Vfs> IndexExactMatch<V> {
         let relation_record = relation_btree
             .cursor
             .current_record_bytes(ctx.pager)?
-            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?;
+            .ok_or(InkError::Corrupt(CorruptError::RowVanished))?;
 
         let row = Row::stored_with_rowid(row_id, relation_record, pk_as_rowid);
         self.scan_guard
@@ -160,13 +160,13 @@ impl<V: Vfs> IndexExactMatch<V> {
     }
 }
 pub trait IndexMutation<V: Vfs>: std::fmt::Debug {
-    fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> SqliteResult<()>;
+    fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()>;
 }
 
 #[derive(Debug)]
 pub struct IndexDelete;
 impl<V: Vfs> IndexMutation<V> for IndexDelete {
-    fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> SqliteResult<()> {
+    fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()> {
         if !btree.delete(Value::Tuple(entry.to_vec()))? {
             return Err(CorruptError::IndexEntryMissing {
                 index_page: btree.root_page,
@@ -181,13 +181,13 @@ pub struct IndexInsert {
     pub is_unique: bool,
 }
 impl<V: Vfs> IndexMutation<V> for IndexInsert {
-    fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> SqliteResult<()> {
+    fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()> {
         btree.seek(&Value::Tuple(entry.to_vec()))?;
         if self.is_unique
             && let Some(record) = btree.current_record::<IndexLeaf>()?
             && record[0] == entry[0]
         {
-            return Err(SqliteError::runtime(format!(
+            return Err(InkError::runtime(format!(
                 "violates unique index constraint for value: {}",
                 entry[0]
             )));
@@ -217,7 +217,7 @@ impl<V: Vfs> IndexRangeScan<V> {
         start: Bound<Value<'static>>,
         end: Bound<Value<'static>>,
         scan_guard: Box<dyn ScanGuard<V>>,
-    ) -> SqliteResult<Self> {
+    ) -> InkResult<Self> {
         assert!(!(matches!(start, Bound::Unbounded) && matches!(end, Bound::Unbounded)));
         let cursor = BTreeCursor::<V>::new(index_root_page);
 
@@ -242,7 +242,7 @@ impl<V: Vfs> IndexRangeScan<V> {
         &self.range
     }
 
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if !self.is_init {
             match self.range.0 {
                 Bound::Included(ref i) => {
@@ -291,7 +291,7 @@ impl<V: Vfs> IndexRangeScan<V> {
         let relation_record = relation_btree
             .cursor
             .current_record_bytes(ctx.pager)?
-            .ok_or(SqliteError::Corrupt(CorruptError::RowVanished))?;
+            .ok_or(InkError::Corrupt(CorruptError::RowVanished))?;
 
         let row = Row::stored(row_id, relation_record);
         self.scan_guard

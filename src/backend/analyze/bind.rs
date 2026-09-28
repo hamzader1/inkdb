@@ -1,4 +1,4 @@
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::schema::Table;
 use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
@@ -14,7 +14,7 @@ impl Analyze {
         new: &mut Vec<Expr>,
         map: &mut Vec<usize>,
         new_cols: &mut Vec<usize>,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let mut sink = SlowBind { new, map, new_cols };
         Self::walk(table, idx, arena, &mut sink)?;
         Ok(())
@@ -25,7 +25,7 @@ impl Analyze {
         table: &Table,
         idx: usize,
         arena: &mut ExprArena,
-    ) -> Result<(), SqliteError> {
+    ) -> Result<(), InkError> {
         let mut sink = FastBind;
         let pos = Self::walk(table, idx, arena, &mut sink)?;
         debug_assert_eq!(pos, idx, "fast_bind must bind in place");
@@ -39,7 +39,7 @@ impl Analyze {
         idx: usize,
         arena: &mut ExprArena,
         sink: &mut impl BindSink,
-    ) -> Result<usize, SqliteError> {
+    ) -> Result<usize, InkError> {
         match arena.nodes[idx].clone() {
             Expr::Identifier(name) => sink.ident(table, arena, idx, &name),
             Expr::Star => sink.star(table, arena, idx),
@@ -83,17 +83,17 @@ pub trait BindSink {
         arena: &mut ExprArena,
         idx: usize,
         name: &str,
-    ) -> Result<usize, SqliteError>;
+    ) -> Result<usize, InkError>;
     fn leaf(&mut self, arena: &mut ExprArena, expr: Expr, idx: usize) -> usize;
     fn star(
         &mut self,
         table: &Table,
         arena: &mut ExprArena,
         idx: usize,
-    ) -> Result<usize, SqliteError>;
+    ) -> Result<usize, InkError>;
     fn unary(&mut self, arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize;
     fn binary(&mut self, node: &Expr, idx: usize, l: usize, r: usize) -> usize;
-    fn unsupported(&mut self, expr: &Expr) -> SqliteError;
+    fn unsupported(&mut self, expr: &Expr) -> InkError;
 }
 impl BindSink for SlowBind<'_> {
     fn ident(
@@ -102,14 +102,14 @@ impl BindSink for SlowBind<'_> {
         _arena: &mut ExprArena,
         idx: usize,
         name: &str,
-    ) -> Result<usize, SqliteError> {
+    ) -> Result<usize, InkError> {
         match table.get_col_idx(&name.to_lowercase()) {
             Some(col_idx) => {
                 self.new.push(Expr::ColumnRef(col_idx));
                 self.map[idx] = self.new.len() - 1;
                 Ok(self.new.len() - 1)
             }
-            _ => Err(SqliteError::UnknownColumn(name.into())),
+            _ => Err(InkError::UnknownColumn(name.into())),
         }
     }
     fn leaf(&mut self, _arena: &mut ExprArena, expr: Expr, idx: usize) -> usize {
@@ -123,7 +123,7 @@ impl BindSink for SlowBind<'_> {
         table: &Table,
         _arena: &mut ExprArena,
         idx: usize,
-    ) -> Result<usize, SqliteError> {
+    ) -> Result<usize, InkError> {
         for i in 0..table.get_cols_len() {
             self.new.push(Expr::ColumnRef(i));
             self.new_cols.push(self.new.len() - 1);
@@ -161,8 +161,8 @@ impl BindSink for SlowBind<'_> {
             _ => unreachable!("Called binary on non binary expression"),
         }
     }
-    fn unsupported(&mut self, expr: &Expr) -> SqliteError {
-        SqliteError::runtime(format!(
+    fn unsupported(&mut self, expr: &Expr) -> InkError {
+        InkError::runtime(format!(
             "Expression '{expr}' cannot appear in a SELECT column list (only columns, '*' and arithmetic/comparison expressions are supported)"
         ))
     }
@@ -176,13 +176,13 @@ impl BindSink for FastBind {
         arena: &mut ExprArena,
         idx: usize,
         name: &str,
-    ) -> Result<usize, SqliteError> {
+    ) -> Result<usize, InkError> {
         match table.get_col_idx(&name.to_lowercase()) {
             Some(col_idx) => {
                 arena.nodes[idx] = Expr::ColumnRef(col_idx);
                 Ok(idx)
             }
-            _ => Err(SqliteError::UnknownColumn(name.into())),
+            _ => Err(InkError::UnknownColumn(name.into())),
         }
     }
     fn leaf(&mut self, _arena: &mut ExprArena, _expr: Expr, idx: usize) -> usize {
@@ -193,8 +193,8 @@ impl BindSink for FastBind {
         _table: &Table,
         _arena: &mut ExprArena,
         _idx: usize,
-    ) -> Result<usize, SqliteError> {
-        Err(SqliteError::runtime(
+    ) -> Result<usize, InkError> {
+        Err(InkError::runtime(
             "Expression * cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported",
         ))
     }
@@ -204,8 +204,8 @@ impl BindSink for FastBind {
     fn binary(&mut self, _node: &Expr, idx: usize, _l: usize, _r: usize) -> usize {
         idx
     }
-    fn unsupported(&mut self, expr: &Expr) -> SqliteError {
-        SqliteError::runtime(format!(
+    fn unsupported(&mut self, expr: &Expr) -> InkError {
+        InkError::runtime(format!(
             "Expression '{expr}' cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported)"
         ))
     }

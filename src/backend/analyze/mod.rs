@@ -1,6 +1,6 @@
+use crate::InkResult;
 use crate::Master;
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::pager::pager::PageNo;
 use crate::record::{Record, Value};
 use crate::schema::Table;
@@ -21,6 +21,7 @@ pub struct ResolvedSelectQuery {
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>,
     pub limit: Option<usize>,
+    pub orderby: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -50,10 +51,10 @@ impl IndexMetadata {
     }
 }
 
-pub fn rowid_of(entry: &Record<'_>) -> SqliteResult<u64> {
+pub fn rowid_of(entry: &Record<'_>) -> InkResult<u64> {
     match entry.last() {
         Some(rowid) => rowid?.cast_int().map(|rowid| rowid as u64),
-        None => Err(SqliteError::runtime("index entry is empty")),
+        None => Err(InkError::runtime("index entry is empty")),
     }
 }
 #[derive(Debug)]
@@ -116,20 +117,14 @@ pub enum ResolvedQuery {
 }
 
 impl Analyze {
-    pub fn analyze(stmt: Ast, master: &Master) -> Result<ResolvedQuery, SqliteError> {
+    pub fn analyze(stmt: Ast, master: &Master) -> Result<ResolvedQuery, InkError> {
         match stmt {
-            Ast::SelectStmtAst(select_stmt) => {
-                Self::analyze_select_stmt(select_stmt, master)
-            }
-            Ast::InsertStmtAst(insert_stmt) => {
-                Self::analyze_insert_stmt(insert_stmt, master)
-            }
+            Ast::SelectStmtAst(select_stmt) => Self::analyze_select_stmt(select_stmt, master),
+            Ast::InsertStmtAst(insert_stmt) => Self::analyze_insert_stmt(insert_stmt, master),
             Ast::CreateTableAst(create_stmt) => {
                 Self::analyze_create_table_stmt(create_stmt, master)
             }
-            Ast::DeleteStmtAst(delete_stmt) => {
-                Self::analyze_delete_stmt(delete_stmt, master)
-            }
+            Ast::DeleteStmtAst(delete_stmt) => Self::analyze_delete_stmt(delete_stmt, master),
             Ast::BeginTransaction => Ok(ResolvedQuery::BeginTransactionQuery),
             Ast::CommitTransaction => Ok(ResolvedQuery::CommitTransactionQuery),
             Ast::RollbackTransaction => Ok(ResolvedQuery::RollbackTransactionQuery),
@@ -147,12 +142,9 @@ impl Analyze {
         }
     }
 
-    pub fn get_table<'s>(
-        master: &'s Master,
-        table_name: &str,
-    ) -> Result<&'s Table, SqliteError> {
+    pub fn get_table<'s>(master: &'s Master, table_name: &str) -> Result<&'s Table, InkError> {
         master
             .table(table_name)
-            .ok_or_else(|| SqliteError::TableNotFound(table_name.to_string()))
+            .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))
     }
 }

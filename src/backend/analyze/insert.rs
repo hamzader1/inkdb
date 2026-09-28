@@ -1,5 +1,5 @@
 use crate::Master;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::sql::ast::{Affinity, InsertStmt};
 use crate::util::assert_with_runtime_err;
 
@@ -9,7 +9,7 @@ impl Analyze {
     pub fn analyze_insert_stmt(
         stmt: InsertStmt,
         master: &Master,
-    ) -> Result<ResolvedQuery, SqliteError> {
+    ) -> Result<ResolvedQuery, InkError> {
         let InsertStmt {
             table_name,
             columns,

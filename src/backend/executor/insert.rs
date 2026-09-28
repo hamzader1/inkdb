@@ -1,4 +1,4 @@
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::backend::executor::Row;
 use crate::record::Value;
 use crate::storage::btree::BTree;
@@ -24,7 +24,7 @@ impl<'a, V: Vfs> Insert<'a, V> {
         }
     }
 
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         let mut btree = BTree::new(self.root_page, ctx.pager);
         btree.insert(&self.key, &mut self.data)?;
         Ok(None)

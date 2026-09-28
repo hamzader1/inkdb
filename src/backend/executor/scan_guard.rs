@@ -1,19 +1,19 @@
 use crate::{
-    SqliteResult,
+    InkResult,
     pager::pager::Pager,
     storage::btree::{BTreeCursor, RestorePosition},
     vfs::Vfs,
 };
 
 pub trait ScanGuard<V: Vfs>: std::fmt::Debug {
-    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> SqliteResult<()> {
+    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> InkResult<()> {
         Ok(())
     }
     fn save_or_advance(
         &mut self,
         pager: &mut Pager<V>,
         cursor: &mut BTreeCursor<V>,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         Ok(())
     }
     fn scan_type(&self) -> &'static str;
@@ -26,7 +26,7 @@ pub trait ScanGuard<V: Vfs>: std::fmt::Debug {
 #[derive(Debug)]
 pub struct UnsafeScan;
 impl<V: Vfs> ScanGuard<V> for UnsafeScan {
-    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> SqliteResult<()> {
+    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> InkResult<()> {
         match cursor.restore_position(pager)? {
             RestorePosition::Exact => cursor.next(pager)?,
             RestorePosition::Next | RestorePosition::Empty => {}
@@ -37,7 +37,7 @@ impl<V: Vfs> ScanGuard<V> for UnsafeScan {
         &mut self,
         pager: &mut Pager<V>,
         cursor: &mut BTreeCursor<V>,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         cursor.save_position(pager)
     }
     fn scan_type(&self) -> &'static str {
@@ -52,7 +52,7 @@ impl<V: Vfs> ScanGuard<V> for SafeScan {
         &mut self,
         pager: &mut Pager<V>,
         cursor: &mut BTreeCursor<V>,
-    ) -> SqliteResult<()> {
+    ) -> InkResult<()> {
         cursor.next(pager)
     }
     fn scan_type(&self) -> &'static str {

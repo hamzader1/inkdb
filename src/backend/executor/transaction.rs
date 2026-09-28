@@ -1,6 +1,6 @@
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::backend::executor::Row;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::vfs::Vfs;
 
 use super::context::ExecCtx;
@@ -9,9 +9,9 @@ use super::context::ExecCtx;
 pub struct BeginTransaction;
 
 impl BeginTransaction {
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if ctx.pager.in_transaction() {
-            return Err(SqliteError::TransactionAlreadyStarted);
+            return Err(InkError::TransactionAlreadyStarted);
         }
         ctx.pager.start_transaction();
         Ok(None)
@@ -22,12 +22,12 @@ impl BeginTransaction {
 pub struct CommitTransaction;
 
 impl CommitTransaction {
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if ctx.pager.in_transaction() {
             ctx.pager.commit()?;
             Ok(None)
         } else {
-            Err(SqliteError::NoActiveTransaction)
+            Err(InkError::NoActiveTransaction)
         }
     }
 }
@@ -35,9 +35,9 @@ impl CommitTransaction {
 #[derive(Debug)]
 pub struct RollBackTransaction;
 impl RollBackTransaction {
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if !ctx.pager.in_transaction() {
-            return Err(SqliteError::NoActiveTransaction);
+            return Err(InkError::NoActiveTransaction);
         }
         ctx.pager.rollback()?;
         ctx.master.is_dirty = true;

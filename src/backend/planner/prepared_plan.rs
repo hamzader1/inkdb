@@ -1,7 +1,7 @@
 use crate::Master;
 use crate::backend::executor::Row;
 use crate::backend::executor::context::ExecCtx;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
@@ -21,7 +21,7 @@ impl<V: Vfs> PreparedPlan<V> {
         &mut self,
         pager: &mut Pager<V>,
         master: &mut Master,
-    ) -> Result<Option<Row>, SqliteError> {
+    ) -> Result<Option<Row>, InkError> {
         if pager.start_transaction() {
             let parent_res = {
                 let mut ctx = ExecCtx::new(pager, master, &self.arena);

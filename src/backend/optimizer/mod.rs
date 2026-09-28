@@ -9,7 +9,7 @@ use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
-use crate::{Master, SqliteResult};
+use crate::{Master, InkResult};
 
 pub fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,
@@ -17,7 +17,7 @@ pub fn optimize_index_scan<V: Vfs>(
     table_name: &str,
     arena: &ExprArena,
     mode: ScanMode,
-) -> SqliteResult<()> {
+) -> InkResult<()> {
     let Plan::Filter(_) = plan else {
         return Ok(());
     };
@@ -57,7 +57,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Some(self.mode.guard())
     }
 
-    fn optimize(&mut self) -> SqliteResult<()> {
+    fn optimize(&mut self) -> InkResult<()> {
         let Plan::Filter(filter) = self.plan else {
             return Ok(());
         };
@@ -82,7 +82,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Ok(())
     }
 
-    fn optimize_where(&mut self, predicate: usize) -> SqliteResult<()> {
+    fn optimize_where(&mut self, predicate: usize) -> InkResult<()> {
         if self.is_done {
             return Ok(());
         }
@@ -145,7 +145,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
 
     /// True when the leaf is an equality with a usable index, building
     /// the exact scan as a side effect. Both operand orders tried.
-    fn try_exact_side(&mut self, node: usize) -> SqliteResult<bool> {
+    fn try_exact_side(&mut self, node: usize) -> InkResult<bool> {
         if let Expr::BinaryOp {
             left,
             op: BinaryOperator::Eq,
@@ -167,7 +167,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         left: usize,
         right: usize,
         op: BinaryOperator,
-    ) -> SqliteResult<Option<()>> {
+    ) -> InkResult<Option<()>> {
         if let Expr::ColumnRef(i) = self.arena.nodes[left]
         // && let BinaryOperator::Eq = op
         {
@@ -266,7 +266,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         index_root_page: u32,
         target: Value<'static>,
         scan_guard: Box<dyn ScanGuard<V>>,
-    ) -> SqliteResult<Plan<V>> {
+    ) -> InkResult<Plan<V>> {
         Ok(Plan::IndexExactMatch(IndexExactMatch::new(
             index_root_page,
             self.relation.root_page,
@@ -281,7 +281,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         start: Bound<Value<'static>>,
         end: Bound<Value<'static>>,
         scan_guard: Box<dyn ScanGuard<V>>,
-    ) -> SqliteResult<Plan<V>> {
+    ) -> InkResult<Plan<V>> {
         Ok(Plan::IndexRangeScan(IndexRangeScan::new(
             index_root_page,
             self.relation.root_page,

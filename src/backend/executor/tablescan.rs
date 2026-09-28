@@ -1,4 +1,4 @@
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::record::Record;
 use crate::storage::btree::kind::HasPayload;
 use crate::storage::btree::{BTreeCursor, TableLeaf};
@@ -22,7 +22,7 @@ pub struct TableScan<V: Vfs> {
     is_done: bool,
 }
 impl<V: Vfs> TableScan<V> {
-    pub fn new(root_page: u32, mode: ScanMode, table_name: String) -> Result<Self, SqliteError> {
+    pub fn new(root_page: u32, mode: ScanMode, table_name: String) -> Result<Self, InkError> {
         let cursor = BTreeCursor::new(root_page);
 
         Ok(Self {
@@ -50,7 +50,7 @@ impl<V: Vfs> TableScan<V> {
     }
 }
 impl<V: Vfs> TableScan<V> {
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if !self.is_init {
             self.cursor.first(ctx.pager)?;
             let (page_no, _) = self.cursor.last_visited_entry_unchecked();

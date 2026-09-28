@@ -1,4 +1,4 @@
-use crate::SqliteResult;
+use crate::InkResult;
 use crate::backend::planner::plan::Plan;
 use crate::record::Value;
 use crate::vfs::Vfs;
@@ -31,7 +31,7 @@ impl<V: Vfs> Count<V> {
         self.arg
     }
 
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> SqliteResult<Option<Row>> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if self.is_done {
             return Ok(None);
         }

@@ -1,7 +1,7 @@
 use crate::backend::analyze::ResolvedCreateIndexQuery;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::sql::ast::{CreateIndex, CreateTable};
-use crate::{Master, SqliteResult};
+use crate::{Master, InkResult};
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 
@@ -9,9 +9,9 @@ impl Analyze {
     pub(super) fn analyze_create_table_stmt(
         stmt: CreateTable,
         master: &Master,
-    ) -> Result<ResolvedQuery, SqliteError> {
+    ) -> Result<ResolvedQuery, InkError> {
         if Self::get_table(master, &stmt.name).is_ok() {
-            return Err(SqliteError::TableAlreadyExists(stmt.name));
+            return Err(InkError::TableAlreadyExists(stmt.name));
         }
 
         Ok(ResolvedQuery::CreateTableQuery(ResolvedCreateTableQuery {
@@ -22,23 +22,23 @@ impl Analyze {
     pub fn analyze_create_index_stmt(
         stmt: CreateIndex,
         master: &Master,
-    ) -> SqliteResult<ResolvedQuery> {
+    ) -> InkResult<ResolvedQuery> {
         let relation = Self::get_table(master, &stmt.table)?;
         if master.indexes.contains_key(&stmt.name) {
-            return Err(SqliteError::runtime(format!(
+            return Err(InkError::runtime(format!(
                 "Index with name {} already exists",
                 stmt.name
             )));
         }
         // single col only for now
         if stmt.columns.is_empty() {
-            return Err(SqliteError::runtime(
+            return Err(InkError::runtime(
                 "Index can be created on empty column set",
             ));
         }
         let column_index = match relation.get_col_idx(&stmt.columns[0]) {
             Some(idx) => idx,
-            None => return Err(SqliteError::UnknownColumn(stmt.columns[0].to_string())),
+            None => return Err(InkError::UnknownColumn(stmt.columns[0].to_string())),
         };
 
         Ok(ResolvedQuery::CreateIndexQuery(ResolvedCreateIndexQuery {

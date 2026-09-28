@@ -1,5 +1,5 @@
 use crate::backend::planner::plan::Plan;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::record::Value;
 use crate::vfs::Vfs;
 
@@ -25,7 +25,7 @@ impl<V: Vfs> Project<V> {
     }
 }
 impl<V: Vfs> Project<V> {
-    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, SqliteError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if let Some(row) = self.child.next(ctx)? {
             let key = row.key();
             let output_row: Vec<Value<'static>> = self
@@ -35,7 +35,7 @@ impl<V: Vfs> Project<V> {
                     let value = Eval::eval(ctx.arena, *i, Some(&row))?;
                     Ok(value.into_static())
                 })
-                .collect::<Result<Vec<_>, SqliteError>>()?;
+                .collect::<Result<Vec<_>, InkError>>()?;
             return Ok(Some(Row::new(key, output_row)));
         }
 
