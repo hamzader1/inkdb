@@ -1,7 +1,7 @@
 use super::btree::CellIndex;
 use super::btree::kind::HasPayload;
 use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
-use super::sqlite_cursor::SqliteCursor;
+use super::cursor::MemCursor;
 use crate::SqliteResult;
 use crate::errors::{CorruptError, SqliteError};
 use crate::pager::pager::PageNo;
@@ -10,8 +10,7 @@ use crate::record::Value;
 use crate::record::tuple::Tuple;
 use crate::record::tuple::{decode_sqltype, into_borrowed, into_owned};
 use crate::util::{
-    sqlite_assert_one, sqlite_assert_with_corrupt_err, sqlite_assert_with_internal_err,
-    sqlite_assert_with_runtime_err,
+    assert_one, assert_with_corrupt_err, assert_with_internal_err, assert_with_runtime_err,
 };
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
@@ -110,7 +109,7 @@ impl<'a> OverflowPageRef<'a> {
         usable_size: usize,
     ) -> Result<Self, SqliteError> {
         let data = bytes.as_ref();
-        sqlite_assert_with_corrupt_err(data.len() >= usable_size, || {
+        assert_with_corrupt_err(data.len() >= usable_size, || {
             "not enough bytes in overflow page".into()
         })?;
 
@@ -139,7 +138,7 @@ pub struct FreeCell {
 
 impl FreeCell {
     pub fn parse(ptr: u16, bytes: &[u8]) -> SqliteResult<Self> {
-        let mut cursor = SqliteCursor::with_offset(bytes, ptr as _)?;
+        let mut cursor = MemCursor::with_offset(bytes, ptr as _)?;
         let next = cursor.read_next_u16()?;
         let size = cursor.read_next_u16()?;
         Ok(Self {
@@ -189,7 +188,7 @@ impl<'a> OverflowPageRef<'a> {
             current_page = overflow_page.next;
         }
 
-        sqlite_assert_one(
+        assert_one(
             total_collected_payload.len() == total_payload_length,
             SqliteError::Corrupt(CorruptError::OverflowPayloadMismatch),
         )?;
@@ -346,9 +345,9 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     }
     pub fn with_cursor_read_at<F, R>(&self, off: usize, f: F) -> SqliteResult<R>
     where
-        F: FnOnce(&mut SqliteCursor) -> SqliteResult<R>,
+        F: FnOnce(&mut MemCursor) -> SqliteResult<R>,
     {
-        let mut cursor = SqliteCursor::with_offset(self.bytes(), off as _)?;
+        let mut cursor = MemCursor::with_offset(self.bytes(), off as _)?;
         f(&mut cursor)
     }
     pub fn with_header_offset(&self, off: usize) -> usize {
@@ -416,7 +415,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         if self.first_freeblock()? == 0 {
             return Ok(0);
         }
-        let mut cursor = SqliteCursor::with_offset(self.bytes(), self.first_freeblock()? as u64)?;
+        let mut cursor = MemCursor::with_offset(self.bytes(), self.first_freeblock()? as u64)?;
         let mut total_size = 0;
         let mut next_freeblock_offset = cursor.read_next_u16()?;
         let mut freeblock_size = cursor.read_next_u16()?;
@@ -544,10 +543,10 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         bytes: Vec<u8>,
         collector: &mut Vec<Value<'_>>,
     ) -> Result<(), SqliteError> {
-        let mut header_cursor = SqliteCursor::new(bytes.as_slice());
+        let mut header_cursor = MemCursor::new(bytes.as_slice());
         let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
         let mut remaining = (header_size as usize) - consumed;
-        let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
+        let mut data_cursor: MemCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
             let record_metadata = Tuple::content_meta(serial_type);
@@ -563,10 +562,10 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         bytes: &'a [u8],
         collector: &mut Vec<Value<'a>>,
     ) -> Result<(), SqliteError> {
-        let mut header_cursor = SqliteCursor::new(bytes);
+        let mut header_cursor = MemCursor::new(bytes);
         let (header_size, consumed) = header_cursor.read_next_varint(bytes.len())?;
         let mut remaining = (header_size as usize) - consumed;
-        let mut data_cursor: SqliteCursor = header_cursor.clone_with_offset(header_size)?;
+        let mut data_cursor: MemCursor = header_cursor.clone_with_offset(header_size)?;
         while remaining > 0 {
             let (serial_type, consumed) = header_cursor.read_next_varint(bytes.len())?;
             let record_metadata = Tuple::content_meta(serial_type);
@@ -597,7 +596,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     }
     pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, SqliteError> {
         let start = cell_ptr as usize;
-        sqlite_assert_with_corrupt_err(
+        assert_with_corrupt_err(
             start >= self.header_size()? as usize && start < self.usable_size,
             || format!("cell pointer {start} outside content area"),
         )?;
@@ -770,7 +769,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         Ok(())
     }
     pub fn set_right_most_ptr(&mut self, r: u32) -> SqliteResult<()> {
-        sqlite_assert_with_runtime_err(self.downgrade()?.page_type()?.is_interior(), || {
+        assert_with_runtime_err(self.downgrade()?.page_type()?.is_interior(), || {
             "SetRightMostPointer called on a leaf".into()
         })?;
         let o = self
@@ -891,10 +890,9 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             if page.freespace()? >= content.len() + 2 {
                 self.defragment()?;
                 let result = self.insert_cell(&content, cell_idx)?;
-                sqlite_assert_with_internal_err(
-                    matches!(result, InsertionState::Inserted),
-                    || "Cell does not fite even after defragementation".into(),
-                )?;
+                assert_with_internal_err(matches!(result, InsertionState::Inserted), || {
+                    "Cell does not fite even after defragementation".into()
+                })?;
                 return Ok(result);
             }
             return Ok(InsertionState::None); // overflow
@@ -1017,7 +1015,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
     }
     pub fn insert_freeblock(&mut self, offset: usize, size: usize) -> SqliteResult<()> {
         let hdr = self.downgrade()?.header_size()? as usize;
-        sqlite_assert_with_corrupt_err(offset >= hdr && offset + size <= self.usable_size, || {
+        assert_with_corrupt_err(offset >= hdr && offset + size <= self.usable_size, || {
             format!(
                 "freeblock [{offset}, {}) outside content area",
                 offset + size

@@ -7,7 +7,7 @@ use crate::db::header::{
     TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
 use crate::errors::{CorruptError, SqliteError};
-use crate::util::sqlite_assert_with_runtime_err;
+use crate::util::assert_with_runtime_err;
 
 use super::buffer_pool::{Acquire, BufferPool};
 use super::frame::FrameId;
@@ -17,7 +17,7 @@ use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::Statistics;
 use crate::vfs::Vfs;
 use crate::vfs::file::SqliteFile;
-use crate::{DbError, SqliteCursor, SqliteResult};
+use crate::{DbError, MemCursor, SqliteResult};
 
 pub type PageNo = u32;
 
@@ -177,7 +177,7 @@ impl<V: Vfs> Pager<V> {
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
-                        sqlite_assert_with_runtime_err(
+                        assert_with_runtime_err(
                             matches!(self.journal, Journal::Open { .. }),
                             || {
                                 format!(
@@ -215,7 +215,7 @@ impl<V: Vfs> Pager<V> {
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
                     if ev.was_dirty {
-                        sqlite_assert_with_runtime_err(
+                        assert_with_runtime_err(
                             matches!(self.journal, Journal::Open { .. }),
                             || {
                                 format!(
@@ -382,7 +382,7 @@ impl<V: Vfs> Pager<V> {
         }
         let mut guard = self.get_mut(first)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        let mut cursor = SqliteCursor::new(bytes);
+        let mut cursor = MemCursor::new(bytes);
         let next_page_no = cursor.read_next_u32()?;
         let leaf_count = cursor.read_next_u32()?;
         if leaf_count == 0 {
@@ -426,7 +426,7 @@ impl<V: Vfs> Pager<V> {
             {
                 let mut guard = self.get_mut(current)?;
                 let bytes = guard.bytes_as_mut_unchecked();
-                let mut cursor = SqliteCursor::new(bytes);
+                let mut cursor = MemCursor::new(bytes);
                 next_page_no = cursor.read_next_u32()?;
                 leaf_count = cursor.read_next_u32()?;
                 let leaf_offset = 8usize + 4usize * leaf_count as usize;

@@ -1,6 +1,7 @@
+use crate::MemCursor;
 use crate::errors::CorruptError;
 use crate::{
-    SqliteCursor, SqliteResult,
+    SqliteResult,
     errors::SqliteError,
     pager::pager::{PageNo, Pager},
     util::validate_page_non_one,
@@ -37,7 +38,7 @@ impl<'a, V: Vfs> FreeList<'a, V> {
         // advances to the next trunk.
         let mut guard = self.pager.get_mut(current_page_no)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        let mut cursor = SqliteCursor::new(bytes);
+        let mut cursor = MemCursor::new(bytes);
         let next_page_no = cursor.read_next_u32()?;
         if next_page_no != 0 {
             self.validate_non_one_page(next_page_no)?;
@@ -77,7 +78,7 @@ impl<'a, V: Vfs> FreeList<'a, V> {
         while current_page_no != 0 {
             let mut guard = self.pager.get_mut(current_page_no)?;
             let bytes = guard.bytes_as_mut_unchecked();
-            let mut cursor = SqliteCursor::new(bytes);
+            let mut cursor = MemCursor::new(bytes);
             let next_page_no = cursor.read_next_u32()?;
             let leaf_count = cursor.read_next_u32()?;
             // check if there is enough space for the new cell

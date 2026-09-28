@@ -1,7 +1,8 @@
 use crate::SqliteResult;
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
-use crate::storage::page::{PageMut, PageRef};
+use crate::storage::btree::kind::TypedPage;
+use crate::storage::page::{BTreePage, PageMut, PageRef};
 use crate::vfs::Vfs;
 
 use super::kind::{Cell, HasPayload, PageKind};

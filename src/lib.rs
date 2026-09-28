@@ -21,7 +21,7 @@ pub mod varint;
 pub mod vfs;
 use errors::SqliteError;
 
-pub use storage::sqlite_cursor::SqliteCursor;
+pub use storage::cursor::MemCursor;
 pub type DbError = SqliteError;
 
 pub type Result<T, E = SqliteError> = std::result::Result<T, E>;

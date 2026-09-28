@@ -93,6 +93,9 @@ impl<'a> Value<'a> {
             }
         }
     }
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
 }
 
 impl From<i64> for Value<'static> {

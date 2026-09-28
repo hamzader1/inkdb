@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn text_is_coerced_the_way_sqlite_coerces_it() {
+    fn text_is_coerced_the_way_coerces_it() {
         assert_eq!(value(text("12").try_add(&int(1))), int(13));
         assert_eq!(value(text(" 12 ").try_add(&int(1))), int(13));
         assert_eq!(value(text("+7").try_add(&int(0))), int(7));
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_agrees_with_every_case() {
+    fn agrees_with_every_case() {
         let conn = rusqlite::Connection::open_in_memory().expect("memory db");
         let cases: &[(&str, Value<'static>, Op, &str, Value<'static>)] = &[
             ("7", int(7), Op::Add, "8", int(8)),

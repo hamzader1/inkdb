@@ -33,9 +33,9 @@ fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
 
         (Value::Float(a), Value::Float(b)) => a.total_cmp(b),
 
-        (Value::Integer(a), Value::Float(b)) => compare_sqlite_num(*a, *b),
+        (Value::Integer(a), Value::Float(b)) => compare_num(*a, *b),
 
-        (Value::Float(a), Value::Integer(b)) => compare_sqlite_num(*b, *a).reverse(),
+        (Value::Float(a), Value::Integer(b)) => compare_num(*b, *a).reverse(),
 
         // Numeric < TEXT
         (Value::Integer(_), Value::Text(_)) | (Value::Float(_), Value::Text(_)) => Ordering::Less,
@@ -87,7 +87,7 @@ fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
         }
     }
 }
-pub fn compare_sqlite_num(i: i64, f: f64) -> Ordering {
+pub fn compare_num(i: i64, f: f64) -> Ordering {
     // Safe Window Optimization: If the integer safely fits in 53 bits,
     // casting to f64 is mathematically lossless.
     if (MIN_SAFE_INT..=MAX_SAFE_INT).contains(&i) {

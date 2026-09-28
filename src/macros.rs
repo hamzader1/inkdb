@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! sqlite_assert_all {
+macro_rules! assert_all {
     ($($assert_expr: expr), * $(,)?) => {
         $(assert!($assert_expr, "Assertion Failed: {}",stringify!($assert_expr));)*
     };

@@ -1,7 +1,7 @@
 use crate::Master;
 use crate::errors::SqliteError;
 use crate::sql::ast::{Affinity, InsertStmt};
-use crate::util::sqlite_assert_with_runtime_err;
+use crate::util::assert_with_runtime_err;
 
 use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 
@@ -16,7 +16,7 @@ impl Analyze {
             values,
         } = stmt;
 
-        sqlite_assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
+        assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
             "table master may not be modified".into()
         })?;
         let table = Self::get_table(master, &table_name)?;
@@ -24,7 +24,7 @@ impl Analyze {
 
         if columns.is_empty() {
             for inner_values in values.iter() {
-                sqlite_assert_with_runtime_err(inner_values.len() == table.columns.len(), || {
+                assert_with_runtime_err(inner_values.len() == table.columns.len(), || {
                     format!(
                         "Column count mismatch: table has {} columns, but {} columns were provided",
                         table.columns.len(),
@@ -32,13 +32,13 @@ impl Analyze {
                     )
                 })?;
                 for (i, value) in inner_values.iter().enumerate() {
-                    let sqlite_value_type = Affinity::try_from(value)?;
-                    sqlite_assert_with_runtime_err(
-                        sqlite_value_type == table.columns[i].affinity,
+                    let value_type = Affinity::try_from(value)?;
+                    assert_with_runtime_err(
+                        value_type == table.columns[i].affinity,
                         || {
                             format!(
                                 "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
-                                table.columns[i].name, table.columns[i].affinity, sqlite_value_type
+                                table.columns[i].name, table.columns[i].affinity, value_type
                             )
                         },
                     )?;

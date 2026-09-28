@@ -8,7 +8,7 @@ use super::{
 use crate::{
     SqliteResult,
     errors::{SqliteError, SyntaxErrorKind},
-    util::sqlite_assert_with_internal_err,
+    util::assert_with_internal_err,
 };
 
 use super::tokens::{

@@ -241,6 +241,7 @@ impl<V: Vfs> Plan<V> {
             None,
             resolved_query.root_page,
             resolved_query.values,
+            resolved_query.table_name.clone(),
             None,
         ));
         for index in master.indexes_on(&resolved_query.table_name)? {

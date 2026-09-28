@@ -3,7 +3,7 @@ use super::frame::{Frame, FrameId, FrameIndex};
 use crate::SqliteResult;
 use crate::errors::SqliteError;
 use crate::pager::pager::PageNo;
-use crate::util::sqlite_assert_one;
+use crate::util::assert_one;
 use std::collections::HashMap;
 use std::ptr::NonNull;
 
@@ -46,7 +46,7 @@ impl BufferPool {
         }
     }
     fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), SqliteError> {
-        sqlite_assert_one(
+        assert_one(
             self.page_table.contains_key(&page_no)
                 && *self.page_table.get(&page_no).unwrap() == frame_id,
             SqliteError::InternalFmt(format!(

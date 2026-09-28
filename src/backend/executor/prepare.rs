@@ -53,7 +53,6 @@ impl<V: Vfs> PrepareRow<V> {
             && let Some(idx) = t.has_integer_primary_key()
             && !inner[idx].is_null()
         {
-            // dbg!(idx, &inner[idx]);
             btree.seek(&inner[idx])?;
 
             let is_duplicated = btree

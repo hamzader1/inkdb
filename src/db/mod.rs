@@ -10,7 +10,7 @@ use crate::errors::SqliteError;
 pub mod header;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
-pub use crate::storage::sqlite_cursor::SqliteCursor;
+pub use crate::storage::cursor::MemCursor;
 use crate::vfs::{SqliteOptions, Vfs};
 use header::SqliteDatabaseHeader;
 use std::path::Path;
@@ -89,12 +89,10 @@ pub struct Statement<'a, V: Vfs> {
 }
 impl<'a, V: Vfs> Statement<'a, V> {
     pub fn rows(&'a mut self) -> impl Iterator<Item = Result<Row, SqliteError>> + 'a {
-        std::iter::from_fn(
-            move || match self.stmt.next(self.pager, self.master) {
-                Ok(Some(row)) => Some(Ok(row)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            },
-        )
+        std::iter::from_fn(move || match self.stmt.next(self.pager, self.master) {
+            Ok(Some(row)) => Some(Ok(row)),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        })
     }
 }

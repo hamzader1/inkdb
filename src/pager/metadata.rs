@@ -1,4 +1,4 @@
-use crate::sqlite_assert_all;
+use crate::assert_all;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy)]
@@ -18,7 +18,7 @@ impl SqliteMetadata {
         first_freelist_truck_page: u32,
         total_freelist_pages: u32,
     ) -> Self {
-        sqlite_assert_all!(page_size >= usable_size, max_allocated_pages > 0);
+        assert_all!(page_size >= usable_size, max_allocated_pages > 0);
         Self {
             page_size,
             usable_size,

@@ -178,7 +178,7 @@ impl Master {
             .into());
         }
         // Only 'table' and 'index' rows carry DDL we can parse. Views,
-        // triggers, and internal rows (e.g. sqlite_autoindex_*) are skipped.
+        // triggers, and internal rows (e.g. autoindex_*) are skipped.
         let record_type = match &record[0] {
             Value::Text(t) => t.as_ref(),
             _ => return Ok(()),

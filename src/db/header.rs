@@ -8,8 +8,8 @@ use crate::bytes::*;
 use crate::errors::SqliteError;
 use crate::seek_c;
 use crate::seek_s;
-use crate::sqlite_assert_all;
-use crate::util::sqlite_assert_one;
+use crate::assert_all;
+use crate::util::assert_one;
 use crate::vfs::cursor::FileCursor;
 use crate::vfs::file::SqliteFile;
 
@@ -109,14 +109,14 @@ pub struct SqliteDatabaseHeader {
     pub application_id: u32,
     pub reserved_for_expansion: [u8; 20],
     pub version_valid_for_number: u32,
-    pub sqlite_version_number: u32,
+    pub version_number: u32,
 }
 
 impl SqliteDatabaseHeader {
     const INVALID_HEADER_ERR: SqliteError = SqliteError::InvalidDatabaseHeader;
-    pub fn parse<R: SqliteFile>(sqlite_source: &'_ R) -> Result<Self, SqliteError> {
+    pub fn parse<R: SqliteFile>(source: &'_ R) -> Result<Self, SqliteError> {
         // default cursor to 0, no manually offset needed
-        let mut cursor = FileCursor::<'_, R>::new(sqlite_source);
+        let mut cursor = FileCursor::<'_, R>::new(source);
 
         let header_string = cursor.read_next_array::<HEADER_STRING_SIZE>()?;
         let database_page_size = cursor.read_next_u16()?;
@@ -140,7 +140,7 @@ impl SqliteDatabaseHeader {
         let application_id = cursor.read_next_u32()?;
         let reserved_for_expansion = cursor.read_next_array::<RESERVED_FOR_EXPANSION_SIZE>()?;
         let version_valid_for_number = cursor.read_next_u32()?;
-        let sqlite_version_number = cursor.read_next_u32()?;
+        let version_number = cursor.read_next_u32()?;
         let mut header = Self {
             header_string,
             database_page_size: database_page_size as u32,
@@ -164,7 +164,7 @@ impl SqliteDatabaseHeader {
             application_id,
             reserved_for_expansion,
             version_valid_for_number,
-            sqlite_version_number,
+            version_number,
         };
         header.validate()?;
 
@@ -195,15 +195,15 @@ impl SqliteDatabaseHeader {
             application_id,
             reserved_for_expansion,
             version_valid_for_number,
-            sqlite_version_number,
+            version_number,
         } = self;
 
-        sqlite_assert_one(
+        assert_one(
             self.header_string == *SQLITE3_MAGIC,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             self.database_page_size == 1
                 || (self.database_page_size >= 512
                     && self.database_page_size <= 32768
@@ -215,44 +215,44 @@ impl SqliteDatabaseHeader {
             self.database_page_size = 65536;
         }
 
-        sqlite_assert_one(
+        assert_one(
             matches!(self.file_format_write_version, 1 | 2),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             matches!(self.file_format_read_version, 1 | 2),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             (self.reserved_space as u32) < self.database_page_size,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             self.maximum_embedded_payload_fraction == 64,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             self.minimum_embedded_payload_fraction == 32,
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(self.leaf_payload_fraction == 32, Self::INVALID_HEADER_ERR)?;
+        assert_one(self.leaf_payload_fraction == 32, Self::INVALID_HEADER_ERR)?;
 
-        sqlite_assert_one(
+        assert_one(
             matches!(self.schema_format_number, 1..=4),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             matches!(self.database_text_encoding, 1..=3),
             Self::INVALID_HEADER_ERR,
         )?;
 
-        sqlite_assert_one(
+        assert_one(
             self.reserved_for_expansion.iter().all(|&byte| byte == 0),
             Self::INVALID_HEADER_ERR,
         )?;

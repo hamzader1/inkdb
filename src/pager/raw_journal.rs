@@ -1,6 +1,6 @@
 use crate::errors::SqliteError;
 use crate::vfs::file::SqliteFile;
-use crate::{SqliteCursor, SqliteResult, size_of};
+use crate::{MemCursor, SqliteResult, size_of};
 
 use super::pager::PageNo;
 
@@ -89,7 +89,7 @@ impl RawJournal {
     }
 
     pub fn parse_recovery(bytes: Vec<u8>) -> Result<Option<RecoverMetadata>, SqliteError> {
-        let mut cursor = SqliteCursor::new(&bytes);
+        let mut cursor = MemCursor::new(&bytes);
         let magic = cursor.read_to(size_of!(u64) as _)?;
         let page_count = cursor.read_next_u32()?;
         if page_count == 0 || magic != u64::to_be_bytes(JOURNAL_MAGIC) {

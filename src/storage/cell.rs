@@ -1,5 +1,5 @@
+use super::cursor::MemCursor;
 use super::page::{compute_index_local_payload_size, compute_table_local_payload_size};
-use super::sqlite_cursor::SqliteCursor;
 use crate::errors::{CorruptError, SqliteError};
 
 use crate::pager::pager::PageNo;
@@ -92,7 +92,7 @@ impl BTreeCell {
 }
 impl TableInteriorCell {
     pub fn parse(bytes: &[u8], _: usize) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::new(bytes);
+        let mut cursor = MemCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
             return Err(SqliteError::Corrupt(CorruptError::ZeroChildPointer));
@@ -106,7 +106,7 @@ impl TableInteriorCell {
 }
 impl TableLeafCell {
     pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::new(bytes);
+        let mut cursor = MemCursor::new(bytes);
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
         let (row_id, _) = cursor.read_next_varint(bytes.len())?;
         let current_pos = cursor.stream_pos() as usize;
@@ -140,7 +140,7 @@ impl TableLeafCell {
 impl IndexInteriorCell {
     pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
         // Page number of left child
-        let mut cursor = SqliteCursor::new(bytes);
+        let mut cursor = MemCursor::new(bytes);
         let left_child = cursor.read_next_u32()?;
         if left_child == 0 {
             // use validate function later
@@ -178,7 +178,7 @@ impl IndexInteriorCell {
 
 impl IndexLeafCell {
     pub fn parse(bytes: &[u8], usable_size: usize) -> Result<Self, SqliteError> {
-        let mut cursor = SqliteCursor::new(bytes);
+        let mut cursor = MemCursor::new(bytes);
         // Same short buffer rule as above. Exact cell bytes are often
         // smaller than the page usable size during rebalancing.
         let (payload_len, _) = cursor.read_next_varint(bytes.len())?;
