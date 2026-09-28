@@ -3,13 +3,13 @@ use std::borrow::Cow;
 use super::ast::{Ast, SelectStmt};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
-use crate::SqliteResult;
-use crate::errors::SqliteError;
+use crate::InkResult;
+use crate::errors::InkError;
 use crate::record::Value;
 use crate::sql::ast::{DeleteStmt, Expr, InsertStmt};
 
 impl Parser {
-    pub fn parse_select(&mut self) -> Result<Ast, SqliteError> {
+    pub fn parse_select(&mut self) -> Result<Ast, InkError> {
         self.expect(Select)?;
         let mut columns = Vec::new();
         loop {
@@ -31,6 +31,11 @@ impl Parser {
         if self.eat(Where) {
             where_clause = Some(self.parse_expression()?);
         }
+        let mut orderby: Option<usize> = None;
+        if self.eat(Order) {
+            self.expect(By);
+            orderby = Some(self.parse_expression()?);
+        }
         let mut limit: Option<usize> = None;
         if self.eat(Limit) {
             limit = Some(self.parse_expression()?);
@@ -42,10 +47,11 @@ impl Parser {
             columns,
             where_clause,
             limit,
+            orderby,
         }))
     }
 
-    pub fn parse_insert(&mut self) -> Result<Ast, SqliteError> {
+    pub fn parse_insert(&mut self) -> Result<Ast, InkError> {
         self.expect(Insert)?;
         self.expect(Into)?;
         let table_name = self.expect_ident()?.to_ascii_lowercase();
@@ -98,7 +104,7 @@ impl Parser {
             values,
         }))
     }
-    pub fn parse_delete(&mut self) -> SqliteResult<Ast> {
+    pub fn parse_delete(&mut self) -> InkResult<Ast> {
         self.expect(Delete)?;
         self.expect(From)?;
         let table_name = self.expect_ident()?;
