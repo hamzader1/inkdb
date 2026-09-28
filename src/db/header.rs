@@ -5,17 +5,17 @@ use std::io::Seek;
 use std::io::SeekFrom;
 
 use crate::bytes::*;
-use crate::errors::SqliteError;
+use crate::errors::InkError;
 use crate::seek_c;
 use crate::seek_s;
 use crate::assert_all;
 use crate::util::assert_one;
 use crate::vfs::cursor::FileCursor;
-use crate::vfs::file::SqliteFile;
+use crate::vfs::file::InkFile;
 
-pub const SQLITE3_HEADER_SIZE: u8 = 100;
+pub const HEADER_SIZE: u8 = 100;
 
-pub const SQLITE3_MAGIC: &[u8; HEADER_STRING_SIZE] = b"SQLite format 3\0";
+pub const FILE_MAGIC: &[u8; HEADER_STRING_SIZE] = b"SQLite format 3\0";
 
 pub const HEADER_STRING_OFFSET: usize = 0;
 pub const HEADER_STRING_SIZE: usize = 16;
@@ -83,10 +83,10 @@ pub const RESERVED_FOR_EXPANSION_SIZE: usize = 20;
 pub const VERSION_VALID_FOR_NUMBER_OFFSET: usize = 92;
 pub const VERSION_VALID_FOR_NUMBER_SIZE: usize = 4;
 
-pub const SQLITE_VERSION_NUMBER_OFFSET: usize = 96;
-pub const SQLITE_VERSION_NUMBER_SIZE: usize = 4;
+pub const VERSION_NUMBER_OFFSET: usize = 96;
+pub const VERSION_NUMBER_SIZE: usize = 4;
 #[derive(Debug, Clone, Copy)]
-pub struct SqliteDatabaseHeader {
+pub struct InkDatabaseHeader {
     pub header_string: [u8; 16],
     pub database_page_size: u32,
     pub file_format_write_version: u8,
@@ -112,9 +112,9 @@ pub struct SqliteDatabaseHeader {
     pub version_number: u32,
 }
 
-impl SqliteDatabaseHeader {
-    const INVALID_HEADER_ERR: SqliteError = SqliteError::InvalidDatabaseHeader;
-    pub fn parse<R: SqliteFile>(source: &'_ R) -> Result<Self, SqliteError> {
+impl InkDatabaseHeader {
+    const INVALID_HEADER_ERR: InkError = InkError::InvalidDatabaseHeader;
+    pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
         // default cursor to 0, no manually offset needed
         let mut cursor = FileCursor::<'_, R>::new(source);
 
@@ -171,7 +171,7 @@ impl SqliteDatabaseHeader {
         Ok(header)
     }
 
-    fn validate(&mut self) -> Result<(), SqliteError> {
+    fn validate(&mut self) -> Result<(), InkError> {
         let Self {
             header_string,
             database_page_size,
@@ -199,7 +199,7 @@ impl SqliteDatabaseHeader {
         } = self;
 
         assert_one(
-            self.header_string == *SQLITE3_MAGIC,
+            self.header_string == *FILE_MAGIC,
             Self::INVALID_HEADER_ERR,
         )?;
 
@@ -208,7 +208,7 @@ impl SqliteDatabaseHeader {
                 || (self.database_page_size >= 512
                     && self.database_page_size <= 32768
                     && self.database_page_size.is_power_of_two()),
-            SqliteError::InvalidPageSize(self.database_page_size as u16),
+            InkError::InvalidPageSize(self.database_page_size as u16),
         )?;
 
         if self.database_page_size == 1 {
