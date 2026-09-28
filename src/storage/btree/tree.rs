@@ -35,6 +35,23 @@ impl<'a, V: Vfs> BTree<'a, V> {
     pub fn seek_for_delete(&mut self, target: &Value) -> SqliteResult<SeekResult> {
         self.cursor.seek_for_delete(self.pager, target)
     }
+    pub fn current_cell<K: PageKind>(&mut self) -> SqliteResult<Option<K::Cell>> {
+        if let Some(path) = self.cursor.last_path() {
+            let inner = BTreePage::new(
+                path.page_no,
+                self.pager.page_size(),
+                self.pager.usable_size(),
+                path.guard.bytes(),
+            )?;
+            if path.cell_idx >= inner.no_of_cells()? {
+                return Ok(None);
+            }
+            return Ok(Some(
+                TypedPage::<&[u8], K>::wrap(inner).cell(path.cell_idx)?,
+            ));
+        }
+        Ok(None)
+    }
 
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> SqliteResult<()> {
