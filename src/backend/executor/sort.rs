@@ -165,6 +165,55 @@ enum SortSource {
         offset: usize,
         nrows: usize,
     },
-    Disk,
+    Disk {
+        f: File,
+        buffer: Vec<u8>,
+        file_offset: usize,
+        buffer_offset: usize,
+        page_size: usize,
+        nrows: u32,
+        rrows: usize,
+    },
     None,
 }
+
+impl<V: Vfs> Drop for Sort<V> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.out_path());
+    }
+}
+
+#[derive(Debug)]
+struct HeapEntry {
+    key: Value<'static>,
+    buffer_id: usize,
+    child_id: usize,
+}
+
+impl HeapEntry {
+    fn new(key: Value<'static>, buffer_id: usize, child_id: usize) -> Self {
+        Self {
+            key,
+            buffer_id,
+            child_id,
+        }
+    }
+}
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.key.cmp(&self.key)
+    }
+}
+
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+impl Eq for HeapEntry {}
