@@ -92,7 +92,42 @@ impl<V: Vfs> Sort<V> {
 
                 Ok(Some(row))
             }
-            _ => panic!("Disk not implemented yet"),
+            SortSource::Disk {
+                ref mut f,
+                ref mut buffer,
+                ref mut buffer_offset,
+                ref mut file_offset,
+                nrows,
+                ref mut rrows,
+                page_size,
+            } => {
+                if self.nread == nrows as usize {
+                    self.is_done = true;
+                    return Ok(None);
+                }
+                if *buffer_offset == buffer.len() {
+                    let remaining = nrows as usize - *rrows;
+                    if remaining == 0 {
+                        self.is_done = true;
+                        return Ok(None);
+                    }
+                    let r = load_page(f, buffer, remaining, page_size, file_offset)?;
+                    if r == 0 {
+                        self.is_done = true;
+                        return Ok(None);
+                    }
+                    *rrows += r;
+                    *buffer_offset = 0;
+                }
+                let buffer = &buffer[*buffer_offset..];
+                let mut cursor = MemCursor::new(buffer);
+                let (len, consumed) = cursor.read_next_varint(buffer.len())?;
+                let row = Row::stored(0, buffer[consumed..consumed + len as usize].to_vec());
+                *buffer_offset += consumed + len as usize;
+                self.nread += 1;
+                Ok(Some(row))
+            }
+            SortSource::None => Ok(None),
         }
     }
     fn sort(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
