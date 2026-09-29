@@ -12,7 +12,14 @@ use crate::varint::encode_varint;
 use crate::vfs::Vfs;
 use crate::{InkResult, MemCursor};
 
-const MEM_CAP: usize = 4096;
+const MEM_CAP: usize = 10 * 1024 * 1024; /*10 MiB*/
+
+fn temp_prefix() -> String {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("ink_sort_{}_{}", std::process::id(), id)
+}
+
 #[derive(Debug)]
 pub struct Sort<V: Vfs> {
     child: Box<plan::Plan<V>>,
