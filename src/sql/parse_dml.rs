@@ -36,7 +36,6 @@ impl Parser {
             self.expect(By);
             let index = self.parse_expression()?;
             let desc = self.eat(Desc);
-            dbg!(index, desc);
             orderby = Some(OrderBy::new(index, desc));
         }
         let mut limit: Option<usize> = None;
@@ -44,6 +43,7 @@ impl Parser {
             limit = Some(self.parse_expression()?);
         }
 
+        self.expect_eof()?;
         Ok(Ast::SelectStmtAst(SelectStmt {
             table_name,
             arena: self.arena.take(),
