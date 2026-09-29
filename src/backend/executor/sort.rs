@@ -28,6 +28,8 @@ pub struct Sort<V: Vfs> {
     is_sorted: bool,
     nread: usize,
     is_done: bool,
+    max_frame: usize,
+    temp: String,
 }
 
 impl<V: Vfs> Sort<V> {
@@ -39,6 +41,8 @@ impl<V: Vfs> Sort<V> {
             nread: 0,
             is_sorted: false,
             is_done: false,
+            max_frame: 0,
+            temp: temp_prefix(),
         }
     }
     pub fn child(&self) -> &Plan<V> {
@@ -56,6 +60,18 @@ impl<V: Vfs> Sort<V> {
     pub fn id(&self) -> usize {
         self.index
     }
+    fn run_path(&self, run: usize) -> String {
+        std::env::temp_dir()
+            .join(format!("{}_run_{}", self.temp, run))
+            .to_string_lossy()
+            .into_owned()
+    }
+    fn out_path(&self) -> String {
+        std::env::temp_dir()
+            .join(format!("{}_out", self.temp))
+            .to_string_lossy()
+            .into_owned()
+    }
     fn yield_row(&mut self) -> InkResult<Option<Row>> {
         match self.sort_source {
             SortSource::Mem {
@@ -64,6 +80,7 @@ impl<V: Vfs> Sort<V> {
                 nrows,
             } => {
                 if self.nread == nrows {
+                    self.is_done = true;
                     return Ok(None);
                 }
                 let buffer = &buffer[*offset..];
