@@ -393,6 +393,63 @@ struct SortBuffer {
     children: Vec<InnerSortBuffer>,
     is_done: bool,
 }
+
+impl SortBuffer {
+    #[allow(clippy::too_many_arguments)] /*Temporary*/
+    fn new(
+        f: File,
+        rid: usize,
+        rrows: usize,
+        nrows: usize,
+        page_buffer: Vec<u8>,
+        children: Vec<InnerSortBuffer>,
+        offset: usize,
+        is_done: bool,
+    ) -> Self {
+        Self {
+            f,
+            rid,
+            rrows,
+            nrows,
+            page_buffer,
+            children,
+            offset,
+            is_done,
+        }
+    }
+    fn yield_entry<V: Vfs>(
+        &mut self,
+        mut child_id: usize,
+        page_size: usize,
+        index: usize,
+        ctx: &mut ExecCtx<'_, V>,
+    ) -> InkResult<Option<HeapEntry>> {
+        if child_id == self.children.len() {
+            if self.rrows == self.nrows {
+                return Ok(None);
+            }
+            let niter = load_page(
+                &mut self.f,
+                &mut self.page_buffer,
+                (self.nrows - self.rrows),
+                page_size,
+                &mut self.offset,
+            )?;
+            if niter == 0 {
+                return Ok(None);
+            }
+            self.rrows += niter;
+            load_children(&self.page_buffer, &mut self.children, niter, index, ctx)?;
+            child_id = 0;
+        }
+        if child_id >= self.children.len() {
+            return Ok(None);
+        }
+        let entry = HeapEntry::new(self.children[child_id].key.clone(), self.rid - 1, child_id);
+        Ok(Some(entry))
+    }
+}
+
 #[derive(Debug, Clone)]
 struct InnerSortBuffer {
     key: Value<'static>, /*Can we change it to 'any ?*/
