@@ -308,12 +308,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
 }
 
 impl<B: AsRef<[u8]>> BTreePage<B> {
-    pub fn new(
-        page_no: PageNo,
-        page_size: usize,
-        usable_size: usize,
-        bytes: B,
-    ) -> InkResult<Self> {
+    pub fn new(page_no: PageNo, page_size: usize, usable_size: usize, bytes: B) -> InkResult<Self> {
         let header_offset = if page_no == 1 { 100 } else { 0 };
         let this = BTreePage {
             page_no,
@@ -1231,11 +1226,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         self.bytes_mut().copy_within(from..to, from - 2);
         Ok(())
     }
-    pub fn replace_cell(
-        &mut self,
-        i: u16,
-        content: impl AsRef<[u8]>,
-    ) -> InkResult<InsertionState> {
+    pub fn replace_cell(&mut self, i: u16, content: impl AsRef<[u8]>) -> InkResult<InsertionState> {
         let content = content.as_ref();
         let n = self.no_of_cells()? as usize;
         if i as usize >= n {
