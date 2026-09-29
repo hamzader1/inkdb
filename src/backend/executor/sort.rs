@@ -1,5 +1,6 @@
-use core::panic;
+use std::collections::BinaryHeap;
 use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::os::unix::fs::FileExt;
 
 use super::super::planner::plan;
@@ -391,6 +392,7 @@ struct SortBuffer {
     nrows: usize, /*number of rows*/
     page_buffer: Vec<u8>,
     children: Vec<InnerSortBuffer>,
+    offset: usize,
     is_done: bool,
 }
 
