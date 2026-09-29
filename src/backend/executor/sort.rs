@@ -310,6 +310,71 @@ impl<V: Vfs> Sort<V> {
     }
 }
 
+fn load_page(
+    file: &mut File,
+    out: &mut Vec<u8>,
+    limit: usize,
+    chunk_size: usize,
+    offset: &mut usize,
+) -> InkResult<usize> {
+    out.clear();
+    let remaining = file.metadata()?.len().saturating_sub(*offset as u64);
+    let read_len = remaining.min(chunk_size as u64) as usize;
+    let mut temp_buffer = vec![0u8; read_len];
+    file.read_exact_at(&mut temp_buffer, *offset as _)?;
+
+    let mut pos = 0usize;
+    let mut niter = 0usize;
+    for _ in 0..limit {
+        let available = temp_buffer.len() - pos;
+        if available == 0 {
+            break;
+        }
+        let mut cursor = MemCursor::new(&temp_buffer[pos..]);
+        let Ok((row_len, consumed)) = cursor.read_next_varint(available) else {
+            break;
+        };
+        let frame_len = consumed + row_len as usize;
+        if frame_len > available || frame_len + out.len() > chunk_size {
+            break;
+        }
+        out.extend_from_slice(&temp_buffer[pos..pos + frame_len]);
+        pos += frame_len;
+        *offset += frame_len;
+        niter += 1; /*nIter: number of iterations*/
+    }
+    Ok(niter)
+}
+
+fn load_children<V: Vfs>(
+    inp: &[u8],
+    children: &mut Vec<InnerSortBuffer>,
+    limit: usize,
+    arena_index: usize,
+    ctx: &mut ExecCtx<'_, V>,
+) -> InkResult<()> {
+    children.clear();
+    let mut pos = 0usize;
+    for _ in 0..limit {
+        let available = inp.len() - pos;
+        if available == 0 {
+            break;
+        }
+        let mut cursor = MemCursor::new(&inp[pos..]);
+        let Ok((len, consumed)) = cursor.read_next_varint(available) else {
+            break;
+        };
+        let frame_len = consumed + len as usize;
+        if frame_len > available {
+            break;
+        }
+        let record = Record::new(&inp[pos + consumed..pos + frame_len])?;
+        let key = Eval::eval(ctx.arena, arena_index, Some(&record))?.into_static();
+        children.push(InnerSortBuffer::new(key, pos, frame_len));
+        pos += frame_len;
+    }
+    Ok(())
+}
 fn new_file(file_name: &str) -> InkResult<File> {
     let file = OpenOptions::new()
         .read(true)
