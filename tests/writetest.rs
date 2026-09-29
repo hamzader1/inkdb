@@ -57,15 +57,15 @@ fn btree_index_split_roundtrip() {
     use inkdb::storage::btree::BTree;
     use inkdb::storage::cell::Encode;
     use inkdb::vfs::disk::DiskVfs;
-    use inkdb::vfs::{SqliteOptions, Vfs};
+    use inkdb::vfs::{InkOptions, Vfs};
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(100);
     let n = SEQ.fetch_add(1, Ordering::SeqCst);
     let path = std::env::temp_dir().join(format!("inkdb-split-{}-{}.db", std::process::id(), n));
     let ps = 4096usize;
     let mut vfs = DiskVfs;
-    let source = vfs.open(&path, SqliteOptions::all()).unwrap();
-    inkdb::vfs::file::SqliteFile::set_len(&source, ps * 4).unwrap();
+    let source = vfs.open(&path, InkOptions::all()).unwrap();
+    inkdb::vfs::file::InkFile::set_len(&source, ps * 4).unwrap();
     let header = inkdb::pager::pager::HeaderCache::new(ps as u32, ps as u32, 4, 0, 0);
     let mut pager = Pager::with_cache(vfs, source, header, 4096).unwrap();
     pager.start_transaction();

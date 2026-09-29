@@ -9,7 +9,7 @@ use inkdb::storage::btree::{BTreeCursor, TableLeaf};
 use inkdb::storage::page::PageRef as BTreePageRef;
 
 #[test]
-fn record_accessor_agrees_with_the_page_decoder_on_sqlite_rows() {
+fn record_accessor_agrees_with_the_page_decoder_on_rows() {
     let path = db_path("recordparity");
     build_users(&path, 4096, 500);
     let mut db = open_engine(&path);

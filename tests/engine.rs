@@ -41,9 +41,9 @@ fn index_delete_leaves_no_survivors() {
         100
     );
     commit_and_close(db);
-    assert_eq!(sqlite_count(&path, "age = 20"), 0);
-    assert_eq!(sqlite_count(&path, "age = 30"), 0);
-    assert_eq!(sqlite_count(&path, "age = 21"), 100);
+    assert_eq!(db_count(&path, "age = 20"), 0);
+    assert_eq!(db_count(&path, "age = 30"), 0);
+    assert_eq!(db_count(&path, "age = 21"), 100);
     assert_integrity_ok(&path);
     cleanup(&path);
 }
@@ -63,7 +63,7 @@ fn table_scan_delete_no_survivors() {
         100
     );
     commit_and_close(db);
-    assert_eq!(sqlite_count(&path, "age = 30 or age = 20"), 0);
+    assert_eq!(db_count(&path, "age = 30 or age = 20"), 0);
     assert_integrity_ok(&path);
     cleanup(&path);
 }
@@ -78,7 +78,7 @@ fn full_range_wipe_empties_table() {
         0
     );
     commit_and_close(db);
-    assert_eq!(sqlite_count(&path, ""), 0);
+    assert_eq!(db_count(&path, ""), 0);
     assert_integrity_ok(&path);
     cleanup(&path);
 }
@@ -98,7 +98,7 @@ fn text_index_build_and_probe() {
         100
     );
     commit_and_close(db);
-    assert_eq!(sqlite_count(&path, "name = 'User-000123'"), 1);
+    assert_eq!(db_count(&path, "name = 'User-000123'"), 1);
     assert_integrity_ok(&path);
     cleanup(&path);
 }
@@ -123,7 +123,7 @@ fn index_and_table_agree_after_mixed_deletes() {
     for (i, age) in [20, 21, 22, 35, 59, 40].iter().enumerate() {
         assert_eq!(
             mine[i] as i64,
-            sqlite_count(&path, &format!("age = {age}")),
+            db_count(&path, &format!("age = {age}")),
             "engine/sqlite disagree on age {age}"
         );
     }
@@ -138,9 +138,15 @@ fn truncate_with_index_stays_usable() {
     let mut db = open_engine(&path);
     run_ok(&mut db, "create index age_index on users(age)");
     run_ok(&mut db, "delete from users");
-    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 0);
+    assert_eq!(
+        run_count(&mut db, "select * from users where age = 21"),
+        0
+    );
     run_ok(&mut db, "insert into users values ('Neo', 21, 1.5, 'P0')");
-    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 1);
+    assert_eq!(
+        run_count(&mut db, "select * from users where age = 21"),
+        1
+    );
     commit_and_close(db);
     assert_integrity_ok(&path);
     cleanup(&path);
@@ -154,7 +160,10 @@ fn big_indexed_delete_100k() {
     run_ok(&mut db, "create index age_index on users(age)");
     run_ok(&mut db, "delete from users where age = 20");
     run_ok(&mut db, "delete from users where age = 30");
-    assert_eq!(run_count(&mut db, "select * from users where age = 30"), 0);
+    assert_eq!(
+        run_count(&mut db, "select * from users where age = 30"),
+        0
+    );
     assert_eq!(
         run_count(&mut db, "select * from users where age = 30 or age = 20"),
         0
@@ -164,9 +173,9 @@ fn big_indexed_delete_100k() {
         2500
     );
     commit_and_close(db);
-    assert_eq!(sqlite_count(&path, "age = 20"), 0);
-    assert_eq!(sqlite_count(&path, "age = 30"), 0);
-    assert_eq!(sqlite_count(&path, "age = 21"), 2500);
+    assert_eq!(db_count(&path, "age = 20"), 0);
+    assert_eq!(db_count(&path, "age = 30"), 0);
+    assert_eq!(db_count(&path, "age = 21"), 2500);
     assert_integrity_ok(&path);
     cleanup(&path);
 }
@@ -270,10 +279,10 @@ fn index_build_across_divider_width_growth() {
 //     commit_and_close(db);
 
 //     for age in &deleted {
-//         assert_eq!(sqlite_count(&path, &format!("age = {age}")), 0);
+//         assert_eq!(db_count(&path, &format!("age = {age}")), 0);
 //     }
 
-//     assert_eq!(sqlite_count(&path, "age = 21"), 500);
+//     assert_eq!(db_count(&path, "age = 21"), 500);
 
 //     assert_integrity_ok(&path);
 
@@ -302,9 +311,12 @@ fn mixed_case_table_names_keep_indexes_in_step() {
     );
     // Uppercase DELETE without WHERE: the index is wiped along with the table.
     run_ok(&mut db, "delete from USERS");
-    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 0);
+    assert_eq!(
+        run_count(&mut db, "select * from users where age = 21"),
+        0
+    );
     commit_and_close(db);
-    assert_eq!(sqlite_count(&path, "1 = 1"), 0);
+    assert_eq!(db_count(&path, "1 = 1"), 0);
     assert_integrity_ok(&path);
     cleanup(&path);
 }
@@ -320,7 +332,7 @@ fn explain_prints_the_bound_predicate() {
 }
 
 #[test]
-fn arithmetic_never_panics_and_agrees_with_sqlite() {
+fn arithmetic_never_panics_and_agrees_with_reference() {
     let path = fixture_4k("arith");
     let mut db = open_engine(&path);
     assert_eq!(run_count(&mut db, "select name + 1 from users"), 4000);
@@ -341,7 +353,7 @@ fn arithmetic_never_panics_and_agrees_with_sqlite() {
     for probe in probes {
         assert_eq!(
             run_count(&mut db, &format!("select * from users where {probe}")),
-            sqlite_count(&path, probe) as usize,
+            db_count(&path, probe) as usize,
             "{probe}"
         );
     }

@@ -1,7 +1,7 @@
 use inkdb::pager::pager::{HeaderCache, Pager};
 use inkdb::vfs::disk::DiskVfs;
-use inkdb::vfs::file::SqliteFile;
-use inkdb::vfs::{SqliteOptions, Vfs};
+use inkdb::vfs::file::InkFile;
+use inkdb::vfs::{InkOptions, Vfs};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -22,7 +22,7 @@ fn db_path(tag: &str) -> PathBuf {
 fn test_pager(tag: &str, cache: usize, npages: usize) -> (Pager<DiskVfs>, PathBuf) {
     let path = db_path(tag);
     let mut vfs = DiskVfs;
-    let source = vfs.open(&path, SqliteOptions::all()).unwrap();
+    let source = vfs.open(&path, InkOptions::all()).unwrap();
     source.set_len(PS * npages).unwrap();
     let header = HeaderCache::new(PS as _, PS as _, npages as _, 0, 0);
     let pager = Pager::with_cache(vfs, source, header, cache).unwrap();
@@ -42,7 +42,7 @@ fn cleanup(db: &PathBuf) {
 
 fn read_page(db: &PathBuf, page_no: u32) -> Vec<u8> {
     let mut vfs = DiskVfs;
-    let source = vfs.open(db, SqliteOptions::default()).unwrap();
+    let source = vfs.open(db, InkOptions::default()).unwrap();
     let mut buf = vec![0u8; PS];
     source
         .read_exact_at(((page_no as usize - 1) * PS) as u64, &mut buf)

@@ -105,10 +105,7 @@ fn allocation_profile_of_a_full_scan() {
     assert_eq!(count.first_row, "100000");
     let filtered = measure(&mut db, "select count(*) from users where age = 21");
     assert_eq!(filtered.rows, 1);
-    assert_eq!(
-        filtered.first_row,
-        sqlite_count(&path, "age = 21").to_string()
-    );
+    assert_eq!(filtered.first_row, db_count(&path, "age = 21").to_string());
     assert_eq!(measure(&mut db, "select * from users").rows, 100_000);
     commit_and_close(db);
     cleanup(&path);

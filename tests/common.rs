@@ -148,7 +148,7 @@ pub fn commit_and_close(db: Database<DiskVfs>) {
 }
 
 /// Independent row count straight from SQLite, bypassing the engine.
-pub fn sqlite_count(path: &Path, where_clause: &str) -> i64 {
+pub fn db_count(path: &Path, where_clause: &str) -> i64 {
     let conn = rusqlite::Connection::open(path).expect("sqlite open");
     let sql = if where_clause.is_empty() {
         "SELECT COUNT(*) FROM users".to_string()
