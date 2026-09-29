@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use super::ast::{Ast, SelectStmt};
+use super::ast::{Ast, OrderBy, SelectStmt};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
 use crate::InkResult;
@@ -31,10 +31,13 @@ impl Parser {
         if self.eat(Where) {
             where_clause = Some(self.parse_expression()?);
         }
-        let mut orderby: Option<usize> = None;
+        let mut orderby: Option<OrderBy> = None;
         if self.eat(Order) {
             self.expect(By);
-            orderby = Some(self.parse_expression()?);
+            let index = self.parse_expression()?;
+            let desc = self.eat(Desc);
+            dbg!(index, desc);
+            orderby = Some(OrderBy::new(index, desc));
         }
         let mut limit: Option<usize> = None;
         if self.eat(Limit) {

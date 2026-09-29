@@ -73,7 +73,7 @@ impl Analyze {
                 Analyze::fast_bind(table, limit, &mut arena)?;
             }
             if let Some(orderby) = orderby {
-                Analyze::fast_bind(table, orderby, &mut arena)?;
+                Analyze::fast_bind(table, orderby.index, &mut arena)?;
             }
             let stmt = ResolvedSelectQuery {
                 table_name,
@@ -142,13 +142,13 @@ impl Analyze {
         if let Some(ref mut orderby) = orderby {
             Analyze::slow_bind(
                 table,
-                *orderby,
+                *&orderby.index,
                 &mut arena,
                 &mut new_arena,
                 &mut map,
                 &mut new_cols,
             )?;
-            *orderby = map[*orderby];
+            orderby.index = map[orderby.index];
         }
         let stmt = ResolvedSelectQuery {
             table_name,

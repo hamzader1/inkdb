@@ -178,7 +178,7 @@ impl<V: Vfs> Plan<V> {
             }
         }
         if let Some(orderby) = resolved_query.orderby {
-            child = Self::Sort(Sort::new(Box::new(child), orderby));
+            child = Self::Sort(Sort::new(Box::new(child), orderby.index, orderby.desc));
         }
         if let Some(limit) = resolved_query.limit {
             let limit = Eval::eval(&resolved_query.arena, limit, None)?.cast_int()? as usize;

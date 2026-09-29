@@ -99,9 +99,20 @@ pub struct SelectStmt {
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>, // same arena used twice
     pub limit: Option<usize>,
-    pub orderby: Option<usize>, /*The order ignored for now*/
+    pub orderby: Option<OrderBy>, /*The order ignored for now*/
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct OrderBy {
+    pub index: usize,
+    pub desc: bool,
+}
+
+impl OrderBy {
+    pub fn new(index: usize, desc: bool) -> Self {
+        Self { index, desc }
+    }
+}
 #[derive(Debug)]
 pub struct InsertStmt {
     pub table_name: String,

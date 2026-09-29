@@ -4,6 +4,7 @@ use crate::errors::InkError;
 use crate::pager::pager::PageNo;
 use crate::record::{Record, Value};
 use crate::schema::Table;
+use crate::sql::ast::OrderBy;
 use crate::sql::ast::{Ast, CreateTable};
 use crate::sql::parser::ExprArena;
 pub mod bind;
@@ -21,7 +22,7 @@ pub struct ResolvedSelectQuery {
     pub columns: Vec<usize>,
     pub where_clause: Option<usize>,
     pub limit: Option<usize>,
-    pub orderby: Option<usize>,
+    pub orderby: Option<OrderBy>,
 }
 
 #[derive(Debug)]

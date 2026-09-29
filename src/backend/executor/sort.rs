@@ -25,6 +25,7 @@ fn temp_prefix() -> String {
 pub struct Sort<V: Vfs> {
     child: Box<plan::Plan<V>>,
     sort_source: SortSource,
+    desc: bool,   /*Asc if the default*/
     index: usize, /*Arena index*/
     is_sorted: bool,
     nread: usize,
@@ -34,10 +35,11 @@ pub struct Sort<V: Vfs> {
 }
 
 impl<V: Vfs> Sort<V> {
-    pub fn new(child: Box<plan::Plan<V>>, index: usize) -> Self {
+    pub fn new(child: Box<plan::Plan<V>>, index: usize, desc: bool) -> Self {
         Self {
             child,
             index,
+            desc,
             sort_source: SortSource::None,
             nread: 0,
             is_sorted: false,
@@ -146,7 +148,12 @@ impl<V: Vfs> Sort<V> {
             self.max_frame = self.max_frame.max(len_varint + row_bytes.len());
             /*We need to create a new file*/
             if len_varint + row_bytes.len() + unsorted_buffer.len() > MEM_CAP {
-                self.sort_buffer(&unsorted_buffer, &mut sorted_buffer, &mut data_buffer);
+                self.sort_buffer(
+                    &unsorted_buffer,
+                    &mut sorted_buffer,
+                    &mut data_buffer,
+                    self.desc,
+                );
                 let mut file = new_file(&self.run_path(n_of_runs))?;
                 sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
                 file.write_all_at(&sorted_buffer, 0)?;
@@ -165,7 +172,12 @@ impl<V: Vfs> Sort<V> {
         }
 
         if n_of_runs == 1 {
-            self.sort_buffer(&unsorted_buffer, &mut sorted_buffer, &mut data_buffer);
+            self.sort_buffer(
+                &unsorted_buffer,
+                &mut sorted_buffer,
+                &mut data_buffer,
+                self.desc,
+            );
             self.sort_source = SortSource::Mem {
                 buffer: sorted_buffer,
                 offset: 0,
@@ -173,7 +185,12 @@ impl<V: Vfs> Sort<V> {
             };
         } else {
             /*We flush the last one*/
-            self.sort_buffer(&unsorted_buffer, &mut sorted_buffer, &mut data_buffer);
+            self.sort_buffer(
+                &unsorted_buffer,
+                &mut sorted_buffer,
+                &mut data_buffer,
+                self.desc,
+            );
             let mut file = new_file(&self.run_path(n_of_runs))?;
             sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
             file.write_all_at(&sorted_buffer, 0)?;
@@ -241,14 +258,14 @@ impl<V: Vfs> Sort<V> {
         let mut data = Vec::new();
         loop {
             let Some(entry) = heap.pop() else {
-                self.sort_buffer(&output_buffer, &mut sorted_buffer, &mut data);
+                self.sort_buffer(&output_buffer, &mut sorted_buffer, &mut data, self.desc);
                 output_file.write_all(&sorted_buffer)?;
                 output_file.flush()?;
                 break;
             };
             let child = &sort_buffers[entry.buffer_id].children[entry.child_id];
             if child.len + output_buffer.len() > page_size {
-                self.sort_buffer(&output_buffer, &mut sorted_buffer, &mut data);
+                self.sort_buffer(&output_buffer, &mut sorted_buffer, &mut data, self.desc);
                 output_file.write_all(&sorted_buffer)?;
                 output_file.flush()?;
                 output_buffer.clear();
@@ -302,9 +319,18 @@ impl<V: Vfs> Sort<V> {
         self.sort_source = sort_source;
         Ok(())
     }
-    fn sort_buffer(&mut self, inp: &[u8], out: &mut Vec<u8>, data: &mut [InnerSortBuffer]) {
+    fn sort_buffer(
+        &mut self,
+        inp: &[u8],
+        out: &mut Vec<u8>,
+        data: &mut [InnerSortBuffer],
+        desc: bool,
+    ) {
         out.clear();
         data.sort_by(|a, b| a.key.cmp(&b.key));
+        if desc {
+            data.reverse();
+        }
         for inner in data.iter() {
             out.extend_from_slice(&inp[inner.start..inner.start + inner.len]);
         }
