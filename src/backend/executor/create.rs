@@ -9,7 +9,7 @@ use crate::vfs::Vfs;
 use super::Row;
 use super::context::ExecCtx;
 use super::insert::Insert;
-use super::prepare::PrepareRow;
+use super::prepare::{PrepareInsert, PrepareRow};
 use crate::record::tuple::Tuple;
 use crate::storage::cell::Encode;
 
@@ -47,6 +47,10 @@ impl<V: Vfs> CreateIndex<V> {
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
+
+    /*
+     * todo* Clean this
+     */
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if !self.is_init {
             let new_page = ctx.pager.allocate_new_page()?;
@@ -67,14 +71,17 @@ impl<V: Vfs> CreateIndex<V> {
                 (&*self.meta.query).into(),
             ];
 
-            let mut prepare = PrepareRow::new(
-                None,
+            let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
+                row.iter().map(|v| v.to_owned_static()).collect(),
+            ]));
+
+            let mut prepare_row = PrepareRow::new(
+                Box::new(prepare_insert),
                 1,
-                vec![row.iter().map(|v| v.to_owned_static()).collect()],
                 self.meta.relation_name.clone(),
                 None,
             );
-            while prepare.next(ctx)?.is_some() {}
+            while prepare_row.next(ctx)?.is_some() {}
             ctx.master.is_dirty = true;
             self.index = Some(IndexMetadata::new(new_page, self.meta.column_index, false));
             self.is_init = true;
@@ -116,11 +123,17 @@ impl CreateTable {
             Value::Integer(new_page as _),        // root page
             self.meta.meta.query.as_ref().into(), // original query
         ];
-
+        /* todo*
+         * Change this to a closure
+         * initialized by the planner
+         * |row, root, name| -> PhysicalPlan
+         */
+        let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
+            row.iter().map(|v| v.to_owned_static()).collect(),
+        ]));
         let mut prepare = PrepareRow::new(
-            None,
+            Box::new(prepare_insert),
             1,
-            vec![row.iter().map(|v| v.to_owned_static()).collect()],
             self.meta.meta.name.clone(),
             None,
         );
