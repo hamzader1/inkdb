@@ -56,7 +56,11 @@ impl<V: Vfs> MaterializedResult<V> {
         if let StreamSource::None = self.stream_source {
             self.collect(ctx)?;
         }
-        self.stream_source.yield_from_stream(&mut self.nread)
+        let res = self.stream_source.yield_from_stream(&mut self.nread);
+        if res.as_ref().is_ok_and(|opt| opt.is_none()) {
+            let _ = V::remove_temp_file(FILE);
+        }
+        res
     }
     fn collect(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut buffer = Vec::new();
@@ -110,8 +114,6 @@ impl<V: Vfs> MaterializedResult<V> {
             };
             self.stream_source = source;
         } else {
-            dbg!(buffer.len(), MEM_CAP);
-            // panic!();
             let source = StreamSource::Mem {
                 buffer,
                 offset: 0,
