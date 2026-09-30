@@ -259,7 +259,10 @@ impl<V: Vfs> Sort<V> {
             rrows,
         };
         for run in 1..=nruns {
-            let _ = std::fs::remove_file(self.run_path(run));
+            /*
+             * Do not Try
+             */
+            let _ = V::remove_temp_file(self.run_path(run));
         }
         self.sort_source = sort_source;
         Ok(())
