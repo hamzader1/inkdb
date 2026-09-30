@@ -134,4 +134,31 @@ impl Parser {
             where_clause,
         }))
     }
+    pub fn parse_update(&mut self) -> InkResult<Ast> {
+        self.expect(Update)?;
+        let table_name = self.expect_ident()?;
+        self.expect(Set)?;
+        let mut affected_columns = Vec::new();
+        loop {
+            let col_name = self.parse_expression()?;
+            self.expect(Equals)?;
+            let expr = self.parse_expression()?;
+            affected_columns.push((col_name, expr));
+            if !self.eat(Comma) {
+                break;
+            }
+        }
+        let mut where_clause = None;
+        if self.eat(Where) {
+            let predicate = self.parse_expression()?;
+            where_clause = Some(predicate);
+        }
+        self.expect_eof()?;
+        Ok(Ast::UpdateStmtAst(UpdateStmt::new(
+            table_name,
+            affected_columns,
+            where_clause,
+            self.arena.take(),
+        )))
+    }
 }
