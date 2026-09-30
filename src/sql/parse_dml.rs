@@ -1,6 +1,7 @@
 use std::borrow::Cow;
+use std::cmp::Ordering::Equal;
 
-use super::ast::{Ast, OrderBy, SelectStmt};
+use super::ast::{Ast, OrderBy, SelectStmt, UpdateStmt};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
 use crate::InkResult;
@@ -108,8 +109,8 @@ impl Parser {
             if !self.eat(Comma) {
                 break;
             }
-            self.expect(Semicolon)?;
         }
+        self.expect_eof()?;
 
         Ok(Ast::InsertStmtAst(InsertStmt {
             table_name,

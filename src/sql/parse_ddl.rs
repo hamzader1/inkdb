@@ -36,7 +36,7 @@ impl Parser {
             }
         }
         self.expect(RightParen)?;
-        Ok(Ast::CreateTableAst(CreateTable {
+        Ok(Ast::CreateTableAst(CreateTableStmt {
             query: std::mem::take(&mut self.query),
             name,
             columns,
