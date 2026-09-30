@@ -168,16 +168,16 @@ impl std::fmt::Display for Affinity {
 }
 
 impl Affinity {
-    pub fn from_type_name(name: &str) -> Self {
+    pub fn from_type_name(name: &str) -> InkResult<Self> {
         let upper = name.to_uppercase();
         if upper.contains("INT") {
-            Self::Int
+            Ok(Self::Int)
         } else if upper.contains("CHAR") || upper.contains("CLOB") || upper.contains("TEXT") {
-            Self::Text
+            Ok(Self::Text)
         } else if upper.contains("REAL") || upper.contains("FLOA") || upper.contains("DOUB") {
-            Self::Float
+            Ok(Self::Float)
         } else {
-            Self::Blob
+            Err(InkError::runtime(format!("No affinity matches: {}", name)))
         }
     }
 }
