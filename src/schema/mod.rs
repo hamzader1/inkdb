@@ -147,6 +147,9 @@ impl Master {
     }
 
     pub(crate) fn indexes_on(&self, table_name: &str) -> InkResult<Vec<IndexMetadata>> {
+        if table_name.eq_ignore_ascii_case("master") {
+            return Ok(vec![]);
+        }
         let table = self
             .table(table_name)
             .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))?;
