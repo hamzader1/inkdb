@@ -6,7 +6,7 @@ use super::tokens::TokenKind;
 use std::rc::Rc;
 
 #[derive(Debug)]
-pub struct CreateTable {
+pub struct CreateTableStmt {
     pub query: Rc<str>,
     pub name: String,
     pub columns: Vec<Column>,
@@ -189,19 +189,44 @@ pub enum Constraint {
     Unique,
 }
 #[derive(Debug)]
-pub struct TruncateTable {
+pub struct TruncateTableStmt {
     pub table_name: String,
 }
 
 #[derive(Debug)]
+pub struct UpdateStmt {
+    pub table_name: String,
+    pub columns: Vec<(usize, usize)>,
+    pub where_clause: Option<usize>,
+    pub arena: ExprArena,
+}
+
+impl UpdateStmt {
+    pub fn new(
+        table_name: String,
+        columns: Vec<(usize, usize)>,
+        where_clause: Option<usize>,
+        arena: ExprArena,
+    ) -> Self {
+        Self {
+            table_name,
+            columns,
+            where_clause,
+            arena,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Ast {
-    CreateTableAst(CreateTable),
+    CreateTableAst(CreateTableStmt),
     CreateIndexAst(CreateIndex),
     SelectStmtAst(SelectStmt),
     InsertStmtAst(InsertStmt),
     DeleteStmtAst(DeleteStmt),
     ExplainStmtAst(ExplainStmt),
-    TruncateTableAst(TruncateTable),
+    TruncateTableAst(TruncateTableStmt),
+    UpdateStmtAst(UpdateStmt),
     BeginTransaction,
     CommitTransaction,
     RollbackTransaction,

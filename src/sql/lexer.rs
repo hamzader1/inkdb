@@ -315,6 +315,7 @@ impl<'a> Lexer<'a> {
                         "AND" => TokenKind::And,
                         "OR" => TokenKind::Or,
                         "GROUP" => TokenKind::Group,
+                        "SET" => TokenKind::Set,
                         "BY" => TokenKind::By,
                         "HAVING" => TokenKind::Having,
                         "ORDER" => TokenKind::Order,
