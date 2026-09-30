@@ -1,7 +1,8 @@
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 
 use self::file::InkFile;
-use crate::DbError;
+use crate::{DbError, InkResult};
 
 pub mod cursor;
 pub mod disk;
@@ -20,11 +21,25 @@ pub struct InkOptions {
 pub trait Vfs: std::fmt::Debug {
     type File: InkFile;
 
-    fn open<F: AsRef<Path>>(&mut self, f: F, options: InkOptions)
-    -> Result<Self::File, DbError>;
+    fn open<F: AsRef<Path>>(&mut self, f: F, options: InkOptions) -> Result<Self::File, DbError>;
     fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, DbError>;
     fn delete_journal(&mut self, db: &Self::File) -> Result<(), DbError>;
     fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, DbError>;
+    fn create_temp_file<T: AsRef<Path>>(name: T) -> String {
+        std::env::temp_dir()
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
+    }
+    fn open_temp_file<T: AsRef<Path>>(name: T) -> InkResult<File> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(name)?;
+        Ok(file)
+    }
 }
 impl InkOptions {
     pub fn new() -> Self {
