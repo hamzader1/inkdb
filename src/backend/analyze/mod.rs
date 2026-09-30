@@ -140,10 +140,25 @@ impl Analyze {
             Ast::ExplainStmtAst(stmt) => Ok(ResolvedQuery::ExplainQuery(ResolvedExplainQuery {
                 query: Box::new(Self::analyze(*stmt.query, master)?),
             })),
+            _ => todo!(),
         }
     }
 
     pub fn get_table<'s>(master: &'s Master, table_name: &str) -> Result<&'s Table, InkError> {
+        if table_name.eq_ignore_ascii_case("master") {
+            return Ok(&MASTER);
+        }
+        master
+            .table(table_name)
+            .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))
+    }
+    pub fn get_non_master_table<'s>(
+        master: &'s Master,
+        table_name: &str,
+    ) -> Result<&'s Table, InkError> {
+        assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
+            InkError::MasterTableError.to_string()
+        })?;
         master
             .table(table_name)
             .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))
