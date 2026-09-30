@@ -35,7 +35,17 @@ impl Parser {
         if self.eat(Order) {
             self.expect(By);
             let index = self.parse_expression()?;
-            let desc = self.eat(Desc);
+            let desc = if self.eat(Desc) {
+                true
+            } else {
+                /*
+                 * Both are valid.
+                 * Either we consume Asc token if its exist, otherwise
+                 * asc is the default
+                 */
+                self.eat(Asc);
+                false
+            };
             orderby = Some(OrderBy::new(index, desc));
         }
         let mut limit: Option<usize> = None;
