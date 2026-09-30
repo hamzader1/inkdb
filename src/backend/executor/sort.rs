@@ -4,6 +4,8 @@ use std::io::Write;
 use std::os::unix::fs::FileExt;
 
 use super::super::planner::plan;
+use super::MEM_CAP;
+use super::StreamSource;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::{Row, RowView};
@@ -12,8 +14,6 @@ use crate::record::{Record, Value};
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
 use crate::{InkResult, MemCursor};
-
-const MEM_CAP: usize = 10 * 1024 * 1024; /*10 MiB*/
 
 fn temp_prefix() -> String {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -24,7 +24,7 @@ fn temp_prefix() -> String {
 #[derive(Debug)]
 pub struct Sort<V: Vfs> {
     child: Box<plan::Plan<V>>,
-    sort_source: SortSource,
+    sort_source: StreamSource,
     desc: bool,   /*Asc if the default*/
     index: usize, /*Arena index*/
     is_sorted: bool,
@@ -40,7 +40,7 @@ impl<V: Vfs> Sort<V> {
             child,
             index,
             desc,
-            sort_source: SortSource::None,
+            sort_source: StreamSource::None,
             nread: 0,
             is_sorted: false,
             is_done: false,
@@ -58,7 +58,8 @@ impl<V: Vfs> Sort<V> {
         if !self.is_sorted {
             self.sort(ctx)?;
         }
-        self.yield_row()
+        self.sort_source.yield_from_stream(&mut self.nread)
+        // self.yield_row()
     }
     pub fn id(&self) -> usize {
         self.index
@@ -75,64 +76,64 @@ impl<V: Vfs> Sort<V> {
             .to_string_lossy()
             .into_owned()
     }
-    fn yield_row(&mut self) -> InkResult<Option<Row>> {
-        match self.sort_source {
-            SortSource::Mem {
-                ref mut buffer,
-                ref mut offset,
-                nrows,
-            } => {
-                if self.nread == nrows {
-                    self.is_done = true;
-                    return Ok(None);
-                }
-                let buffer = &buffer[*offset..];
-                let mut cursor = MemCursor::new(buffer);
-                let (len, consumed) = cursor.read_next_varint(buffer.len())?;
-                let row = Row::stored(0, buffer[consumed..consumed + len as usize].into());
-                self.nread += 1;
-                *offset += consumed + len as usize;
+    // fn yield_row(&mut self) -> InkResult<Option<Row>> {
+    //     match self.sort_source {
+    //         SortSource::Mem {
+    //             ref mut buffer,
+    //             ref mut offset,
+    //             nrows,
+    //         } => {
+    //             if self.nread == nrows {
+    //                 self.is_done = true;
+    //                 return Ok(None);
+    //             }
+    //             let buffer = &buffer[*offset..];
+    //             let mut cursor = MemCursor::new(buffer);
+    //             let (len, consumed) = cursor.read_next_varint(buffer.len())?;
+    //             let row = Row::stored(0, buffer[consumed..consumed + len as usize].into());
+    //             self.nread += 1;
+    //             *offset += consumed + len as usize;
 
-                Ok(Some(row))
-            }
-            SortSource::Disk {
-                ref mut f,
-                ref mut buffer,
-                ref mut buffer_offset,
-                ref mut file_offset,
-                nrows,
-                ref mut rrows,
-                page_size,
-            } => {
-                if self.nread == nrows as usize {
-                    self.is_done = true;
-                    return Ok(None);
-                }
-                if *buffer_offset == buffer.len() {
-                    let remaining = nrows as usize - *rrows;
-                    if remaining == 0 {
-                        self.is_done = true;
-                        return Ok(None);
-                    }
-                    let r = load_page(f, buffer, remaining, page_size, file_offset)?;
-                    if r == 0 {
-                        self.is_done = true;
-                        return Ok(None);
-                    }
-                    *rrows += r;
-                    *buffer_offset = 0;
-                }
-                let buffer = &buffer[*buffer_offset..];
-                let mut cursor = MemCursor::new(buffer);
-                let (len, consumed) = cursor.read_next_varint(buffer.len())?;
-                let row = Row::stored(0, buffer[consumed..consumed + len as usize].to_vec());
-                *buffer_offset += consumed + len as usize;
-                self.nread += 1;
-                Ok(Some(row))
-            }
-            SortSource::None => Ok(None),
-        }
-    }
+    //             Ok(Some(row))
+    //         }
+    //         SortSource::Disk {
+    //             ref mut f,
+    //             ref mut buffer,
+    //             ref mut buffer_offset,
+    //             ref mut file_offset,
+    //             nrows,
+    //             ref mut rrows,
+    //             page_size,
+    //         } => {
+    //             if self.nread == nrows as usize {
+    //                 self.is_done = true;
+    //                 return Ok(None);
+    //             }
+    //             if *buffer_offset == buffer.len() {
+    //                 let remaining = nrows as usize - *rrows;
+    //                 if remaining == 0 {
+    //                     self.is_done = true;
+    //                     return Ok(None);
+    //                 }
+    //                 let r = load_page(f, buffer, remaining, page_size, file_offset)?;
+    //                 if r == 0 {
+    //                     self.is_done = true;
+    //                     return Ok(None);
+    //                 }
+    //                 *rrows += r;
+    //                 *buffer_offset = 0;
+    //             }
+    //             let buffer = &buffer[*buffer_offset..];
+    //             let mut cursor = MemCursor::new(buffer);
+    //             let (len, consumed) = cursor.read_next_varint(buffer.len())?;
+    //             let row = Row::stored(0, buffer[consumed..consumed + len as usize].to_vec());
+    //             *buffer_offset += consumed + len as usize;
+    //             self.nread += 1;
+    //             Ok(Some(row))
+    //         }
+    //         SortSource::None => Ok(None),
+    //     }
+    // }
     fn sort(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut unsorted_buffer: Vec<u8> = Vec::new();
         let mut sorted_buffer: Vec<u8> = Vec::new();
@@ -178,7 +179,7 @@ impl<V: Vfs> Sort<V> {
                 &mut data_buffer,
                 self.desc,
             );
-            self.sort_source = SortSource::Mem {
+            self.sort_source = StreamSource::Mem {
                 buffer: sorted_buffer,
                 offset: 0,
                 nrows: data_buffer.len(),
@@ -304,7 +305,7 @@ impl<V: Vfs> Sort<V> {
             page_size,
             &mut file_offset,
         )?;
-        let sort_source = SortSource::Disk {
+        let sort_source = StreamSource::Disk {
             f: output_file,
             buffer,
             file_offset,
@@ -337,7 +338,7 @@ impl<V: Vfs> Sort<V> {
     }
 }
 
-fn load_page(
+pub fn load_page(
     file: &mut File,
     out: &mut Vec<u8>,
     limit: usize,
@@ -491,7 +492,7 @@ impl InnerSortBuffer {
 }
 
 #[derive(Debug)]
-enum SortSource {
+pub enum SortSource {
     Mem {
         buffer: Vec<u8>,
         offset: usize,
