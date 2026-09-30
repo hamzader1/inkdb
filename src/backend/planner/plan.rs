@@ -18,6 +18,7 @@ use crate::backend::executor::index::{
 };
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
+use crate::backend::executor::materialized::MaterializedResult;
 use crate::backend::executor::prepare::PrepareRow;
 use crate::backend::executor::scan_guard::ScanMode;
 use crate::backend::executor::sort::Sort;
@@ -41,6 +42,7 @@ pub enum Plan<V: Vfs> {
     Limit(Limit<V>),
     Project(Project<V>),
     Insert(Insert<'static, V>),
+    Update(MaterializedResult<V>),
     PrepareRow(PrepareRow<V>),
     Delete(Delete<V>),
     CreateTable(CreateTable),
@@ -331,7 +333,9 @@ impl<V: Vfs> Plan<V> {
             Self::PrepareRow(pr) => pr.next(ctx),
             Self::Explain(e) => e.next(ctx),
             Self::Sort(s) => s.next(ctx),
+            Self::Update(u) => u.next(ctx),
             Halt => Ok(None),
+            _ => todo!(),
         }
     }
 
@@ -395,6 +399,7 @@ impl<V: Vfs> Plan<V> {
             Self::Terminate(_) => "Terminate".into(),
             Self::Sort(s) => format!("Sort [i: {}]", s.id()),
             Halt => "Halt".into(),
+            _ => todo!(),
         }
     }
 }
