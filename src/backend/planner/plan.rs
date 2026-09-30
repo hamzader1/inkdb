@@ -19,7 +19,7 @@ use crate::backend::executor::index::{
 use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::materialized::MaterializedResult;
-use crate::backend::executor::prepare::PrepareRow;
+use crate::backend::executor::prepare::{PrepareInsert, PrepareRow};
 use crate::backend::executor::scan_guard::ScanMode;
 use crate::backend::executor::sort::Sort;
 use crate::backend::executor::transaction::{
@@ -48,6 +48,7 @@ pub enum Plan<V: Vfs> {
     CreateTable(CreateTable),
     CreateIndex(CreateIndex<V>),
     PrepareIndex(PrepareIndex<V>),
+    PrepareInsert(PrepareInsert<V>),
     IndexExactMatch(IndexExactMatch<V>),
     IndexRangeScan(IndexRangeScan<V>),
     TruncateTable(TruncateTable),
@@ -73,6 +74,7 @@ impl<V: Vfs> Plan<V> {
             Plan::Terminate(t) => vec![t.child()],
             Plan::Explain(e) => vec![e.child()],
             Plan::Sort(s) => vec![s.child()],
+            Plan::PrepareRow(pr) => vec![pr.child()],
             _ => Vec::new(),
         }
     }
@@ -151,6 +153,7 @@ impl<V: Vfs> Plan<V> {
                     inner.arena,
                 ))
             }
+            _ => todo!(),
         }
     }
 
@@ -189,8 +192,8 @@ impl<V: Vfs> Plan<V> {
         /*
          * Optimization: skip the projection when it is an identity projection
          * (all relation columns are selected in their original order).
-         * Relation t: (C0, C1, C2)
-         * Query on t: (Ci..Ck+i where k <= i<= Rmax)
+         * Relation R: (C0, C1, C2)
+         * Query on R: (Ci..Ck+i where k <= i<= Rmax)
          */
         let columns = resolved_query.columns.clone();
         let identity = master.table(&resolved_query.table_name).is_some_and(|table| {
@@ -245,14 +248,31 @@ impl<V: Vfs> Plan<V> {
         resolved_query: ResolvedInsertQuery,
         master: &Master,
     ) -> Result<PreparedPlan<V>, InkError> {
-        let mut plan = Plan::PrepareRow(PrepareRow::new(
-            None,
+        let mut plan = Plan::PrepareInsert(PrepareInsert::new(resolved_query.values));
+        plan = Self::init_insert_plan_inner(
+            plan,
+            master,
+            resolved_query.table_name,
             resolved_query.root_page,
-            resolved_query.values,
-            resolved_query.table_name.clone(),
+        )?;
+        plan = Plan::Terminate(Terminate::new(Box::new(plan)));
+        Ok(PreparedPlan::new(plan, ExprArena::new()))
+    }
+
+    fn init_insert_plan_inner(
+        mut plan: Plan<V>,
+        master: &Master,
+        table_name: String,
+        root_page: u32,
+    ) -> InkResult<Plan<V>> {
+        let indexes = master.indexes_on(&table_name)?;
+        plan = Plan::PrepareRow(PrepareRow::<V>::new(
+            Box::new(plan),
+            root_page,
+            table_name,
             None,
         ));
-        for index in master.indexes_on(&resolved_query.table_name)? {
+        for index in indexes {
             let prepare = PrepareIndex::new(
                 index,
                 Box::new(IndexInsert {
@@ -262,9 +282,7 @@ impl<V: Vfs> Plan<V> {
             );
             plan = Plan::PrepareIndex(prepare);
         }
-
-        let plan = Plan::Terminate(Terminate::new(Box::new(plan)));
-        Ok(PreparedPlan::new(plan, ExprArena::new()))
+        Ok(plan)
     }
 
     fn init_delete_plan(
@@ -289,13 +307,33 @@ impl<V: Vfs> Plan<V> {
             )?;
         }
 
-        for index in master.indexes_on(&resolved_query.table_name)? {
+        parent = Self::init_delete_plan_inner(
+            parent,
+            master,
+            &resolved_query.table_name,
+            resolved_query.root_page,
+        )?;
+        parent = Self::Terminate(Terminate {
+            child: Box::new(parent),
+        });
+        Ok(PreparedPlan::new(parent, arena))
+    }
+
+    fn init_delete_plan_inner(
+        mut parent: Plan<V>,
+        master: &Master,
+        table_name: &str,
+        root_page: u32,
+    ) -> InkResult<Plan<V>> {
+        for index in master.indexes_on(table_name)? {
             let prepare = PrepareIndex::new(index, Box::new(IndexDelete), Box::new(parent));
             parent = Plan::PrepareIndex(prepare);
         }
-        parent = Self::Delete(Delete::new(Box::new(parent), resolved_query.root_page));
-        Ok(PreparedPlan::new(parent, arena))
+        parent = Self::Delete(Delete::new(Box::new(parent), root_page));
+        Ok(parent)
     }
+
+    // fn init_update_plan(
 
     fn init_create_index_plan(
         resolved_query: ResolvedCreateIndexQuery,
@@ -334,6 +372,7 @@ impl<V: Vfs> Plan<V> {
             Self::Explain(e) => e.next(ctx),
             Self::Sort(s) => s.next(ctx),
             Self::Update(u) => u.next(ctx),
+            Self::PrepareInsert(pi) => pi.next(ctx),
             Halt => Ok(None),
             _ => todo!(),
         }
@@ -361,10 +400,10 @@ impl<V: Vfs> Plan<V> {
                 i.key,
                 i.data.len()
             ),
-            Self::PrepareRow(pr) => format!(
-                "PrepareRow [root_page: {}, rows: {:?}]",
-                pr.root_page, pr.rows
-            ),
+            Self::PrepareInsert(pi) => format!("PrepareInsert [rows: {:?}]", pi.rows),
+            Self::PrepareRow(pr) => {
+                format!("PrepareRow [root_page: {}]", pr.root_page,)
+            }
             Self::Project(p) => format!("Project [columns: {:?}]", p.columns()),
             Self::Delete(d) => format!("Delete [root_page: {}]", d.root_page()),
             Self::CreateTable(c) => format!("CreateTable [name: {}]", c.table_name()),
