@@ -73,6 +73,9 @@ pub enum InkError {
     #[error("table '{0}' does not exist")]
     TableNotFound(String),
 
+    #[error("table master may not be modified")]
+    MasterTableError,
+
     #[error("column '{0}' does not exist")]
     UnknownColumn(String),
 
