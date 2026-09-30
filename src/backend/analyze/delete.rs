@@ -9,7 +9,7 @@ impl Analyze {
         mut stmt: DeleteStmt,
         master: &Master,
     ) -> InkResult<ResolvedQuery> {
-        let table = Self::get_table(master, &stmt.table_name)?;
+        let table = Self::get_non_master_table(master, &stmt.table_name)?;
         if let Some(predicate) = stmt.where_clause {
             let arena = stmt
                 .arena

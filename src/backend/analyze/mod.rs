@@ -3,15 +3,18 @@ use crate::Master;
 use crate::errors::InkError;
 use crate::pager::pager::PageNo;
 use crate::record::{Record, Value};
+use crate::schema::MASTER;
 use crate::schema::Table;
 use crate::sql::ast::OrderBy;
-use crate::sql::ast::{Ast, CreateTable};
+use crate::sql::ast::{Ast, CreateTableStmt};
 use crate::sql::parser::ExprArena;
+use crate::util::assert_with_runtime_err;
 pub mod bind;
 pub mod create;
 pub(crate) mod delete;
 pub mod insert;
 pub mod select;
+pub mod update;
 
 pub struct Analyze;
 #[derive(Debug)]
@@ -30,6 +33,16 @@ pub struct ResolvedInsertQuery {
     pub table_name: String,
     pub root_page: PageNo,
     pub values: Vec<Vec<Value<'static>>>,
+}
+
+impl ResolvedInsertQuery {
+    pub fn new(table_name: String, root_page: PageNo, values: Vec<Vec<Value<'static>>>) -> Self {
+        Self {
+            table_name,
+            root_page,
+            values,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -70,7 +83,7 @@ pub struct ResolvedCountQuery {
 
 #[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
-    pub meta: CreateTable,
+    pub meta: CreateTableStmt,
 }
 
 #[derive(Debug)]
@@ -96,6 +109,29 @@ pub struct ResolvedCreateIndexQuery {
     pub index_name: String,
     pub column_index: usize, // todo: usize -> Vec::<usize>
 }
+#[derive(Debug)]
+pub struct ResolvedUpdateQuery {
+    pub table_name: String,
+    pub root_page: u32,
+    pub affected_columns: Vec<(usize, usize)>,
+    pub where_clause: Option<usize>,
+}
+
+impl ResolvedUpdateQuery {
+    pub fn new(
+        table_name: String,
+        root_page: u32,
+        affected_columns: Vec<(usize, usize)>,
+        where_clause: Option<usize>,
+    ) -> Self {
+        Self {
+            table_name,
+            root_page,
+            affected_columns,
+            where_clause,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ResolvedExplainQuery {
@@ -109,6 +145,7 @@ pub enum ResolvedQuery {
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
     CreateIndexQuery(ResolvedCreateIndexQuery),
+    UpdateQuery(ResolvedUpdateQuery),
     DeleteQuery(ResolvedDeleteQuery),
     TruncateTable(ResolvedTruncateTableQuery),
     BeginTransactionQuery,
@@ -130,7 +167,7 @@ impl Analyze {
             Ast::CommitTransaction => Ok(ResolvedQuery::CommitTransactionQuery),
             Ast::RollbackTransaction => Ok(ResolvedQuery::RollbackTransactionQuery),
             Ast::TruncateTableAst(t_stmt) => {
-                let table = Self::get_table(master, &t_stmt.table_name)?;
+                let table = Self::get_non_master_table(master, &t_stmt.table_name)?;
                 Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
                     table_name: table.name.clone(),
                     root_page: table.root_page,

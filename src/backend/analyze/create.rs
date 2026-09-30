@@ -1,16 +1,16 @@
 use crate::backend::analyze::ResolvedCreateIndexQuery;
 use crate::errors::InkError;
-use crate::sql::ast::{CreateIndex, CreateTable};
+use crate::sql::ast::{CreateIndex, CreateTableStmt};
 use crate::{Master, InkResult};
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 
 impl Analyze {
     pub(super) fn analyze_create_table_stmt(
-        stmt: CreateTable,
+        stmt: CreateTableStmt,
         master: &Master,
     ) -> Result<ResolvedQuery, InkError> {
-        if Self::get_table(master, &stmt.name).is_ok() {
+        if Self::get_non_master_table(master, &stmt.name).is_ok() {
             return Err(InkError::TableAlreadyExists(stmt.name));
         }
 
@@ -23,7 +23,7 @@ impl Analyze {
         stmt: CreateIndex,
         master: &Master,
     ) -> InkResult<ResolvedQuery> {
-        let relation = Self::get_table(master, &stmt.table)?;
+        let relation = Self::get_non_master_table(master, &stmt.table)?;
         if master.indexes.contains_key(&stmt.name) {
             return Err(InkError::runtime(format!(
                 "Index with name {} already exists",

@@ -19,7 +19,7 @@ impl Analyze {
         assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
             "table master may not be modified".into()
         })?;
-        let table = Self::get_table(master, &table_name)?;
+        let table = Self::get_non_master_table(master, &table_name)?;
         // case1: no columns (default for now)
 
         if columns.is_empty() {

@@ -21,13 +21,7 @@ impl Analyze {
             mut orderby,
         } = select_stmt.clone();
 
-        let table = {
-            if table_name == "master" {
-                &*MASTER
-            } else {
-                Self::get_table(master, &table_name)?
-            }
-        };
+        let table = { Self::get_table(master, &table_name)? };
         if columns.len() == 1
             && let Expr::Count { arg } = arena.nodes[columns[0]]
         {
@@ -142,7 +136,7 @@ impl Analyze {
         if let Some(ref mut orderby) = orderby {
             Analyze::slow_bind(
                 table,
-                *&orderby.index,
+                orderby.index,
                 &mut arena,
                 &mut new_arena,
                 &mut map,

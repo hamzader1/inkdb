@@ -85,12 +85,8 @@ pub trait BindSink {
         name: &str,
     ) -> Result<usize, InkError>;
     fn leaf(&mut self, arena: &mut ExprArena, expr: Expr, idx: usize) -> usize;
-    fn star(
-        &mut self,
-        table: &Table,
-        arena: &mut ExprArena,
-        idx: usize,
-    ) -> Result<usize, InkError>;
+    fn star(&mut self, table: &Table, arena: &mut ExprArena, idx: usize)
+    -> Result<usize, InkError>;
     fn unary(&mut self, arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize;
     fn binary(&mut self, node: &Expr, idx: usize, l: usize, r: usize) -> usize;
     fn unsupported(&mut self, expr: &Expr) -> InkError;
