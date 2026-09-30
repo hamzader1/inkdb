@@ -73,7 +73,7 @@ impl<V: Vfs> MaterializedResult<V> {
                         f(file, &buffer)?;
                     }
                     None => {
-                        let mut file = new_file(&run_path(FILE))?;
+                        let mut file = V::open_temp_file(V::create_temp_file(FILE))?;
                         f(&mut file, &buffer)?;
                         self.stream_backup = Some(file);
                     }
@@ -121,21 +121,4 @@ impl<V: Vfs> MaterializedResult<V> {
         }
         Ok(())
     }
-}
-
-fn run_path(name: &str) -> String {
-    std::env::temp_dir()
-        .join(name)
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn new_file(file_name: &str) -> InkResult<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(file_name)?;
-    Ok(file)
 }

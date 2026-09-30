@@ -65,75 +65,19 @@ impl<V: Vfs> Sort<V> {
         self.index
     }
     fn run_path(&self, run: usize) -> String {
-        std::env::temp_dir()
-            .join(format!("{}_run_{}", self.temp, run))
-            .to_string_lossy()
-            .into_owned()
+        V::create_temp_file(format!("{}_run_{}", self.temp, run))
+        // std::env::temp_dir()
+        //     .join(format!("{}_run_{}", self.temp, run))
+        //     .to_string_lossy()
+        //     .into_owned()
     }
     fn out_path(&self) -> String {
-        std::env::temp_dir()
-            .join(format!("{}_out", self.temp))
-            .to_string_lossy()
-            .into_owned()
+        V::create_temp_file(format!("{}_out", self.temp))
+        // std::env::temp_dir()
+        //     .join(format!("{}_out", self.temp))
+        //     .to_string_lossy()
+        //     .into_owned()
     }
-    // fn yield_row(&mut self) -> InkResult<Option<Row>> {
-    //     match self.sort_source {
-    //         SortSource::Mem {
-    //             ref mut buffer,
-    //             ref mut offset,
-    //             nrows,
-    //         } => {
-    //             if self.nread == nrows {
-    //                 self.is_done = true;
-    //                 return Ok(None);
-    //             }
-    //             let buffer = &buffer[*offset..];
-    //             let mut cursor = MemCursor::new(buffer);
-    //             let (len, consumed) = cursor.read_next_varint(buffer.len())?;
-    //             let row = Row::stored(0, buffer[consumed..consumed + len as usize].into());
-    //             self.nread += 1;
-    //             *offset += consumed + len as usize;
-
-    //             Ok(Some(row))
-    //         }
-    //         SortSource::Disk {
-    //             ref mut f,
-    //             ref mut buffer,
-    //             ref mut buffer_offset,
-    //             ref mut file_offset,
-    //             nrows,
-    //             ref mut rrows,
-    //             page_size,
-    //         } => {
-    //             if self.nread == nrows as usize {
-    //                 self.is_done = true;
-    //                 return Ok(None);
-    //             }
-    //             if *buffer_offset == buffer.len() {
-    //                 let remaining = nrows as usize - *rrows;
-    //                 if remaining == 0 {
-    //                     self.is_done = true;
-    //                     return Ok(None);
-    //                 }
-    //                 let r = load_page(f, buffer, remaining, page_size, file_offset)?;
-    //                 if r == 0 {
-    //                     self.is_done = true;
-    //                     return Ok(None);
-    //                 }
-    //                 *rrows += r;
-    //                 *buffer_offset = 0;
-    //             }
-    //             let buffer = &buffer[*buffer_offset..];
-    //             let mut cursor = MemCursor::new(buffer);
-    //             let (len, consumed) = cursor.read_next_varint(buffer.len())?;
-    //             let row = Row::stored(0, buffer[consumed..consumed + len as usize].to_vec());
-    //             *buffer_offset += consumed + len as usize;
-    //             self.nread += 1;
-    //             Ok(Some(row))
-    //         }
-    //         SortSource::None => Ok(None),
-    //     }
-    // }
     fn sort(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut unsorted_buffer: Vec<u8> = Vec::new();
         let mut sorted_buffer: Vec<u8> = Vec::new();
@@ -155,7 +99,7 @@ impl<V: Vfs> Sort<V> {
                     &mut data_buffer,
                     self.desc,
                 );
-                let mut file = new_file(&self.run_path(n_of_runs))?;
+                let mut file = V::open_temp_file(self.run_path(n_of_runs))?;
                 sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
                 file.write_all_at(&sorted_buffer, 0)?;
                 file.flush()?;
@@ -192,7 +136,7 @@ impl<V: Vfs> Sort<V> {
                 &mut data_buffer,
                 self.desc,
             );
-            let mut file = new_file(&self.run_path(n_of_runs))?;
+            let mut file = V::open_temp_file(self.run_path(n_of_runs))?;
             sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
             file.write_all_at(&sorted_buffer, 0)?;
             file.flush()?;
@@ -252,7 +196,7 @@ impl<V: Vfs> Sort<V> {
             heap.push(entry);
         }
         let mut output_buffer = Vec::with_capacity(page_size);
-        let mut output_file = new_file(&self.out_path())?;
+        let mut output_file = V::open_temp_file(self.out_path())?;
         let mut write_offset = 0;
         let mut writte_nrows = 0u32;
         let mut sorted_buffer = Vec::new();
