@@ -1,6 +1,10 @@
-use crate::InkResult;
+use std::fs::File;
+
 use crate::errors::CorruptError;
 use crate::record::{Record, Value};
+use crate::{InkResult, MemCursor};
+
+use self::sort::load_page;
 
 pub mod aggregate;
 pub mod context;
@@ -11,6 +15,7 @@ pub mod filter;
 pub mod index;
 pub mod insert;
 pub mod limit;
+pub mod materialized;
 pub mod prepare;
 pub mod project;
 pub mod scan_guard;
@@ -18,6 +23,9 @@ pub mod sort;
 pub mod tablescan;
 pub mod transaction;
 pub mod truncate;
+pub mod update;
+
+pub(crate) const MEM_CAP: usize = 0xA00000; /*10MiB*/
 
 #[derive(Debug)]
 pub enum Columns {
@@ -206,5 +214,81 @@ impl std::fmt::Display for RowWrapper {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum StreamSource {
+    Mem {
+        buffer: Vec<u8>,
+        offset: usize,
+        nrows: usize,
+    },
+    Disk {
+        f: File,
+        buffer: Vec<u8>,
+        file_offset: usize,
+        buffer_offset: usize,
+        page_size: usize,
+        nrows: u32,
+        rrows: usize,
+    },
+    None,
+}
+
+impl StreamSource {
+    fn yield_from_stream(&mut self, nread: &mut usize) -> InkResult<Option<Row>> {
+        match self {
+            &mut StreamSource::Mem {
+                ref mut buffer,
+                ref mut offset,
+                nrows,
+            } => {
+                if *nread == nrows {
+                    return Ok(None);
+                }
+                let buffer = &buffer[*offset..];
+                let mut cursor = MemCursor::new(buffer);
+                let (len, consumed) = cursor.read_next_varint(buffer.len())?;
+                let row = Row::stored(0, buffer[consumed..consumed + len as usize].into());
+                *nread += 1;
+                *offset += consumed + len as usize;
+
+                Ok(Some(row))
+            }
+            &mut StreamSource::Disk {
+                ref mut f,
+                ref mut buffer,
+                ref mut buffer_offset,
+                ref mut file_offset,
+                ref mut rrows,
+                nrows,
+                page_size,
+            } => {
+                if *nread == nrows as usize {
+                    return Ok(None);
+                }
+                if *buffer_offset == buffer.len() {
+                    let remaining = nrows as usize - *rrows;
+                    if remaining == 0 {
+                        return Ok(None);
+                    }
+                    let r = load_page(f, buffer, remaining, page_size, file_offset)?;
+                    if r == 0 {
+                        return Ok(None);
+                    }
+                    *rrows += r;
+                    *buffer_offset = 0;
+                }
+                let buffer = &buffer[*buffer_offset..];
+                let mut cursor = MemCursor::new(buffer);
+                let (len, consumed) = cursor.read_next_varint(buffer.len())?;
+                let row = Row::stored(0, buffer[consumed..consumed + len as usize].to_vec());
+                *buffer_offset += consumed + len as usize;
+                *nread += 1;
+                Ok(Some(row))
+            }
+            StreamSource::None => Ok(None),
+        }
     }
 }
