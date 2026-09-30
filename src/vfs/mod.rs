@@ -40,6 +40,14 @@ pub trait Vfs: std::fmt::Debug {
             .open(name)?;
         Ok(file)
     }
+    fn remove_temp_file<T: AsRef<Path>>(name: T) -> InkResult<()> {
+        /*
+         * Results are not usually ignored here.
+         * Ignoring or returning the result is a caller decision
+         */
+        std::fs::remove_file(name)?;
+        Ok(())
+    }
 }
 impl InkOptions {
     pub fn new() -> Self {
