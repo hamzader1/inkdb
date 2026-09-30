@@ -24,9 +24,10 @@ impl<V: Vfs> Delete<V> {
         self.root_page
     }
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
-        while let Some(row) = self.child.next(ctx)? {
+        if let Some(row) = self.child.next(ctx)? {
             let mut btree = BTree::new(self.root_page, ctx.pager);
             btree.delete(row.key().into())?;
+            return Ok(Some(row));
         }
         Ok(None)
     }
