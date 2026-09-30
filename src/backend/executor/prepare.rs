@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+
+use crate::InkResult;
 use crate::record::tuple::Tuple;
 use crate::storage::btree::{BTree, TableLeaf};
 use crate::storage::cell::Encode;
@@ -13,19 +16,16 @@ use crate::{backend::planner::plan::Plan, record::Value, vfs::Vfs};
 #[derive(Debug)]
 pub struct PrepareRow<V: Vfs> {
     #[allow(dead_code)]
-    child: Option<Box<Plan<V>>>,
+    child: Box<Plan<V>>,
     pub root_page: u32,
     table_name: String,
-    pub rows: Vec<Vec<Value<'static>>>,
     pub table_constraints: Option<Vec<usize>>,
-    pos: usize,
 }
 
 impl<V: Vfs> PrepareRow<V> {
     pub fn new(
-        child: Option<Box<Plan<V>>>,
+        child: Box<Plan<V>>,
         root_page: u32,
-        rows: Vec<Vec<Value<'static>>>,
         table_name: String,
         table_constraints: Option<Vec<usize>>,
     ) -> Self {
@@ -33,19 +33,23 @@ impl<V: Vfs> PrepareRow<V> {
             child,
             root_page,
             table_name,
-            rows,
             table_constraints,
-            pos: 0,
         }
+    }
+    pub fn child(&self) -> &Plan<V> {
+        &self.child
     }
 
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
-        if self.pos >= self.rows.len() {
-            return Ok(None);
-        }
+        let row = {
+            let Some(row) = self.child.next(ctx)? else {
+                return Ok(None);
+            };
+            row
+        };
+        let inner = &mut row.to_values()?;
         let mut btree = BTree::new(self.root_page, ctx.pager);
         let mut next_row_id = btree.max_row_id()? + 1;
-        let inner = &mut self.rows[self.pos];
         /*
          * Check if we are doing violition or not
          */
@@ -78,7 +82,6 @@ impl<V: Vfs> PrepareRow<V> {
             next_row_id,
             inner.iter().map(|v| v.to_owned_static()).collect(),
         );
-        self.pos += 1;
         Ok(Some(out))
     }
 }
@@ -87,3 +90,28 @@ use crate::errors::InkError;
 
 use super::context::ExecCtx;
 use super::insert::Insert;
+
+#[derive(Debug)]
+pub struct PrepareInsert<V: Vfs> {
+    pub rows: Vec<Vec<Value<'static>>>,
+    pos: usize,
+    _marker: PhantomData<fn() -> V>,
+}
+
+impl<V: Vfs> PrepareInsert<V> {
+    pub fn new(rows: Vec<Vec<Value<'static>>>) -> Self {
+        Self {
+            rows,
+            pos: 0,
+            _marker: PhantomData,
+        }
+    }
+    pub fn next(&mut self, _ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
+        if self.pos >= self.rows.len() {
+            return Ok(None);
+        }
+        let row = Row::new(0, self.rows[self.pos].clone());
+        self.pos += 1;
+        Ok(Some(row))
+    }
+}
