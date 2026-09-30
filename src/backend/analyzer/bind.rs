@@ -5,7 +5,7 @@ use crate::sql::parser::ExprArena;
 
 use super::Analyze;
 
-impl Analyze {
+impl<'a> Analyze<'a> {
     pub(super) fn slow_bind(
         table: &Table,
         idx: usize,
@@ -33,7 +33,7 @@ impl Analyze {
     }
 }
 
-impl Analyze {
+impl<'a> Analyze<'a> {
     pub fn walk(
         table: &Table,
         idx: usize,

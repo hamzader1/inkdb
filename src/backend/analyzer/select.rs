@@ -7,11 +7,8 @@ use crate::sql::parser::ExprArena;
 
 use super::{Analyze, ResolvedCountQuery, ResolvedQuery, ResolvedSelectQuery};
 
-impl Analyze {
-    pub fn analyze_select_stmt(
-        select_stmt: SelectStmt,
-        master: &Master,
-    ) -> Result<ResolvedQuery, InkError> {
+impl<'a> Analyze<'a> {
+    pub fn analyze_select_stmt(&self, select_stmt: SelectStmt) -> Result<ResolvedQuery, InkError> {
         let SelectStmt {
             table_name,
             mut arena,
@@ -21,7 +18,7 @@ impl Analyze {
             mut orderby,
         } = select_stmt.clone();
 
-        let table = { Self::get_table(master, &table_name)? };
+        let table = { self.get_table(&table_name)? };
         if columns.len() == 1
             && let Expr::Count { arg } = arena.nodes[columns[0]]
         {

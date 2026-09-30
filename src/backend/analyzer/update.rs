@@ -6,18 +6,15 @@ use crate::sql::ast::UpdateStmt;
 
 use super::ResolvedUpdateQuery;
 
-impl Analyze {
-    pub fn analyze_update_stmt(
-        update_stmt: UpdateStmt,
-        master: &Master,
-    ) -> Result<ResolvedQuery, InkError> {
+impl<'a> Analyze<'a> {
+    pub fn analyze_update_stmt(&self, update_stmt: UpdateStmt) -> Result<ResolvedQuery, InkError> {
         let UpdateStmt {
             table_name,
             columns,
             where_clause,
             mut arena,
         } = update_stmt;
-        let table = Self::get_table(master, &table_name)?;
+        let table = self.get_table(&table_name)?;
         let root_page = table.root_page;
         for (col, expr) in columns.iter() {
             Self::fast_bind(table, *col, &mut arena)?;

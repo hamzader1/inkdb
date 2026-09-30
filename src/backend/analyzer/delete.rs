@@ -1,15 +1,12 @@
 use crate::backend::analyzer::{ResolvedDeleteQuery, ResolvedTruncateTableQuery};
 use crate::sql::ast::DeleteStmt;
-use crate::{Master, InkResult};
+use crate::{InkResult, Master};
 
 use super::{Analyze, ResolvedQuery};
 
-impl Analyze {
-    pub fn analyze_delete_stmt(
-        mut stmt: DeleteStmt,
-        master: &Master,
-    ) -> InkResult<ResolvedQuery> {
-        let table = Self::get_non_master_table(master, &stmt.table_name)?;
+impl<'a> Analyze<'a> {
+    pub fn analyze_delete_stmt(&self, mut stmt: DeleteStmt) -> InkResult<ResolvedQuery> {
+        let table = self.get_non_master_table(&stmt.table_name)?;
         if let Some(predicate) = stmt.where_clause {
             let arena = stmt
                 .arena

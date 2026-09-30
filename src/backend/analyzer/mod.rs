@@ -16,7 +16,9 @@ pub mod insert;
 pub mod select;
 pub mod update;
 
-pub struct Analyze;
+pub struct Analyze<'a> {
+    master: &'a Master,
+}
 #[derive(Debug)]
 pub struct ResolvedSelectQuery {
     pub table_name: String,
@@ -154,49 +156,48 @@ pub enum ResolvedQuery {
     ExplainQuery(ResolvedExplainQuery),
 }
 
-impl Analyze {
-    pub fn analyze(stmt: Ast, master: &Master) -> Result<ResolvedQuery, InkError> {
+impl<'a> Analyze<'a> {
+    pub fn new(master: &'a Master) -> Self {
+        Self { master }
+    }
+
+    pub fn analyze(&self, stmt: Ast) -> Result<ResolvedQuery, InkError> {
         match stmt {
-            Ast::SelectStmtAst(select_stmt) => Self::analyze_select_stmt(select_stmt, master),
-            Ast::InsertStmtAst(insert_stmt) => Self::analyze_insert_stmt(insert_stmt, master),
-            Ast::CreateTableAst(create_stmt) => {
-                Self::analyze_create_table_stmt(create_stmt, master)
-            }
-            Ast::DeleteStmtAst(delete_stmt) => Self::analyze_delete_stmt(delete_stmt, master),
+            Ast::SelectStmtAst(select_stmt) => self.analyze_select_stmt(select_stmt),
+            Ast::InsertStmtAst(insert_stmt) => self.analyze_insert_stmt(insert_stmt),
+            Ast::CreateTableAst(create_stmt) => self.analyze_create_table_stmt(create_stmt),
+            Ast::DeleteStmtAst(delete_stmt) => self.analyze_delete_stmt(delete_stmt),
             Ast::BeginTransaction => Ok(ResolvedQuery::BeginTransactionQuery),
             Ast::CommitTransaction => Ok(ResolvedQuery::CommitTransactionQuery),
             Ast::RollbackTransaction => Ok(ResolvedQuery::RollbackTransactionQuery),
             Ast::TruncateTableAst(t_stmt) => {
-                let table = Self::get_non_master_table(master, &t_stmt.table_name)?;
+                let table = self.get_non_master_table(&t_stmt.table_name)?;
                 Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
                     table_name: table.name.clone(),
                     root_page: table.root_page,
                 }))
             }
-            Ast::CreateIndexAst(ci_stmt) => Self::analyze_create_index_stmt(ci_stmt, master),
+            Ast::CreateIndexAst(ci_stmt) => self.analyze_create_index_stmt(ci_stmt),
             Ast::ExplainStmtAst(stmt) => Ok(ResolvedQuery::ExplainQuery(ResolvedExplainQuery {
-                query: Box::new(Self::analyze(*stmt.query, master)?),
+                query: Box::new(self.analyze(*stmt.query)?),
             })),
             _ => todo!(),
         }
     }
 
-    pub fn get_table<'s>(master: &'s Master, table_name: &str) -> Result<&'s Table, InkError> {
+    pub fn get_table(&'a self, table_name: &str) -> Result<&'a Table, InkError> {
         if table_name.eq_ignore_ascii_case("master") {
             return Ok(&MASTER);
         }
-        master
+        self.master
             .table(table_name)
             .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))
     }
-    pub fn get_non_master_table<'s>(
-        master: &'s Master,
-        table_name: &str,
-    ) -> Result<&'s Table, InkError> {
+    pub fn get_non_master_table(&self, table_name: &str) -> Result<&'a Table, InkError> {
         assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
             InkError::MasterTableError.to_string()
         })?;
-        master
+        self.master
             .table(table_name)
             .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))
     }
