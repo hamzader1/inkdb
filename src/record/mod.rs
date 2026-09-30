@@ -1,5 +1,7 @@
 pub mod arith;
 pub mod cmp;
+/*Temporary*/
+#[allow(clippy::module_inception)]
 pub mod record;
 pub mod tuple;
 
