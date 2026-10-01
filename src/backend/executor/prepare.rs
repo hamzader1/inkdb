@@ -52,7 +52,8 @@ impl<V: Vfs> PrepareRow<V> {
         /*
          * Check if we are doing violition or not
          */
-        if let Some(t) = ctx.master.table(&self.table_name)
+        if self.root_page != 1
+            && let Some(t) = ctx.master.table(&self.table_name)
             && let Some(idx) = t.has_integer_primary_key()
             && !inner[idx].is_null()
         {

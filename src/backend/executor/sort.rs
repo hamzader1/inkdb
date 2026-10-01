@@ -8,8 +8,8 @@ use super::MEM_CAP;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::{Row, RowView};
+use crate::backend::executor::{StreamSource, decode_frame};
 use crate::backend::planner::plan::Plan;
-use crate::backend::executor::{decode_frame, StreamSource};
 use crate::record::{Record, Value};
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
@@ -90,6 +90,9 @@ impl<V: Vfs> Sort<V> {
         let mut offset = 0;
         let mut n_of_runs = 1;
         while let Some(row) = self.child.next(ctx)? {
+            // dbg!(row.to_values());
+            // dbg!(row.value(1));
+            // dbg!(row.len());
             if !self.rowid_captured {
                 self.rowid_column = row.rowid_column();
                 self.rowid_captured = true;
@@ -98,6 +101,12 @@ impl<V: Vfs> Sort<V> {
             let mut len_buffer = [0u8; 9];
             let row_bytes = row.stored_bytes().unwrap();
             let record = Record::new(row_bytes)?;
+            debug_assert!(
+                ctx.arena.nodes.get(self.index).is_some(),
+                "sort key must be a bound arena node, got {} of {}",
+                self.index,
+                ctx.arena.nodes.len()
+            );
             let key = Eval::eval(ctx.arena, self.index, Some(&record))?;
             let key_bytes = encode_varint(&mut key_buffer, row.key());
             let payload = key_bytes + row_bytes.len();
