@@ -7,7 +7,7 @@ mod common;
 
 use common::*;
 use inkdb::Master;
-use inkdb::backend::analyze::Analyze;
+use inkdb::backend::analyzer::Analyze;
 use inkdb::backend::planner::plan::Plan;
 use inkdb::db::Database;
 use inkdb::record::Value;
@@ -22,7 +22,7 @@ fn sorted_column(db: &mut Database<DiskVfs>, q: &str, column: usize) -> Vec<Valu
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
     let mut master = Master::new(&mut db.pager).expect("master");
-    let resolved = Analyze::analyze(parsed, &master).expect("analyze");
+    let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
     let mut out = Vec::new();
     loop {
@@ -120,4 +120,41 @@ fn order_by_matches_reference() {
     );
     commit_and_close(db);
     cleanup(&small);
+}
+
+#[test]
+fn order_by_keeps_the_rowid_of_an_integer_primary_key_table() {
+    let path = db_path("orderrowid");
+    let conn = rusqlite::Connection::open(&path).expect("fixture");
+    conn.execute_batch(
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);
+         INSERT INTO t VALUES (11, 'c'), (22, 'a'), (33, 'b'), (40000000000, 'd');",
+    )
+    .expect("rows");
+    drop(conn);
+
+    let mut db = open_engine(&path);
+    check(
+        &mut db,
+        &path,
+        "select * from t",
+        "select id from t",
+        0,
+    );
+    check(
+        &mut db,
+        &path,
+        "select * from t order by v",
+        "select id from t order by v",
+        0,
+    );
+    check(
+        &mut db,
+        &path,
+        "select * from t order by v",
+        "select v from t order by v",
+        1,
+    );
+    commit_and_close(db);
+    cleanup(&path);
 }

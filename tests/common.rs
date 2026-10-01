@@ -7,7 +7,7 @@
 
 #![allow(warnings)]
 use inkdb::Master;
-use inkdb::backend::analyze::Analyze;
+use inkdb::backend::analyzer::Analyze;
 use inkdb::backend::planner::plan::Plan;
 use inkdb::db::Database;
 use inkdb::sql::lexer::Lexer;
@@ -99,7 +99,9 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
         Parser::parse(Rc::clone(&query), lexer).unwrap_or_else(|e| panic!("parse {q:?}: {e}"));
     let mut master = Master::new(&mut db.pager).expect("master");
     let resolved =
-        Analyze::analyze(parsed, &master).unwrap_or_else(|e| panic!("analyze {q:?}: {e}"));
+        Analyze::new(&master)
+            .analyze(parsed)
+            .unwrap_or_else(|e| panic!("analyze {q:?}: {e}"));
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master)
         .unwrap_or_else(|e| panic!("plan {q:?}: {e}"));
     let mut n = 0;
@@ -128,7 +130,7 @@ pub fn run_err(db: &mut Database<DiskVfs>, q: &str) -> String {
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
     let mut master = Master::new(&mut db.pager).expect("master");
-    let resolved = Analyze::analyze(parsed, &master).expect("analyze");
+    let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
     loop {
         match plan.next(&mut db.pager, &mut master) {

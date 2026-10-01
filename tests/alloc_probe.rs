@@ -29,7 +29,7 @@ mod common;
 
 use common::*;
 use inkdb::Master;
-use inkdb::backend::analyze::Analyze;
+use inkdb::backend::analyzer::Analyze;
 use inkdb::backend::executor::RowWrapper;
 use inkdb::backend::planner::plan::Plan;
 use inkdb::db::Database;
@@ -50,7 +50,7 @@ fn measure(db: &mut Database<DiskVfs>, q: &str) -> Outcome {
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
     let mut master = Master::new(&mut db.pager).expect("master");
-    let resolved = Analyze::analyze(parsed, &master).expect("analyze");
+    let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
 
     let before_plan = ALLOCATIONS.load(Ordering::Relaxed);
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
