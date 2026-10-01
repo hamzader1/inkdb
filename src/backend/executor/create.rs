@@ -1,9 +1,11 @@
+use crate::InkResult;
 use crate::backend::analyzer::{IndexMetadata, ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
 use crate::backend::planner::plan::Plan;
 use crate::errors::InkError;
 use crate::record::Value;
 use crate::storage::btree::BTree;
 use crate::storage::page::{BTreePageType, PageMut as BTreePageMut};
+use crate::util::assert_with_runtime_err;
 use crate::vfs::Vfs;
 
 use super::Row;
@@ -70,6 +72,7 @@ pub struct CreateIndex<V: Vfs> {
     child: Box<Plan<V>>,
     index: Option<IndexMetadata>,
     is_init: bool,
+    prev_unique_val: Option<Value<'static>>,
     meta: ResolvedCreateIndexQuery,
 }
 impl<V: Vfs> CreateIndex<V> {
@@ -78,6 +81,7 @@ impl<V: Vfs> CreateIndex<V> {
             child,
             index: None,
             meta,
+            prev_unique_val: None,
             is_init: false,
         })
     }
@@ -96,48 +100,68 @@ impl<V: Vfs> CreateIndex<V> {
      */
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if !self.is_init {
-            let new_page = ctx.pager.allocate_new_page()?;
-            let mut guard = ctx.pager.get_mut(new_page)?;
-            let bytes = guard.bytes_as_mut_unchecked();
-            BTreePageMut::new_from_raw_bytes(
-                new_page,
-                BTreePageType::LeafIndex,
-                bytes,
-                ctx.pager.page_size(),
-                ctx.pager.usable_size(),
-            );
-            let row: [Value; 5] = [
-                "index".into(),
-                (&*self.meta.index_name).into(),
-                (&*self.meta.relation_name).into(),
-                (new_page as u64).into(),
-                (&*self.meta.query).into(),
-            ];
-
-            let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
-                row.iter().map(|v| v.to_owned_static()).collect(),
-            ]));
-
-            let mut prepare_row = PrepareRow::new(
-                Box::new(prepare_insert),
-                1,
-                self.meta.relation_name.clone(),
-                None,
-            );
-            while prepare_row.next(ctx)?.is_some() {}
-            ctx.master.is_dirty = true;
-            self.index = Some(IndexMetadata::new(new_page, self.meta.column_index, false));
-            self.is_init = true;
+            self.init(ctx)?;
         }
         let Some(index) = self.index else {
             return Ok(None);
         };
         while let Some(row) = self.child.next(ctx)? {
             let value = row.value(index.col_idx)?.into_static();
+            // SQLite counts NULLs as distinct: duplicate NULLs are not a
+            // uniqueness violation, so they never compare equal here.
+            if index.is_unique
+                && !matches!(value, Value::Null)
+                && let Some(ref prev) = self.prev_unique_val
+                && !matches!(prev, Value::Null)
+            {
+                assert_with_runtime_err(*prev != value, || {
+                    format!("violates unique index constraint for value: {}", prev)
+                })?;
+            }
+            self.prev_unique_val = Some(value.clone());
             let key = index.key_for(value, row.key());
             let bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
             Insert::new(index.index_root_page, Value::Tuple(key), bytes).next(ctx)?;
         }
         Ok(None)
+    }
+    fn init(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
+        let new_page = ctx.pager.allocate_new_page()?;
+        let mut guard = ctx.pager.get_mut(new_page)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        BTreePageMut::new_from_raw_bytes(
+            new_page,
+            BTreePageType::LeafIndex,
+            bytes,
+            ctx.pager.page_size(),
+            ctx.pager.usable_size(),
+        );
+        let row: [Value; 5] = [
+            "index".into(),
+            (&*self.meta.index_name).into(),
+            (&*self.meta.relation_name).into(),
+            (new_page as u64).into(),
+            (&*self.meta.query).into(),
+        ];
+
+        let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
+            row.iter().map(|v| v.to_owned_static()).collect(),
+        ]));
+
+        let mut prepare_row = PrepareRow::new(
+            Box::new(prepare_insert),
+            1,
+            self.meta.relation_name.clone(),
+            None,
+        );
+        while prepare_row.next(ctx)?.is_some() {}
+        ctx.master.is_dirty = true;
+        self.index = Some(IndexMetadata::new(
+            new_page,
+            self.meta.column_index,
+            self.meta.is_unique,
+        ));
+        self.is_init = true;
+        Ok(())
     }
 }
