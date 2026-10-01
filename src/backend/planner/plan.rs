@@ -36,7 +36,7 @@ use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Plan<V: Vfs> {
     TableScan(TableScan<V>),
     Filter(Filter<V>),
@@ -61,6 +61,7 @@ pub enum Plan<V: Vfs> {
     Sort(Sort<V>),
     Explain(Explain<V>),
     Terminate(Terminate<V>),
+    #[default]
     Halt,
 }
 
@@ -164,31 +165,42 @@ impl<V: Vfs> Plan<V> {
         }
     }
 
+    fn scan_with_predicate(
+        root_page: u32,
+        table_name: &str,
+        mode: ScanMode,
+        predicate: Option<usize>,
+        master: &Master,
+        arena: &ExprArena,
+    ) -> InkResult<Plan<V>> {
+        let mut scan = TableScan::new(root_page, mode, table_name.to_string())?;
+        let Some(predicate) = predicate else {
+            return Ok(Self::TableScan(scan));
+        };
+        scan.set_pushed_predicate(predicate);
+        let mut plan = Self::Filter(Filter::new(Box::new(Self::TableScan(scan)), predicate));
+        optimize_index_scan(&mut plan, master, table_name, arena, mode)?;
+        match plan {
+            Self::Filter(filter) if matches!(filter.child(), Self::TableScan(_)) => {
+                Ok(*filter.into_child())
+            }
+            other => Ok(other),
+        }
+    }
+
     fn init_select_plan(
         resolved_query: ResolvedSelectQuery,
         master: &Master,
     ) -> Result<PreparedPlan<V>, InkError> {
-        let mode = ScanMode::Stable;
-        let mut child = Self::TableScan(TableScan::new(
+        let mode = ScanMode::Safe;
+        let mut child = Self::scan_with_predicate(
             resolved_query.root_page,
+            &resolved_query.table_name,
             mode,
-            resolved_query.table_name.clone(),
-        )?);
-        if let Some(predicate) = resolved_query.where_clause {
-            child = Self::Filter(Filter::new(Box::new(child), predicate));
-            optimize_index_scan(
-                &mut child,
-                master,
-                &resolved_query.table_name,
-                &resolved_query.arena,
-                mode,
-            )?;
-            if let Plan::Filter(f) = &mut child
-                && let Plan::TableScan(scan) = f.child_mut()
-            {
-                scan.set_predicate(predicate);
-            }
-        }
+            resolved_query.where_clause,
+            master,
+            &resolved_query.arena,
+        )?;
         if let Some(orderby) = resolved_query.orderby {
             child = Self::Sort(Sort::new(Box::new(child), orderby.index, orderby.desc));
         }
@@ -222,27 +234,16 @@ impl<V: Vfs> Plan<V> {
         resolved_query: ResolvedCountQuery,
         master: &Master,
     ) -> InkResult<PreparedPlan<V>> {
-        let mode = ScanMode::Stable;
-        let mut child = Self::TableScan(TableScan::new(
+        let mode = ScanMode::Safe;
+        let mode = ScanMode::Safe;
+        let mut child = Self::scan_with_predicate(
             resolved_query.root_page,
+            &resolved_query.table_name,
             mode,
-            resolved_query.table_name.clone(),
-        )?);
-        if let Some(predicate) = resolved_query.where_clause {
-            child = Self::Filter(Filter::new(Box::new(child), predicate));
-            optimize_index_scan(
-                &mut child,
-                master,
-                &resolved_query.table_name,
-                &resolved_query.arena,
-                mode,
-            )?;
-            if let Plan::Filter(filter) = &mut child
-                && let Plan::TableScan(scan) = filter.child_mut()
-            {
-                scan.set_predicate(predicate);
-            }
-        }
+            resolved_query.where_clause,
+            master,
+            &resolved_query.arena,
+        )?;
         let mut parent = Self::Count(Count::new(Box::new(child), resolved_query.arg));
         if let Some(limit_expr) = resolved_query.limit {
             let limit = Eval::eval(&resolved_query.arena, limit_expr, None)?.cast_int()? as usize;
@@ -296,23 +297,16 @@ impl<V: Vfs> Plan<V> {
         mut resolved_query: ResolvedDeleteQuery,
         master: &Master,
     ) -> InkResult<PreparedPlan<V>> {
-        let mode = ScanMode::Volatile;
+        let mode = ScanMode::Unsafe;
         let arena = resolved_query.arena.take().unwrap_or_default();
-        let mut parent = Self::TableScan(TableScan::new(
+        let mut parent = Self::scan_with_predicate(
             resolved_query.root_page,
+            &resolved_query.table_name,
             mode,
-            resolved_query.table_name.clone(),
-        )?);
-        if let Some(predicate) = resolved_query.where_clause {
-            parent = Self::Filter(Filter::new(Box::new(parent), predicate));
-            optimize_index_scan(
-                &mut parent,
-                master,
-                &resolved_query.table_name,
-                &arena,
-                mode,
-            )?;
-        }
+            resolved_query.where_clause,
+            master,
+            &arena,
+        )?;
 
         parent = Self::init_delete_plan_inner(
             parent,
@@ -348,15 +342,14 @@ impl<V: Vfs> Plan<V> {
          *
          *
          * */
-        let mut source = TableScan::<V>::new(
+        let mut plan = Self::scan_with_predicate(
             resolved_query.root_page,
-            ScanMode::Stable,
-            resolved_query.table_name.clone(),
+            &resolved_query.table_name,
+            ScanMode::Safe,
+            resolved_query.where_clause,
+            master,
+            &resolved_query.arena,
         )?;
-        if let Some(predicate) = resolved_query.where_clause {
-            source.set_predicate(predicate);
-        }
-        let mut plan = Plan::TableScan(source);
         plan = Plan::Materialized(MaterializedResult::new(Box::new(plan)));
         plan = Self::init_delete_plan_inner(
             plan,
@@ -380,7 +373,7 @@ impl<V: Vfs> Plan<V> {
     ) -> InkResult<PreparedPlan<V>> {
         let child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
-            ScanMode::Stable,
+            ScanMode::Safe,
             resolved_query.relation_name.clone(),
         )?);
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
@@ -421,11 +414,19 @@ impl<V: Vfs> Plan<V> {
 
     pub fn node_label(&self, arena: &ExprArena) -> String {
         match self {
-            Self::TableScan(tb) => format!(
-                "TableScan [root_page: {}, scan: {}]",
-                tb.cursor.root,
-                tb.guard.scan_type()
-            ),
+            Self::TableScan(tb) => match tb.pushed_predicate().and_then(|p| arena.nodes.get(p)) {
+                Some(pushed) => format!(
+                    "TableScan [root_page: {}, scan: {}, filter: {}]",
+                    tb.cursor.root,
+                    tb.guard.scan_type(),
+                    pushed
+                ),
+                None => format!(
+                    "TableScan [root_page: {}, scan: {}]",
+                    tb.cursor.root,
+                    tb.guard.scan_type()
+                ),
+            },
             Self::Filter(f) => match arena.nodes.get(f.predicate()) {
                 Some(expr) => format!("Filter [{expr:?}]"),
                 None => format!("Filter [pred: {}]", f.predicate()),
