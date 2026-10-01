@@ -117,6 +117,7 @@ pub struct ResolvedUpdateQuery {
     pub root_page: u32,
     pub affected_columns: Vec<(usize, usize)>,
     pub where_clause: Option<usize>,
+    pub arena: ExprArena,
 }
 
 impl ResolvedUpdateQuery {
@@ -125,12 +126,14 @@ impl ResolvedUpdateQuery {
         root_page: u32,
         affected_columns: Vec<(usize, usize)>,
         where_clause: Option<usize>,
+        arena: ExprArena,
     ) -> Self {
         Self {
             table_name,
             root_page,
             affected_columns,
             where_clause,
+            arena,
         }
     }
 }
@@ -181,6 +184,7 @@ impl<'a> Analyze<'a> {
             Ast::ExplainStmtAst(stmt) => Ok(ResolvedQuery::ExplainQuery(ResolvedExplainQuery {
                 query: Box::new(self.analyze(*stmt.query)?),
             })),
+            Ast::UpdateStmtAst(update_stmt) => self.analyze_update_stmt(update_stmt),
             _ => todo!(),
         }
     }

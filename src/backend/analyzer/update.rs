@@ -28,6 +28,7 @@ impl<'a> Analyze<'a> {
             root_page,
             columns,
             where_clause,
+            arena,
         )))
     }
 }
