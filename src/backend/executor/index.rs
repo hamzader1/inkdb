@@ -182,6 +182,17 @@ pub struct IndexInsert {
 }
 impl<V: Vfs> IndexMutation<V> for IndexInsert {
     fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()> {
+        if self.is_unique {
+            btree.seek(&Value::Tuple(vec![entry[0].clone()]))?;
+            if let Some(record) = btree.current_record::<IndexLeaf>()?
+                && record[0] == entry[0]
+            {
+                return Err(InkError::runtime(format!(
+                    "violates unique index constraint for value: {}",
+                    entry[0]
+                )));
+            }
+        }
         btree.seek(&Value::Tuple(entry.to_vec()))?;
         if self.is_unique
             && let Some(record) = btree.current_record::<IndexLeaf>()?
