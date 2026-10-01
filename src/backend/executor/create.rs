@@ -1,4 +1,4 @@
-use crate::backend::analyze::{IndexMetadata, ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
+use crate::backend::analyzer::{IndexMetadata, ResolvedCreateIndexQuery, ResolvedCreateTableQuery};
 use crate::backend::planner::plan::Plan;
 use crate::errors::InkError;
 use crate::record::Value;

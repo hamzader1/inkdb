@@ -15,7 +15,6 @@ use crate::{backend::planner::plan::Plan, record::Value, vfs::Vfs};
  */
 #[derive(Debug)]
 pub struct PrepareRow<V: Vfs> {
-    #[allow(dead_code)]
     child: Box<Plan<V>>,
     pub root_page: u32,
     table_name: String,

@@ -4,7 +4,7 @@ use crate::InkResult;
 use crate::record::Record;
 use crate::{
     backend::{
-        analyze::{IndexMetadata, rowid_of},
+        analyzer::{IndexMetadata, rowid_of},
         executor::Row,
         planner::plan::Plan,
     },
