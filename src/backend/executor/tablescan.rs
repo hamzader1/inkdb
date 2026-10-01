@@ -14,7 +14,7 @@ use super::{Row, RowView};
 pub struct TableScan<V: Vfs> {
     pub cursor: BTreeCursor<V>,
     pub guard: Box<dyn ScanGuard<V>>,
-    predicate: Option<usize>,
+    pushed_predicate: Option<usize>,
     table_name: String,
     rowid_column: Option<usize>,
     rows_rejected: u64, /*used for testing*/
@@ -29,7 +29,7 @@ impl<V: Vfs> TableScan<V> {
             cursor,
             is_done: false,
             guard: mode.guard(),
-            predicate: None,
+            pushed_predicate: None,
             table_name,
             rowid_column: None,
             is_init: false,
@@ -37,12 +37,12 @@ impl<V: Vfs> TableScan<V> {
         })
     }
 
-    pub fn set_predicate(&mut self, predicate: usize) {
-        self.predicate = Some(predicate);
+    pub fn set_pushed_predicate(&mut self, predicate: usize) {
+        self.pushed_predicate = Some(predicate);
     }
 
-    pub fn predicate(&self) -> Option<usize> {
-        self.predicate
+    pub fn pushed_predicate(&self) -> Option<usize> {
+        self.pushed_predicate
     }
 
     pub fn rows_rejected(&self) -> u64 {
@@ -78,7 +78,7 @@ impl<V: Vfs> TableScan<V> {
             };
             let row_id = cell.row_id;
             let (page_no, _) = self.cursor.last_visited_entry_unchecked();
-            let keep = match self.predicate {
+            let keep = match self.pushed_predicate {
                 Some(predicate) => {
                     if cell.overflow_page().is_some() {
                         let Some(bytes) = self.cursor.current_record_bytes(ctx.pager)? else {

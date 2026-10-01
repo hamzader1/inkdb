@@ -62,15 +62,15 @@ impl<V: Vfs> ScanGuard<V> for SafeScan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanMode {
-    Stable,
-    Volatile,
+    Safe,
+    Unsafe,
 }
 
 impl ScanMode {
     pub fn guard<V: Vfs>(self) -> Box<dyn ScanGuard<V>> {
         match self {
-            Self::Stable => Box::new(SafeScan),
-            Self::Volatile => Box::new(UnsafeScan),
+            Self::Safe => Box::new(SafeScan),
+            Self::Unsafe => Box::new(UnsafeScan),
         }
     }
 }

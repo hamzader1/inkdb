@@ -18,6 +18,9 @@ impl<V: Vfs> Filter<V> {
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
+    pub fn into_child(self) -> Box<Plan<V>> {
+        self.child
+    }
     pub fn child_mut(&mut self) -> &mut Plan<V> {
         &mut self.child
     }
