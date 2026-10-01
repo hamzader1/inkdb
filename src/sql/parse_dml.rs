@@ -141,7 +141,7 @@ impl Parser {
         self.expect(Set)?;
         let mut affected_columns = Vec::new();
         loop {
-            let col_name = self.parse_expression()?;
+            let col_name = self.parse_factor()?;
             self.expect(Equals)?;
             let expr = self.parse_expression()?;
             affected_columns.push((col_name, expr));

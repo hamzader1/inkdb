@@ -1,3 +1,4 @@
+use crate::InkResult;
 use crate::errors::InkError;
 use crate::record::Value;
 

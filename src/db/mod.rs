@@ -1,8 +1,8 @@
-use crate::backend::analyze::Analyze;
+use crate::backend::analyzer::Analyze;
 use crate::backend::executor::{Row, RowWrapper};
 use crate::backend::planner::plan::Plan;
 use crate::backend::planner::prepared_plan::PreparedPlan;
-use crate::{Master, InkResult};
+use crate::{InkResult, Master};
 // use crate::pager::pager::Pager;
 // use crate::vfs::disk::DiskVfs;
 use crate::errors::InkError;
@@ -71,7 +71,7 @@ impl<V: crate::vfs::Vfs> Database<V> {
         if self.master.is_dirty {
             self.master.parse(&mut self.pager)?;
         }
-        let resolved_query = Analyze::analyze(res, &self.master)?;
+        let resolved_query = Analyze::new(&self.master).analyze(res)?;
         let plan = Plan::create_plan(resolved_query, &mut self.pager, &self.master)?;
         Ok(Statement {
             pager: &mut self.pager,

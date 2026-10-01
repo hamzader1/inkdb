@@ -1,5 +1,5 @@
 use crate::InkResult;
-use crate::backend::analyze::IndexMetadata;
+use crate::backend::analyzer::IndexMetadata;
 use crate::errors::CorruptError;
 use crate::pager::pager::Pager;
 use crate::record::Value;

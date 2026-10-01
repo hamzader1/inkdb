@@ -253,7 +253,7 @@ impl BTreeCell {
 #[repr(transparent)]
 pub struct Encode;
 impl Encode {
-    pub fn encode_table_leaf_cell(payload: Vec<u8>, row_id: u32) -> Vec<u8> {
+    pub fn encode_table_leaf_cell(payload: Vec<u8>, row_id: u64) -> Vec<u8> {
         let mut v = Vec::new();
         let mut buff = [0u8; 9];
         let byte_needed_for_len = encode_varint(&mut buff, payload.len() as _);
