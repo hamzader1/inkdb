@@ -29,10 +29,15 @@ impl Parser {
         let name = self.expect_ident()?.to_ascii_lowercase();
         self.expect(LeftParen)?;
         let mut columns: Vec<Column> = Vec::new();
+        let mut tbl_constraints = Vec::new();
         while !self.at(RightParen) {
             columns.push(self.parse_create_column()?);
             if !self.eat(Comma) {
                 break;
+            }
+            if self.eat(Check) {
+                let tbl_cst = self.parse_expression()?;
+                tbl_constraints.push(tbl_cst);
             }
         }
         self.expect(RightParen)?;
@@ -40,6 +45,8 @@ impl Parser {
             query: std::mem::take(&mut self.query),
             name,
             columns,
+            tbl_constraints,
+            arena: self.arena.take(),
         }))
     }
 

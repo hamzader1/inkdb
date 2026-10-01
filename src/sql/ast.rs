@@ -6,11 +6,13 @@ use super::parser::ExprArena;
 use super::tokens::TokenKind;
 use std::rc::Rc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CreateTableStmt {
     pub query: Rc<str>,
     pub name: String,
     pub columns: Vec<Column>,
+    pub tbl_constraints: Vec<usize>,
+    pub arena: ExprArena,
 }
 
 #[derive(Debug)]
@@ -22,7 +24,7 @@ pub struct CreateIndex {
     pub columns: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
     pub affinity: Affinity,
