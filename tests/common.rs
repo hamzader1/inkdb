@@ -98,10 +98,9 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     let parsed =
         Parser::parse(Rc::clone(&query), lexer).unwrap_or_else(|e| panic!("parse {q:?}: {e}"));
     let mut master = Master::new(&mut db.pager).expect("master");
-    let resolved =
-        Analyze::new(&master)
-            .analyze(parsed)
-            .unwrap_or_else(|e| panic!("analyze {q:?}: {e}"));
+    let resolved = Analyze::new(&master)
+        .analyze(parsed)
+        .unwrap_or_else(|e| panic!("analyze {q:?}: {e}"));
     let mut plan = Plan::create_plan(resolved, &mut db.pager, &master)
         .unwrap_or_else(|e| panic!("plan {q:?}: {e}"));
     let mut n = 0;
