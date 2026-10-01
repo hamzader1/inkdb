@@ -371,13 +371,18 @@ impl<V: Vfs> Plan<V> {
     fn init_create_index_plan(
         resolved_query: ResolvedCreateIndexQuery,
     ) -> InkResult<PreparedPlan<V>> {
-        let child = Self::TableScan(TableScan::new(
+        let mut child = Self::TableScan(TableScan::new(
             resolved_query.relation_root_page,
             ScanMode::Safe,
             resolved_query.relation_name.clone(),
         )?);
+        let mut arena = ExprArena::new();
+        let key = arena.push(Expr::ColumnRef(resolved_query.column_index));
+        if resolved_query.is_unique {
+            child = Plan::Sort(Sort::new(Box::new(child), key, false));
+        }
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
-        Ok(PreparedPlan::new(parent, ExprArena::new()))
+        Ok(PreparedPlan::new(parent, arena))
     }
 }
 
