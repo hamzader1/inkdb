@@ -110,6 +110,7 @@ pub struct ResolvedCreateIndexQuery {
     pub relation_name: String,
     pub index_name: String,
     pub column_index: usize, // todo: usize -> Vec::<usize>
+    pub is_unique: bool,
 }
 #[derive(Debug)]
 pub struct ResolvedUpdateQuery {

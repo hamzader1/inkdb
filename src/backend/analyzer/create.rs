@@ -44,6 +44,7 @@ impl<'a> Analyze<'a> {
             relation_name: relation.name.clone(),
             index_name: stmt.name,
             column_index,
+            is_unique: stmt.unique,
         }))
     }
 }
