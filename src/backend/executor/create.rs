@@ -17,11 +17,54 @@ use crate::storage::cell::Encode;
 pub struct CreateTable {
     meta: ResolvedCreateTableQuery,
 }
+
 impl CreateTable {
+    pub fn new(meta: ResolvedCreateTableQuery) -> Self {
+        Self { meta }
+    }
     pub fn table_name(&self) -> &str {
         &self.meta.meta.name
     }
+
+    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
+        let name = &self.meta.meta.name;
+        let new_page = BTree::new(1, ctx.pager).allocate_page()?;
+        let mut guard = ctx.pager.get_mut(new_page)?;
+        let bytes = guard.bytes_as_mut_unchecked();
+        BTreePageMut::new_from_raw_bytes(
+            new_page,
+            BTreePageType::LeafTable,
+            bytes,
+            ctx.pager.page_size(),
+            ctx.pager.usable_size(),
+        );
+        let row = [
+            ("table").into(),                     // type
+            (&**name).into(),                     // name
+            (&**name).into(),                     // tbl_name
+            Value::Integer(new_page as _),        // root page
+            self.meta.meta.query.as_ref().into(), // original query
+        ];
+        /* todo*
+         * Change this to a closure
+         * initialized by the planner
+         * |row, root, name| -> PhysicalPlan
+         */
+        let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
+            row.iter().map(|v| v.to_owned_static()).collect(),
+        ]));
+        let mut prepare = PrepareRow::new(
+            Box::new(prepare_insert),
+            1,
+            self.meta.meta.name.clone(),
+            None,
+        );
+        while prepare.next(ctx)?.is_some() {}
+        ctx.master.is_dirty = true;
+        Ok(None)
+    }
 }
+
 #[derive(Debug)]
 pub struct CreateIndex<V: Vfs> {
     child: Box<Plan<V>>,
@@ -95,50 +138,6 @@ impl<V: Vfs> CreateIndex<V> {
             let bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
             Insert::new(index.index_root_page, Value::Tuple(key), bytes).next(ctx)?;
         }
-        Ok(None)
-    }
-}
-
-impl CreateTable {
-    pub fn new(meta: ResolvedCreateTableQuery) -> Self {
-        Self { meta }
-    }
-
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
-        let name = &self.meta.meta.name;
-        let new_page = BTree::new(1, ctx.pager).allocate_page()?;
-        let mut guard = ctx.pager.get_mut(new_page)?;
-        let bytes = guard.bytes_as_mut_unchecked();
-        BTreePageMut::new_from_raw_bytes(
-            new_page,
-            BTreePageType::LeafTable,
-            bytes,
-            ctx.pager.page_size(),
-            ctx.pager.usable_size(),
-        );
-        let row = [
-            ("table").into(),                     // type
-            (&**name).into(),                     // name
-            (&**name).into(),                     // tbl_name
-            Value::Integer(new_page as _),        // root page
-            self.meta.meta.query.as_ref().into(), // original query
-        ];
-        /* todo*
-         * Change this to a closure
-         * initialized by the planner
-         * |row, root, name| -> PhysicalPlan
-         */
-        let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
-            row.iter().map(|v| v.to_owned_static()).collect(),
-        ]));
-        let mut prepare = PrepareRow::new(
-            Box::new(prepare_insert),
-            1,
-            self.meta.meta.name.clone(),
-            None,
-        );
-        while prepare.next(ctx)?.is_some() {}
-        ctx.master.is_dirty = true;
         Ok(None)
     }
 }
