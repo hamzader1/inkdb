@@ -3,8 +3,9 @@ use crate::backend::analyzer::IndexMetadata;
 use crate::errors::CorruptError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
+use crate::sql::ast::CreateTableStmt;
 use crate::sql::lexer::Lexer;
-use crate::sql::parser::Parser;
+use crate::sql::parser::{ExprArena, Parser};
 use crate::storage::btree::{BTreeCursor, TableLeaf};
 use crate::vfs::Vfs;
 use crate::{errors::InkError, sql::ast::Constraint};
@@ -17,11 +18,13 @@ use crate::sql::ast::{
     Column,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Table {
     pub name: String,
     pub root_page: u32,
     pub columns: Vec<Column>,
+    pub tbl_constraits: Vec<usize>,
+    pub tbl_arena: ExprArena,
 }
 
 use std::sync::LazyLock;
@@ -56,6 +59,8 @@ pub static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
             constraints: None,
         },
     ],
+    tbl_arena: ExprArena::new(),
+    tbl_constraits: Vec::new(),
 });
 impl Table {
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
@@ -77,14 +82,6 @@ impl Table {
             }
         }
         None
-        /*
-         * bool expr
-         */
-        // self.columns.iter().any(|col| {
-        //     col.constraints
-        //         .iter()
-        //         .position(|cts| cts.iter().position(|c| *c == Constraint::PrimaryKey))
-        // })
     }
 }
 
@@ -137,7 +134,7 @@ impl Master {
             self.parse_record(&record)?;
             btree_cursor.next(pager)?;
         }
-        self.is_dirty = false; /* we just got the latest update */
+        self.is_dirty = false; /* We are having the latest update */
         Ok(())
     }
     pub fn table(&self, table_name: &str) -> Option<&Table> {
@@ -206,6 +203,8 @@ impl Master {
                     name: ast.name,
                     root_page: record[3].cast_int()? as _,
                     columns: ast.columns,
+                    tbl_constraits: ast.tbl_constraints,
+                    tbl_arena: ast.arena,
                 };
                 self.tables.insert(table.name.clone(), table);
             }
@@ -222,5 +221,34 @@ impl Master {
             _ => unreachable!(),
         }
         Ok(())
+    }
+}
+
+pub trait TableHandle: std::fmt::Debug + Clone {
+    fn column_index(&self, col_name: &str) -> Option<usize>;
+    fn column_name(&self, col_idx: usize) -> Option<&Column>;
+    fn columns_len(&self) -> usize;
+}
+impl TableHandle for Table {
+    fn column_index(&self, col_name: &str) -> Option<usize> {
+        self.get_col_idx(col_name)
+    }
+    fn column_name(&self, col_idx: usize) -> Option<&Column> {
+        self.get_col_name(col_idx)
+    }
+    fn columns_len(&self) -> usize {
+        self.get_cols_len()
+    }
+}
+
+impl TableHandle for CreateTableStmt {
+    fn column_index(&self, col_name: &str) -> Option<usize> {
+        self.columns.iter().position(|c| c.name == col_name)
+    }
+    fn column_name(&self, col_idx: usize) -> Option<&Column> {
+        self.columns.get(col_idx)
+    }
+    fn columns_len(&self) -> usize {
+        self.columns.len()
     }
 }
