@@ -2,6 +2,7 @@ use std::fs::File;
 
 use crate::errors::CorruptError;
 use crate::record::{Record, Value};
+use crate::varint::{decode_varint, encode_varint};
 use crate::{InkResult, MemCursor};
 
 use self::sort::load_page;
@@ -217,6 +218,51 @@ impl std::fmt::Display for RowWrapper {
     }
 }
 
+pub fn frame_len(record_len: usize, key: u64) -> usize {
+    let mut buffer = [0u8; 9];
+    let key_bytes = encode_varint(&mut buffer, key);
+    let payload = key_bytes + record_len;
+    let length_bytes = encode_varint(&mut buffer, payload as u64);
+    length_bytes + payload
+}
+
+pub fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize {
+    let mut length_buffer = [0u8; 9];
+    let mut key_buffer = [0u8; 9];
+    let key_bytes = encode_varint(&mut key_buffer, key);
+    let payload = key_bytes + record.len();
+    let length_bytes = encode_varint(&mut length_buffer, payload as u64);
+    out.extend_from_slice(&length_buffer[..length_bytes]);
+    out.extend_from_slice(&key_buffer[..key_bytes]);
+    out.extend_from_slice(record);
+    length_bytes + payload
+}
+
+pub fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
+    let (payload, consumed) = decode_varint(frame).ok_or(CorruptError::TruncatedRecord {
+        field: 0,
+        size: frame.len(),
+        available: frame.len(),
+    })?;
+    let rest = &frame[consumed..];
+    let (key, key_bytes) = decode_varint(rest).ok_or(CorruptError::TruncatedRecord {
+        field: 0,
+        size: frame.len(),
+        available: frame.len(),
+    })?;
+    let start = key_bytes;
+    let end = payload as usize;
+    if end > rest.len() || start > end {
+        return Err(CorruptError::TruncatedRecord {
+            field: 0,
+            size: consumed + end,
+            available: frame.len(),
+        }
+        .into());
+    }
+    Ok((key, &rest[start..end]))
+}
+
 #[derive(Debug)]
 pub enum StreamSource {
     Mem {
@@ -237,7 +283,11 @@ pub enum StreamSource {
 }
 
 impl StreamSource {
-    fn yield_from_stream(&mut self, nread: &mut usize) -> InkResult<Option<Row>> {
+    fn yield_from_stream(
+        &mut self,
+        nread: &mut usize,
+        rowid_column: Option<usize>,
+    ) -> InkResult<Option<Row>> {
         match self {
             &mut StreamSource::Mem {
                 ref mut buffer,
@@ -250,9 +300,11 @@ impl StreamSource {
                 let buffer = &buffer[*offset..];
                 let mut cursor = MemCursor::new(buffer);
                 let (len, consumed) = cursor.read_next_varint(buffer.len())?;
-                let row = Row::stored(0, buffer[consumed..consumed + len as usize].into());
+                let frame_len = consumed + len as usize;
+                let (key, record) = decode_frame(&buffer[..frame_len])?;
+                let row = Row::stored_with_rowid(key, record.to_vec(), rowid_column);
                 *nread += 1;
-                *offset += consumed + len as usize;
+                *offset += frame_len;
 
                 Ok(Some(row))
             }
@@ -283,12 +335,110 @@ impl StreamSource {
                 let buffer = &buffer[*buffer_offset..];
                 let mut cursor = MemCursor::new(buffer);
                 let (len, consumed) = cursor.read_next_varint(buffer.len())?;
-                let row = Row::stored(0, buffer[consumed..consumed + len as usize].to_vec());
-                *buffer_offset += consumed + len as usize;
+                let frame_len = consumed + len as usize;
+                let (key, record) = decode_frame(&buffer[..frame_len])?;
+                let row = Row::stored_with_rowid(key, record.to_vec(), rowid_column);
+                *buffer_offset += frame_len;
                 *nread += 1;
                 Ok(Some(row))
             }
             StreamSource::None => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::record::tuple::Tuple;
+
+    fn record_of(values: &[Value]) -> Vec<u8> {
+        Tuple::serialize(values)
+    }
+
+    #[test]
+    fn frames_carry_the_whole_key() {
+        let record = record_of(&[Value::Integer(7), Value::Text("x".into())]);
+        let key = 4_294_967_297u64;
+        let mut buffer = Vec::new();
+        let written = encode_frame(&mut buffer, key, &record);
+        assert_eq!(written, frame_len(record.len(), key));
+        assert_eq!(written, buffer.len());
+        let (decoded_key, decoded) = decode_frame(&buffer).expect("frame");
+        assert_eq!(decoded_key, key);
+        assert_eq!(decoded, record.as_slice());
+    }
+
+    #[test]
+    fn frames_can_be_walked_back_to_back() {
+        let keys = [0u64, 1, 300, 4_294_967_297];
+        let mut buffer = Vec::new();
+        for key in keys {
+            let record = record_of(&[Value::Integer(key as i64)]);
+            encode_frame(&mut buffer, key, &record);
+        }
+        let mut offset = 0;
+        let mut seen = Vec::new();
+        while offset < buffer.len() {
+            let (length, consumed) = decode_varint(&buffer[offset..]).expect("length");
+            let end = offset + consumed + length as usize;
+            let (key, record) = decode_frame(&buffer[offset..end]).expect("frame");
+            seen.push(key);
+            assert_eq!(
+                Record::new(record)
+                    .expect("record")
+                    .value(0)
+                    .expect("value"),
+                Value::Integer(key as i64)
+            );
+            offset = end;
+        }
+        assert_eq!(seen, keys);
+    }
+
+    #[test]
+    fn truncated_frames_are_an_error_not_a_panic() {
+        let record = record_of(&[Value::Integer(1)]);
+        let mut buffer = Vec::new();
+        encode_frame(&mut buffer, 9, &record);
+        assert!(decode_frame(&buffer[..buffer.len() - 1]).is_err());
+        assert!(decode_frame(&[]).is_err());
+    }
+
+    #[test]
+    fn a_stream_restores_the_key_and_the_rowid_override() {
+        let rows = [
+            Row::stored_with_rowid(
+                11,
+                record_of(&[Value::Null, Value::Text("c".into())]),
+                Some(0),
+            ),
+            Row::stored_with_rowid(
+                22,
+                record_of(&[Value::Null, Value::Text("a".into())]),
+                Some(0),
+            ),
+        ];
+        let mut buffer = Vec::new();
+        for row in &rows {
+            encode_frame(&mut buffer, row.key(), row.stored_bytes().expect("bytes"));
+        }
+        let mut source = StreamSource::Mem {
+            buffer,
+            offset: 0,
+            nrows: rows.len(),
+        };
+        let mut nread = 0;
+        let mut seen = Vec::new();
+        while let Some(row) = source
+            .yield_from_stream(&mut nread, Some(0))
+            .expect("yield")
+        {
+            seen.push((row.key(), row.value(0).expect("value").into_static()));
+        }
+        assert_eq!(
+            seen,
+            vec![(11, Value::Integer(11)), (22, Value::Integer(22))]
+        );
     }
 }
