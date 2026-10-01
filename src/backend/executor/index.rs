@@ -193,16 +193,6 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
                 )));
             }
         }
-        btree.seek(&Value::Tuple(entry.to_vec()))?;
-        if self.is_unique
-            && let Some(record) = btree.current_record::<IndexLeaf>()?
-            && record[0] == entry[0]
-        {
-            return Err(InkError::runtime(format!(
-                "violates unique index constraint for value: {}",
-                entry[0]
-            )));
-        }
 
         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(entry));
         btree.insert(&Value::Tuple(entry.to_vec()), &mut bytes)?;
