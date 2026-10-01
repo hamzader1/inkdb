@@ -5,11 +5,11 @@ use std::os::unix::fs::FileExt;
 
 use super::super::planner::plan;
 use super::MEM_CAP;
-use super::StreamSource;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::{Row, RowView};
 use crate::backend::planner::plan::Plan;
+use crate::backend::executor::{decode_frame, StreamSource};
 use crate::record::{Record, Value};
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
@@ -25,13 +25,15 @@ fn temp_prefix() -> String {
 pub struct Sort<V: Vfs> {
     child: Box<plan::Plan<V>>,
     sort_source: StreamSource,
-    desc: bool,   /*Asc if the default*/
+    desc: bool,   /*Asc is the default*/
     index: usize, /*Arena index*/
     is_sorted: bool,
     nread: usize,
     is_done: bool,
     max_frame: usize,
     temp: String,
+    rowid_column: Option<usize>,
+    rowid_captured: bool,
 }
 
 impl<V: Vfs> Sort<V> {
@@ -46,6 +48,8 @@ impl<V: Vfs> Sort<V> {
             is_done: false,
             max_frame: 0,
             temp: temp_prefix(),
+            rowid_column: None,
+            rowid_captured: false,
         }
     }
     pub fn child(&self) -> &Plan<V> {
@@ -58,7 +62,8 @@ impl<V: Vfs> Sort<V> {
         if !self.is_sorted {
             self.sort(ctx)?;
         }
-        self.sort_source.yield_from_stream(&mut self.nread)
+        self.sort_source
+            .yield_from_stream(&mut self.nread, self.rowid_column)
         // self.yield_row()
     }
     pub fn id(&self) -> usize {
@@ -85,14 +90,22 @@ impl<V: Vfs> Sort<V> {
         let mut offset = 0;
         let mut n_of_runs = 1;
         while let Some(row) = self.child.next(ctx)? {
-            let mut vint_buffer = [0u8; 9];
+            if !self.rowid_captured {
+                self.rowid_column = row.rowid_column();
+                self.rowid_captured = true;
+            }
+            let mut key_buffer = [0u8; 9];
+            let mut len_buffer = [0u8; 9];
             let row_bytes = row.stored_bytes().unwrap();
             let record = Record::new(row_bytes)?;
             let key = Eval::eval(ctx.arena, self.index, Some(&record))?;
-            let len_varint = encode_varint(&mut vint_buffer, row_bytes.len() as _);
-            self.max_frame = self.max_frame.max(len_varint + row_bytes.len());
+            let key_bytes = encode_varint(&mut key_buffer, row.key());
+            let payload = key_bytes + row_bytes.len();
+            let len_varint = encode_varint(&mut len_buffer, payload as u64);
+            let frame_len = len_varint + payload;
+            self.max_frame = self.max_frame.max(frame_len);
             /*We need to create a new file*/
-            if len_varint + row_bytes.len() + unsorted_buffer.len() > MEM_CAP {
+            if frame_len + unsorted_buffer.len() > MEM_CAP {
                 self.sort_buffer(
                     &unsorted_buffer,
                     &mut sorted_buffer,
@@ -108,12 +121,12 @@ impl<V: Vfs> Sort<V> {
                 offset = 0;
                 n_of_runs += 1;
             }
-            let key_data =
-                InnerSortBuffer::new(key.to_owned_static(), offset, len_varint + row_bytes.len());
+            let key_data = InnerSortBuffer::new(key.to_owned_static(), offset, frame_len);
             data_buffer.push(key_data);
-            unsorted_buffer.extend_from_slice(&vint_buffer[..len_varint]);
+            unsorted_buffer.extend_from_slice(&len_buffer[..len_varint]);
+            unsorted_buffer.extend_from_slice(&key_buffer[..key_bytes]);
             unsorted_buffer.extend_from_slice(row_bytes);
-            offset += len_varint + row_bytes.len();
+            offset += frame_len;
         }
 
         if n_of_runs == 1 {
@@ -343,7 +356,8 @@ fn load_children<V: Vfs>(
         if frame_len > available {
             break;
         }
-        let record = Record::new(&inp[pos + consumed..pos + frame_len])?;
+        let (_, record_bytes) = decode_frame(&inp[pos..pos + frame_len])?;
+        let record = Record::new(record_bytes)?;
         let key = Eval::eval(ctx.arena, arena_index, Some(&record))?.into_static();
         children.push(InnerSortBuffer::new(key, pos, frame_len));
         pos += frame_len;
