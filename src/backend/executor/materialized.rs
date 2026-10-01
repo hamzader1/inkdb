@@ -6,7 +6,7 @@ use std::{
 use crate::{
     InkResult, MemCursor,
     backend::{
-        executor::{Row, context::ExecCtx, sort::SortSource},
+        executor::{Row, context::ExecCtx, decode_frame, encode_frame, frame_len},
         planner::plan::Plan,
     },
     record::Record,
@@ -16,7 +16,8 @@ use crate::{
 
 use super::StreamSource;
 
-const MEM_CAP: usize = 4096 * 5;
+use super::MEM_CAP;
+// const MEM_CAP: usize = 4096 * 5;
 const FILE: &str = "ink_update";
 
 #[derive(Debug)]
@@ -25,6 +26,8 @@ pub struct MaterializedResult<V: Vfs> {
     stream_source: StreamSource,
     stream_backup: Option<File>,
     nread: usize,
+    rowid_column: Option<usize>,
+    rowid_captured: bool,
 }
 
 /*
@@ -50,13 +53,20 @@ impl<V: Vfs> MaterializedResult<V> {
             stream_source: StreamSource::None,
             stream_backup: None,
             nread: 0,
+            rowid_column: None,
+            rowid_captured: false,
         }
+    }
+    pub fn child(&self) -> &Plan<V> {
+        &self.child
     }
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if let StreamSource::None = self.stream_source {
             self.collect(ctx)?;
         }
-        let res = self.stream_source.yield_from_stream(&mut self.nread);
+        let res = self
+            .stream_source
+            .yield_from_stream(&mut self.nread, self.rowid_column);
         if res.as_ref().is_ok_and(|opt| opt.is_none()) {
             let _ = V::remove_temp_file(FILE);
         }
@@ -64,14 +74,20 @@ impl<V: Vfs> MaterializedResult<V> {
     }
     fn collect(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut buffer = Vec::new();
-        let mut varint_buffer = [0u8; 9];
         let f = |file: &mut File, buffer: &[u8]| file.write_all(buffer);
         let mut in_disk_data = false;
         let mut nrows = 0;
+        let mut max_frame = 0;
         while let Some(row) = self.child.next(ctx)? {
+            if !self.rowid_captured {
+                self.rowid_column = row.rowid_column();
+                self.rowid_captured = true;
+            }
             nrows += 1;
             let row_bytes = row.stored_bytes().unwrap();
-            if row_bytes.len() + buffer.len() > MEM_CAP {
+            let frame = frame_len(row_bytes.len(), row.key());
+            max_frame = max_frame.max(frame);
+            if frame + buffer.len() > MEM_CAP {
                 match self.stream_backup {
                     Some(ref mut file) => {
                         f(file, &buffer)?;
@@ -85,32 +101,23 @@ impl<V: Vfs> MaterializedResult<V> {
                 in_disk_data = true;
                 buffer.clear();
             }
-            let len = encode_varint(&mut varint_buffer, row_bytes.len() as _);
-            buffer.extend_from_slice(&varint_buffer[..len]);
-            buffer.extend_from_slice(row_bytes);
-            // if in_disk_data
-            // {
-            //     self.
-            // }
+            encode_frame(&mut buffer, row.key(), row_bytes);
         }
-        if !buffer.is_empty() && in_disk_data {
-            let Some(ref mut file) = self.stream_backup else {
+        if in_disk_data {
+            let Some(mut file) = self.stream_backup.take() else {
                 unreachable!()
             };
             file.write_all(&buffer)?;
-        }
-        if in_disk_data {
-            let Some(file) = self.stream_backup.take() else {
-                unreachable!()
-            };
+            file.flush()?;
+            buffer.clear();
             let source = StreamSource::Disk {
                 f: file,
                 buffer,
-                file_offset: 0,   /*Unused*/
-                buffer_offset: 0, /*Unused*/
-                page_size: 0,     /*Unused*/
+                file_offset: 0,
+                buffer_offset: 0,
+                page_size: MEM_CAP.max(max_frame),
                 nrows,
-                rrows: 0, /*Unused*/
+                rrows: 0,
             };
             self.stream_source = source;
         } else {
