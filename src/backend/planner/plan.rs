@@ -2,9 +2,9 @@ use self::Plan::Halt;
 
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
-use crate::backend::analyze::{
+use crate::backend::analyzer::{
     ResolvedCountQuery, ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedInsertQuery,
-    ResolvedQuery, ResolvedSelectQuery,
+    ResolvedQuery, ResolvedSelectQuery, ResolvedUpdateQuery,
 };
 use crate::backend::executor::Row;
 use crate::backend::executor::aggregate::Count;
@@ -26,7 +26,9 @@ use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
 };
 use crate::backend::executor::truncate::TruncateTable;
+use crate::backend::executor::update::Update;
 use crate::backend::optimizer::optimize_index_scan;
+use crate::backend::planner::plan;
 use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::sql::ast::Expr;
@@ -42,7 +44,7 @@ pub enum Plan<V: Vfs> {
     Limit(Limit<V>),
     Project(Project<V>),
     Insert(Insert<'static, V>),
-    Update(MaterializedResult<V>),
+    Update(Update<V>),
     PrepareRow(PrepareRow<V>),
     Delete(Delete<V>),
     CreateTable(CreateTable),
@@ -53,6 +55,7 @@ pub enum Plan<V: Vfs> {
     IndexRangeScan(IndexRangeScan<V>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
+    Materialized(MaterializedResult<V>),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollBackTransaction),
     Sort(Sort<V>),
@@ -75,6 +78,9 @@ impl<V: Vfs> Plan<V> {
             Plan::Explain(e) => vec![e.child()],
             Plan::Sort(s) => vec![s.child()],
             Plan::PrepareRow(pr) => vec![pr.child()],
+            Plan::Materialized(m) => vec![m.child()],
+            Plan::Delete(d) => vec![d.child()],
+            Plan::Update(u) => vec![u.child()],
             _ => Vec::new(),
         }
     }
@@ -153,6 +159,7 @@ impl<V: Vfs> Plan<V> {
                     inner.arena,
                 ))
             }
+            ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
             _ => todo!(),
         }
     }
@@ -332,8 +339,41 @@ impl<V: Vfs> Plan<V> {
         parent = Self::Delete(Delete::new(Box::new(parent), root_page));
         Ok(parent)
     }
-
-    // fn init_update_plan(
+    fn init_update_plan(
+        mut resolved_query: ResolvedUpdateQuery,
+        master: &Master,
+    ) -> InkResult<PreparedPlan<V>> {
+        /*
+         *
+         *
+         *
+         * */
+        let mut source = TableScan::<V>::new(
+            resolved_query.root_page,
+            ScanMode::Stable,
+            resolved_query.table_name.clone(),
+        )?;
+        if let Some(predicate) = resolved_query.where_clause {
+            source.set_predicate(predicate);
+        }
+        let mut plan = Plan::TableScan(source);
+        plan = Plan::Materialized(MaterializedResult::new(Box::new(plan)));
+        plan = Self::init_delete_plan_inner(
+            plan,
+            master,
+            &resolved_query.table_name,
+            resolved_query.root_page,
+        )?;
+        plan = Self::Update(Update::new(Box::new(plan), resolved_query.affected_columns));
+        plan = Self::init_insert_plan_inner(
+            plan,
+            master,
+            resolved_query.table_name,
+            resolved_query.root_page,
+        )?;
+        plan = Plan::Terminate(Terminate::new(Box::new(plan)));
+        Ok(PreparedPlan::new(plan, resolved_query.arena.take()))
+    }
 
     fn init_create_index_plan(
         resolved_query: ResolvedCreateIndexQuery,
@@ -373,8 +413,9 @@ impl<V: Vfs> Plan<V> {
             Self::Sort(s) => s.next(ctx),
             Self::Update(u) => u.next(ctx),
             Self::PrepareInsert(pi) => pi.next(ctx),
+            Self::Materialized(m) => m.next(ctx),
             Halt => Ok(None),
-            _ => todo!(),
+            // _ => todo!(),
         }
     }
 
@@ -437,6 +478,11 @@ impl<V: Vfs> Plan<V> {
             Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
             Self::Sort(s) => format!("Sort [i: {}]", s.id()),
+            Self::Update(u) => format!(
+                "Update [(columns_indexes, arena_indexes) -> {:?}]",
+                u.affected_columns
+            ),
+            Self::Materialized(m) => "MaterializedResult".into(),
             Halt => "Halt".into(),
             _ => todo!(),
         }
