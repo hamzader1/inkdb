@@ -4,8 +4,90 @@ use crate::errors::InkError;
 use crate::record::{TryAdd, TryDiv, TryMul, TrySub, Value};
 
 use super::ColumnSource;
+use crate::schema::Table;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
+
+const MAX_RENDER_DEPTH: usize = 32;
+
+pub fn render_expr(arena: &ExprArena, index: usize, table: Option<&Table>) -> String {
+    render_expr_at(arena, index, table, 0)
+}
+
+fn render_expr_at(arena: &ExprArena, index: usize, table: Option<&Table>, depth: usize) -> String {
+    if depth > MAX_RENDER_DEPTH {
+        return format!("expr[{index}]");
+    }
+    let Some(expr) = arena.nodes.get(index) else {
+        return format!("expr[{index}]");
+    };
+    let inner = depth + 1;
+    match expr {
+        Expr::Number(number) => number.to_string(),
+        Expr::Float(float) => float.to_string(),
+        Expr::StringLitteral(text) => format!("'{text}'"),
+        Expr::Bool(flag) => if *flag { "true" } else { "false" }.to_string(),
+        Expr::Identifier(name) => name.clone(),
+        Expr::ColumnRef(column) => match table.and_then(|table| table.get_col_name(*column)) {
+            Some(column) => column.name.clone(),
+            None => format!("column[{column}]"),
+        },
+        Expr::Star => "*".into(),
+        Expr::Count { arg: Some(arg) } => {
+            format!("count({})", render_expr_at(arena, *arg, table, inner))
+        }
+        Expr::Count { arg: None } => "count(*)".into(),
+        Expr::Add(left, right) => format!(
+            "({} + {})",
+            render_expr_at(arena, *left, table, inner),
+            render_expr_at(arena, *right, table, inner)
+        ),
+        Expr::Substract(left, right) => format!(
+            "({} - {})",
+            render_expr_at(arena, *left, table, inner),
+            render_expr_at(arena, *right, table, inner)
+        ),
+        Expr::Multiply(left, right) => format!(
+            "({} * {})",
+            render_expr_at(arena, *left, table, inner),
+            render_expr_at(arena, *right, table, inner)
+        ),
+        Expr::Devide(left, right) => format!(
+            "({} / {})",
+            render_expr_at(arena, *left, table, inner),
+            render_expr_at(arena, *right, table, inner)
+        ),
+        Expr::Neg(child) => format!("-{}", render_expr_at(arena, *child, table, inner)),
+        Expr::Not(child) => format!("NOT {}", render_expr_at(arena, *child, table, inner)),
+        Expr::BinaryOp { left, op, right } => format!(
+            "({} {} {})",
+            render_expr_at(arena, *left, table, inner),
+            render_operator(*op),
+            render_expr_at(arena, *right, table, inner)
+        ),
+        Expr::And { left, right } => format!(
+            "({} AND {})",
+            render_expr_at(arena, *left, table, inner),
+            render_expr_at(arena, *right, table, inner)
+        ),
+        Expr::Or { left, right } => format!(
+            "({} OR {})",
+            render_expr_at(arena, *left, table, inner),
+            render_expr_at(arena, *right, table, inner)
+        ),
+    }
+}
+
+pub fn render_operator(op: BinaryOperator) -> &'static str {
+    match op {
+        BinaryOperator::Eq => "=",
+        BinaryOperator::NotEq => "!=",
+        BinaryOperator::Ge => ">=",
+        BinaryOperator::Le => "<=",
+        BinaryOperator::Gt => ">",
+        BinaryOperator::Lt => "<",
+    }
+}
 
 pub struct Eval;
 impl Eval {
@@ -22,7 +104,7 @@ impl Eval {
             Expr::ColumnRef(col_idx) => match row {
                 Some(row) => row.column(col_idx),
                 _ => Err(InkError::runtime(
-                    "Cannot evaluate a column reference without a row: LIMIT and constant expressions must not mention columns",
+                    "Runtime column references are not supported. Only compile time references are allowed",
                 )),
             },
 
