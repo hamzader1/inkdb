@@ -147,6 +147,7 @@ impl Master {
 
     pub(crate) fn indexes_on(&self, table_name: &str) -> InkResult<Vec<IndexMetadata>> {
         if table_name.eq_ignore_ascii_case("master") {
+            /*Change this to Option*/
             return Ok(vec![]);
         }
         let table = self
@@ -230,12 +231,12 @@ impl Master {
     }
 }
 
-pub trait TableHandle: std::fmt::Debug + Clone {
+pub trait TableSchema: std::fmt::Debug + Clone {
     fn column_index(&self, col_name: &str) -> Option<usize>;
     fn column_name(&self, col_idx: usize) -> Option<&Column>;
     fn columns_len(&self) -> usize;
 }
-impl TableHandle for Table {
+impl TableSchema for Table {
     fn column_index(&self, col_name: &str) -> Option<usize> {
         self.get_col_idx(col_name)
     }
@@ -247,7 +248,7 @@ impl TableHandle for Table {
     }
 }
 
-impl TableHandle for CreateTableStmt {
+impl TableSchema for CreateTableStmt {
     fn column_index(&self, col_name: &str) -> Option<usize> {
         self.columns.iter().position(|c| c.name == col_name)
     }

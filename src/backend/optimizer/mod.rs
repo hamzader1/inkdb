@@ -9,7 +9,7 @@ use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
-use crate::{Master, InkResult};
+use crate::{InkResult, Master};
 
 pub fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,

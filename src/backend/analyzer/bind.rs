@@ -1,5 +1,5 @@
 use crate::errors::InkError;
-use crate::schema::{Table, TableHandle};
+use crate::schema::{Table, TableSchema};
 use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
 
@@ -7,7 +7,7 @@ use super::Analyze;
 
 impl<'a> Analyze<'a> {
     pub(super) fn slow_bind(
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         idx: usize,
         arena: &mut ExprArena,
         // new to move
@@ -22,7 +22,7 @@ impl<'a> Analyze<'a> {
 
     // General purpose
     pub(super) fn fast_bind(
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         idx: usize,
         arena: &mut ExprArena,
     ) -> Result<(), InkError> {
@@ -35,7 +35,7 @@ impl<'a> Analyze<'a> {
 
 impl<'a> Analyze<'a> {
     pub fn walk(
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         idx: usize,
         arena: &mut ExprArena,
         sink: &mut impl BindSink,
@@ -79,7 +79,7 @@ pub struct SlowBind<'a> {
 pub trait BindSink {
     fn ident(
         &mut self,
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         arena: &mut ExprArena,
         idx: usize,
         name: &str,
@@ -87,7 +87,7 @@ pub trait BindSink {
     fn leaf(&mut self, arena: &mut ExprArena, expr: Expr, idx: usize) -> usize;
     fn star(
         &mut self,
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         arena: &mut ExprArena,
         idx: usize,
     ) -> Result<usize, InkError>;
@@ -98,7 +98,7 @@ pub trait BindSink {
 impl BindSink for SlowBind<'_> {
     fn ident(
         &mut self,
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         _arena: &mut ExprArena,
         idx: usize,
         name: &str,
@@ -120,7 +120,7 @@ impl BindSink for SlowBind<'_> {
     }
     fn star(
         &mut self,
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         _arena: &mut ExprArena,
         idx: usize,
     ) -> Result<usize, InkError> {
@@ -172,7 +172,7 @@ pub struct FastBind;
 impl BindSink for FastBind {
     fn ident(
         &mut self,
-        table: &impl TableHandle,
+        table: &impl TableSchema,
         arena: &mut ExprArena,
         idx: usize,
         name: &str,
@@ -190,7 +190,7 @@ impl BindSink for FastBind {
     }
     fn star(
         &mut self,
-        _table: &impl TableHandle,
+        _table: &impl TableSchema,
         _arena: &mut ExprArena,
         _idx: usize,
     ) -> Result<usize, InkError> {
