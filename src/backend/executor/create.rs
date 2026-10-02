@@ -114,8 +114,16 @@ impl<V: Vfs> CreateIndex<V> {
                 && let Some(ref prev) = self.prev_unique_val
                 && !matches!(prev, Value::Null)
             {
+                let column = ctx
+                    .table()
+                    .and_then(|table| table.get_col_name(index.col_idx))
+                    .map(|column| column.name.clone())
+                    .unwrap_or_else(|| format!("column[{}]", index.col_idx));
                 assert_with_runtime_err(*prev != value, || {
-                    format!("violates unique index constraint for value: {}", prev)
+                    format!(
+                        "UNIQUE constraint failed: {}.{} with value {}",
+                        self.meta.relation_name, column, prev
+                    )
                 })?;
             }
             self.prev_unique_val = Some(value.clone());
