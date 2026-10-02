@@ -20,6 +20,7 @@ use crate::backend::executor::insert::Insert;
 use crate::backend::executor::limit::Limit;
 use crate::backend::executor::materialized::MaterializedResult;
 use crate::backend::executor::prepare::{PrepareInsert, PrepareRow};
+use crate::backend::executor::rowid::{RowRangeScan, render_rowid_range};
 use crate::backend::executor::scan_guard::ScanMode;
 use crate::backend::executor::sort::Sort;
 use crate::backend::executor::transaction::{
@@ -53,6 +54,7 @@ pub enum Plan<V: Vfs> {
     PrepareIndex(PrepareIndex<V>),
     PrepareInsert(PrepareInsert<V>),
     IndexExactMatch(IndexExactMatch<V>),
+    RowRangeScan(RowRangeScan<V>),
     IndexRangeScan(IndexRangeScan<V>),
     TruncateTable(TruncateTable),
     BeginTransaction(BeginTransaction),
@@ -408,6 +410,7 @@ impl<V: Vfs> Plan<V> {
             Self::RollbackTransaction(rbt) => rbt.next(ctx),
             Self::TruncateTable(tb) => tb.next(ctx),
             Self::IndexExactMatch(iem) => iem.next(ctx),
+            Self::RowRangeScan(rrs) => rrs.next(ctx),
             Self::IndexRangeScan(irc) => irc.next(ctx),
             Self::CreateIndex(ci) => ci.next(ctx),
             Self::Terminate(t) => t.next(ctx),
@@ -463,6 +466,11 @@ impl<V: Vfs> Plan<V> {
                 p.index_root_page(),
                 p.col_idx(),
                 p.action_name()
+            ),
+            Self::RowRangeScan(r) => format!(
+                "RowRangeScan [root_page: {}, rowid: {}]",
+                r.root_page(),
+                render_rowid_range(&r.range)
             ),
             Self::IndexExactMatch(i) => format!(
                 "IndexExactMatch [index_root: {}, table_root: {}, target: {}]",
