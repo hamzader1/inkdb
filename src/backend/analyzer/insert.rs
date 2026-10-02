@@ -43,6 +43,7 @@ impl<'a> Analyze<'a> {
 
         let mut j = 0;
         for inner_values in values.iter() {
+            assert_value_count(inner_values.len(), columns_list.len())?;
             for i in 0..table.columns.len() {
                 let mapped = columns_list
                     .get(j)
@@ -86,6 +87,12 @@ impl<'a> Analyze<'a> {
             values: evalued_rows,
         }))
     }
+}
+
+fn assert_value_count(provided: usize, expected: usize) -> InkResult<()> {
+    assert_with_runtime_err(provided == expected, || {
+        format!("{provided} values for {expected} columns")
+    })
 }
 
 fn assert_columns_resolved(table: &Table, columns: &[String], resolved: usize) -> InkResult<()> {
