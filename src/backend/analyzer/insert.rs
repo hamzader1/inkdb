@@ -3,7 +3,7 @@ use crate::backend::executor::eval::{Eval, render_expr};
 use crate::errors::InkError;
 use crate::record::Value;
 use crate::schema::Table;
-use crate::sql::ast::{Affinity, Column, Constraint, InsertStmt};
+use crate::sql::ast::{Affinity, Column, Constraint, DefaultValue, InsertStmt};
 use crate::util::assert_with_runtime_err;
 
 use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
@@ -49,6 +49,9 @@ impl<'a> Analyze<'a> {
                     .get(j)
                     .filter(|(k, _, _)| j < inner_values.len() && *k == i);
                 let Some(&(_, delta, _)) = mapped else {
+                    // if let Some(idx) = table.has_integer_primary_key() {
+                    //     
+                    // }
                     handle_missing(&table.columns[i], &table.name, &mut evalued_vals)?;
                     continue;
                 };
@@ -133,6 +136,14 @@ fn assert_not_null(col: &Column, table_name: &str) -> InkResult<()> {
 }
 
 fn handle_missing(col: &Column, table_name: &str, out: &mut Vec<Value>) -> InkResult<()> {
+    if let Some(ref default) = col.default {
+        assert!(matches!(default, DefaultValue::Val(_)));
+        let DefaultValue::Val(value) = default else {
+            unreachable!()
+        };
+        out.push(value.clone());
+        return Ok(());
+    };
     assert_not_null(col, table_name)?;
 
     /*

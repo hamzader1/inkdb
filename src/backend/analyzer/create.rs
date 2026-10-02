@@ -1,6 +1,7 @@
 use crate::backend::analyzer::ResolvedCreateIndexQuery;
+use crate::backend::executor::eval::Eval;
 use crate::errors::InkError;
-use crate::sql::ast::{CreateIndex, CreateTableStmt};
+use crate::sql::ast::{CreateIndex, CreateTableStmt, DefaultValue};
 use crate::{InkResult, Master};
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
@@ -16,6 +17,19 @@ impl<'a> Analyze<'a> {
         let mut arena = stmt.arena.take();
         for idx in stmt.tbl_constraints.iter() {
             Self::fast_bind(&stmt, *idx, &mut arena)?;
+        }
+        for column in stmt.columns.iter_mut() {
+            if let Some(ref mut default) = column.default {
+                assert!(matches!(default, DefaultValue::Node(_)));
+                let node = {
+                    let DefaultValue::Node(default_index) = default else {
+                        unreachable!()
+                    };
+                    default_index
+                };
+                let value = Eval::eval(&arena, *node, None)?.into_static();
+                *default = DefaultValue::Val(value);
+            }
         }
         stmt.arena = arena;
 
