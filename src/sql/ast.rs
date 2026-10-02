@@ -29,6 +29,12 @@ pub struct Column {
     pub name: String,
     pub affinity: Affinity,
     pub constraints: Option<Vec<Constraint>>,
+    pub default: Option<DefaultValue>,
+}
+#[derive(Debug, Clone)]
+pub enum DefaultValue {
+    Node(usize),
+    Val(Value<'static>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

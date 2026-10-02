@@ -82,17 +82,14 @@ impl Parser {
         let name = self.expect_ident()?.to_ascii_lowercase();
         let mut affinity: Option<Affinity> = None;
         let mut constraints = Vec::new();
+        let mut default = None;
 
         while !self.at(Comma) && !self.at(RightParen) {
             match self.peek() {
-                // Affinity from a built in type token (INTEGER, TEXT, ...)
                 Some(Integer) | Some(Text) | Some(Float) | Some(Blob) | Some(Bool) => {
                     let kind = self.next_token().unwrap().kind;
                     self.set_affinity(&mut affinity, Affinity::from(kind), &name)?;
                 }
-                // Affinity from any other type name (VARCHAR, DECIMAL, ...),
-                // including an optional size suffix like (255) or (10, 2)
-                // TODO: Fix this later
                 Some(Identifier(type_name)) => {
                     let type_name = type_name.clone();
                     self.next_token();
@@ -117,6 +114,13 @@ impl Parser {
                     self.expect(NotNull)?;
                     constraints.push(Constraint::NotNull);
                 }
+                Some(Default) => {
+                    self.eat(Default);
+                    if default.is_some() {
+                        return Err(InkError::runtime("default value already assigned"));
+                    }
+                    default = Some(DefaultValue::Node(self.parse_expression()?));
+                }
                 _ => break,
             }
         }
@@ -133,6 +137,7 @@ impl Parser {
             } else {
                 Some(constraints)
             },
+            default,
         })
     }
 
