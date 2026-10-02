@@ -25,6 +25,7 @@ fn render_expr_at(arena: &ExprArena, index: usize, table: Option<&Table>, depth:
     match expr {
         Expr::Number(number) => number.to_string(),
         Expr::Float(float) => float.to_string(),
+        Expr::Null => Expr::Null.to_string(),
         Expr::StringLitteral(text) => format!("'{text}'"),
         Expr::Bool(flag) => if *flag { "true" } else { "false" }.to_string(),
         Expr::Identifier(name) => name.clone(),
