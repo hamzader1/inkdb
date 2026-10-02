@@ -1,4 +1,6 @@
 use crate::Master;
+use crate::backend::executor::Row;
+use crate::backend::executor::eval::Eval;
 use crate::errors::InkError;
 use crate::sql::ast::{Affinity, InsertStmt};
 use crate::util::assert_with_runtime_err;
@@ -36,6 +38,12 @@ impl<'a> Analyze<'a> {
                             table.columns[i].name, table.columns[i].affinity, value_type
                         )
                     })?;
+                }
+                for cst in table.tbl_constraits.iter() {
+                    let bool_res =
+                        Eval::eval(&table.tbl_arena, *cst, Some(inner_values))?.to_bool();
+                    /*todo* Improve error msg*/
+                    assert_with_runtime_err(bool_res, || "CHECK constraint failed".into())?;
                 }
             }
         }
