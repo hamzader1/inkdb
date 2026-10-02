@@ -152,6 +152,18 @@ pub trait ColumnSource {
     fn column(&self, index: usize) -> InkResult<Value<'_>>;
     fn column_count(&self) -> usize;
 }
+impl<'a> ColumnSource for Vec<Value<'a>> {
+    fn column(&self, index: usize) -> InkResult<Value<'_>> {
+        let v = self.get(index).ok_or(CorruptError::NoSuchField {
+            field: index,
+            fields: self.len(),
+        })?;
+        Ok(v.to_owned_static())
+    }
+    fn column_count(&self) -> usize {
+        self.len()
+    }
+}
 
 impl ColumnSource for RowView<'_> {
     fn column(&self, index: usize) -> InkResult<Value<'_>> {
