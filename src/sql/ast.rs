@@ -41,6 +41,7 @@ pub enum Expr {
     Identifier(String),
     Add(usize, usize),
     Substract(usize, usize),
+    Null,
     Devide(usize, usize),
     Multiply(usize, usize),
     Neg(usize),

@@ -69,8 +69,18 @@ impl Parser {
         self.expect(Insert)?;
         self.expect(Into)?;
         let table_name = self.expect_ident()?.to_ascii_lowercase();
+        let mut columns: Vec<std::string::String> = Vec::new();
+        if self.eat(LeftParen) {
+            while !self.at(RightParen) {
+                columns.push(self.expect_ident()?);
+                if !self.at(Comma) {
+                    break;
+                }
+                self.eat(Comma);
+            }
+            self.expect(RightParen)?;
+        }
         self.expect(Values)?;
-        let columns: Vec<std::string::String> = Vec::new();
         let mut values: Vec<_> = Vec::new();
         loop {
             let mut current_values = Vec::new();
