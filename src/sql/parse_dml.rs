@@ -76,30 +76,7 @@ impl Parser {
             let mut current_values = Vec::new();
             self.expect(LeftParen)?;
             while !self.at(RightParen) {
-                match self.peek() {
-                    Some(String(s)) => {
-                        let cow: Cow<'_, str> = Cow::Owned(s.to_owned());
-                        current_values.push(Value::Text(cow));
-                        self.next_token();
-                    }
-                    Some(NumberVar(n)) => {
-                        current_values.push(Value::Integer(*n));
-                        self.next_token();
-                    }
-                    Some(FloatVar(f)) => {
-                        current_values.push(Value::Float(*f));
-                        self.next_token();
-                    }
-                    Some(BoolVar(b)) => {
-                        current_values.push(Value::Integer(*b as u8 as _));
-                        self.next_token();
-                    }
-                    Some(Null) => {
-                        current_values.push(Value::Null);
-                        self.next_token();
-                    }
-                    _ => panic!("This value is not allowed in insertions values"),
-                }
+                current_values.push(self.parse_expression()?);
                 if !self.eat(Comma) {
                     break;
                 }
@@ -116,6 +93,7 @@ impl Parser {
             table_name,
             columns,
             values,
+            arena: self.arena.take(),
         }))
     }
     pub fn parse_delete(&mut self) -> InkResult<Ast> {

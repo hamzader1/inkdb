@@ -120,7 +120,8 @@ impl OrderBy {
 pub struct InsertStmt {
     pub table_name: String,
     pub columns: Vec<String>,
-    pub values: Vec<Vec<Value<'static>>>,
+    pub values: Vec<Vec<usize>>,
+    pub arena: ExprArena,
 }
 
 #[derive(Debug)]
