@@ -12,10 +12,24 @@ use super::plan::Plan;
 pub struct PreparedPlan<V: Vfs> {
     pub parent: Plan<V>,
     pub arena: ExprArena,
+    pub statement_table: Option<String>,
 }
 impl<V: Vfs> PreparedPlan<V> {
+    pub fn table_name(&self) -> Option<&str> {
+        self.statement_table.as_deref()
+    }
+
+    pub fn with_table(mut self, table: &str) -> Self {
+        self.statement_table = Some(table.to_string());
+        self
+    }
+
     pub fn new(parent: Plan<V>, arena: ExprArena) -> Self {
-        Self { parent, arena }
+        Self {
+            parent,
+            arena,
+            statement_table: None,
+        }
     }
     pub fn next(
         &mut self,
@@ -24,7 +38,12 @@ impl<V: Vfs> PreparedPlan<V> {
     ) -> Result<Option<Row>, InkError> {
         if pager.start_transaction() {
             let parent_res = {
-                let mut ctx = ExecCtx::new(pager, master, &self.arena);
+                let mut ctx = ExecCtx::new(
+                    pager,
+                    master,
+                    &self.arena,
+                    self.statement_table.as_deref(),
+                );
                 self.parent.next(&mut ctx)
             };
             match parent_res {
@@ -37,7 +56,12 @@ impl<V: Vfs> PreparedPlan<V> {
             parent_res
         } else {
             let parent_res = {
-                let mut ctx = ExecCtx::new(pager, master, &self.arena);
+                let mut ctx = ExecCtx::new(
+                    pager,
+                    master,
+                    &self.arena,
+                    self.statement_table.as_deref(),
+                );
                 self.parent.next(&mut ctx)
             };
             match parent_res {

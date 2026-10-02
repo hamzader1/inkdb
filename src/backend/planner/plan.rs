@@ -11,7 +11,7 @@ use crate::backend::executor::aggregate::Count;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
-use crate::backend::executor::eval::Eval;
+use crate::backend::executor::eval::{Eval, render_expr};
 use crate::backend::executor::filter::Filter;
 use crate::backend::executor::index::{
     IndexDelete, IndexExactMatch, IndexInsert, IndexRangeScan, PrepareIndex,
@@ -31,6 +31,7 @@ use crate::backend::optimizer::optimize_index_scan;
 use crate::backend::planner::plan;
 use crate::errors::InkError;
 use crate::pager::pager::Pager;
+use crate::schema::Table;
 use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
@@ -90,11 +91,12 @@ impl<V: Vfs> Plan<V> {
 pub struct PlanTree<'a, V: Vfs> {
     plan: &'a Plan<V>,
     arena: &'a ExprArena,
+    table: Option<&'a Table>,
 }
 
 impl<'a, V: Vfs> PlanTree<'a, V> {
-    pub fn new(plan: &'a Plan<V>, arena: &'a ExprArena) -> Self {
-        Self { plan, arena }
+    pub fn new(plan: &'a Plan<V>, arena: &'a ExprArena, table: Option<&'a Table>) -> Self {
+        Self { plan, arena, table }
     }
 
     fn write_tree(&self, f: &mut std::fmt::Formatter<'_>, depth: usize) -> std::fmt::Result {
@@ -102,10 +104,10 @@ impl<'a, V: Vfs> PlanTree<'a, V> {
             f,
             "{}{}",
             "    ".repeat(depth),
-            self.plan.node_label(self.arena)
+            self.plan.node_label(self.arena, self.table)
         )?;
         for child in self.plan.children() {
-            Self::new(child, self.arena).write_tree(f, depth + 1)?;
+            Self::new(child, self.arena, self.table).write_tree(f, depth + 1)?;
         }
         Ok(())
     }
@@ -155,10 +157,12 @@ impl<V: Vfs> Plan<V> {
             ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
             ResolvedQuery::ExplainQuery(stmt) => {
                 let inner = Self::create_plan(*stmt.query, pager, master)?;
-                Ok(PreparedPlan::new(
+                let mut prepared = PreparedPlan::new(
                     Plan::Explain(Explain::new(Box::new(inner.parent))),
                     inner.arena,
-                ))
+                );
+                prepared.statement_table = inner.statement_table;
+                Ok(prepared)
             }
             ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
             _ => todo!(),
@@ -227,7 +231,7 @@ impl<V: Vfs> Plan<V> {
             Self::Project(Project::new(Box::new(child), columns))
         };
 
-        Ok(PreparedPlan::new(parent, resolved_query.arena))
+        Ok(PreparedPlan::new(parent, resolved_query.arena).with_table(&resolved_query.table_name))
     }
 
     fn init_count_plan(
@@ -249,7 +253,7 @@ impl<V: Vfs> Plan<V> {
             let limit = Eval::eval(&resolved_query.arena, limit_expr, None)?.cast_int()? as usize;
             parent = Self::Limit(Limit::new(Box::new(parent), limit));
         }
-        Ok(PreparedPlan::new(parent, resolved_query.arena))
+        Ok(PreparedPlan::new(parent, resolved_query.arena).with_table(&resolved_query.table_name))
     }
 
     fn init_insert_plan(
@@ -317,7 +321,7 @@ impl<V: Vfs> Plan<V> {
         parent = Self::Terminate(Terminate {
             child: Box::new(parent),
         });
-        Ok(PreparedPlan::new(parent, arena))
+        Ok(PreparedPlan::new(parent, arena).with_table(&resolved_query.table_name))
     }
 
     fn init_delete_plan_inner(
@@ -361,11 +365,12 @@ impl<V: Vfs> Plan<V> {
         plan = Self::init_insert_plan_inner(
             plan,
             master,
-            resolved_query.table_name,
+            resolved_query.table_name.clone(),
             resolved_query.root_page,
         )?;
         plan = Plan::Terminate(Terminate::new(Box::new(plan)));
-        Ok(PreparedPlan::new(plan, resolved_query.arena.take()))
+        let table_name = resolved_query.table_name.clone();
+        Ok(PreparedPlan::new(plan, resolved_query.arena.take()).with_table(&table_name))
     }
 
     fn init_create_index_plan(
@@ -381,8 +386,9 @@ impl<V: Vfs> Plan<V> {
         if resolved_query.is_unique {
             child = Plan::Sort(Sort::new(Box::new(child), key, false));
         }
+        let rl_name = resolved_query.relation_name.clone();
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
-        Ok(PreparedPlan::new(parent, arena))
+        Ok(PreparedPlan::new(parent, arena).with_table(&rl_name))
     }
 }
 
@@ -417,14 +423,14 @@ impl<V: Vfs> Plan<V> {
         }
     }
 
-    pub fn node_label(&self, arena: &ExprArena) -> String {
+    pub fn node_label(&self, arena: &ExprArena, table: Option<&Table>) -> String {
         match self {
-            Self::TableScan(tb) => match tb.pushed_predicate().and_then(|p| arena.nodes.get(p)) {
+            Self::TableScan(tb) => match tb.pushed_predicate() {
                 Some(pushed) => format!(
                     "TableScan [root_page: {}, scan: {}, filter: {}]",
                     tb.cursor.root,
                     tb.guard.scan_type(),
-                    pushed
+                    render_expr(arena, pushed, table)
                 ),
                 None => format!(
                     "TableScan [root_page: {}, scan: {}]",
@@ -432,12 +438,9 @@ impl<V: Vfs> Plan<V> {
                     tb.guard.scan_type()
                 ),
             },
-            Self::Filter(f) => match arena.nodes.get(f.predicate()) {
-                Some(expr) => format!("Filter [{expr:?}]"),
-                None => format!("Filter [pred: {}]", f.predicate()),
-            },
+            Self::Filter(f) => format!("Filter [{}]", render_expr(arena, f.predicate(), table)),
             Self::Count(c) => match c.arg() {
-                Some(arg) => format!("Count [count(expr {arg})]"),
+                Some(arg) => format!("Count [count({})]", render_expr(arena, arg, table)),
                 None => "Count [count(*)]".into(),
             },
             Self::Limit(l) => format!("Limit [limit: {}]", l.limit),
@@ -538,7 +541,8 @@ impl<V: Vfs> Explain<V> {
     }
 
     fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
-        println!("{}", PlanTree::new(&self.child, ctx.arena));
+        let explain_table = ctx.table();
+        println!("{}", PlanTree::new(&self.child, ctx.arena, explain_table));
         Ok(None)
     }
 }
