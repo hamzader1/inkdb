@@ -200,8 +200,10 @@ impl Eval {
                     Ok(Value::Integer(0))
                 }
             },
-
-            _ => unreachable!(),
+            _ => Err(InkError::runtime(format!(
+                "Cannot evaluate node: {}",
+                render_expr(arena, idx, None)
+            ))),
         }
     }
 }
