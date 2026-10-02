@@ -186,6 +186,7 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
             btree.seek(&Value::Tuple(vec![entry[0].clone()]))?;
             if let Some(record) = btree.current_record::<IndexLeaf>()?
                 && record[0] == entry[0]
+                && !record[0].is_null()
             {
                 return Err(InkError::runtime(format!(
                     "violates unique index constraint for value: {}",
