@@ -5,6 +5,7 @@ use super::executor::scan_guard::{ScanGuard, ScanMode};
 use super::planner::plan::Plan;
 use crate::backend::executor::eval::Eval;
 use crate::backend::executor::index::IndexExactMatch;
+use crate::backend::executor::rowid::RowRangeScan;
 use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
@@ -72,7 +73,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
             return Ok(());
         };
         match new_plan {
-            Plan::IndexExactMatch(_) | Plan::IndexRangeScan(_) => {
+            Plan::IndexExactMatch(_) | Plan::IndexRangeScan(_) | Plan::RowRangeScan(_) => {
                 if let Plan::Filter(filter) = self.plan {
                     *filter.child_mut() = new_plan;
                 }
@@ -177,6 +178,54 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                 _ => return Ok(None),
             };
             let col = self.relation.get_col_name(i).unwrap();
+
+            if self.relation.rowid_column() == Some(i)
+                && let Value::Integer(rowid) = target
+            {
+                let bounds = match op {
+                    BinaryOperator::Eq => (Bound::Included(rowid), Bound::Included(rowid)),
+                    BinaryOperator::Ge => (Bound::Included(rowid), Bound::Unbounded),
+                    BinaryOperator::Gt => (Bound::Excluded(rowid), Bound::Unbounded),
+                    BinaryOperator::Le => (Bound::Unbounded, Bound::Included(rowid)),
+                    BinaryOperator::Lt => (Bound::Unbounded, Bound::Excluded(rowid)),
+                    _ => return Ok(None),
+                };
+                let root_page = self.relation.root_page;
+                if let Some(Plan::RowRangeScan(rrs)) = self.ready_index.as_mut()
+                    && rrs.root_page() == root_page
+                {
+                    match op {
+                        BinaryOperator::Eq => {
+                            rrs.range = (Bound::Included(rowid), Bound::Included(rowid));
+                        }
+                        BinaryOperator::Ge => {
+                            tighten_lower_bound(&mut rrs.range.0, Bound::Included(rowid));
+                        }
+                        BinaryOperator::Gt => {
+                            tighten_lower_bound(&mut rrs.range.0, Bound::Excluded(rowid));
+                        }
+                        BinaryOperator::Le => {
+                            tighten_upper_bound(&mut rrs.range.1, Bound::Included(rowid));
+                        }
+                        BinaryOperator::Lt => {
+                            tighten_upper_bound(&mut rrs.range.1, Bound::Excluded(rowid));
+                        }
+                        _ => {}
+                    }
+                    return Ok(Some(()));
+                }
+                let Some(scan_guard) = self.take_guard() else {
+                    return Ok(None);
+                };
+                self.ready_index = Some(Plan::RowRangeScan(RowRangeScan::new(
+                    root_page,
+                    self.relation.rowid_column(),
+                    bounds.0,
+                    bounds.1,
+                    scan_guard,
+                )));
+                return Ok(Some(()));
+            }
 
             let mut index_root_page = None;
             for index in self.master.indexes.values() {
