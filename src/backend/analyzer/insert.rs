@@ -35,13 +35,29 @@ impl<'a> Analyze<'a> {
                 })?;
                 for (i, idx) in inner_values.iter().enumerate() {
                     let value = Eval::eval(&arena, *idx, None)?;
-                    let value_type = Affinity::try_from(&value)?;
-                    assert_with_runtime_err(value_type == table.columns[i].affinity, || {
-                        format!(
-                            "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
-                            table.columns[i].name, table.columns[i].affinity, value_type
-                        )
-                    })?;
+                    if matches!(value, Value::Null) {
+                        assert_with_runtime_err(
+                            table.columns[i]
+                                .constraints
+                                .iter()
+                                .find(|c| c.contains(&crate::sql::ast::Constraint::NotNull))
+                                .is_some(),
+                            || {
+                                format!(
+                                    "NOT NULL constraint failed:{}.{}",
+                                    table.name, table.columns[i].name
+                                )
+                            },
+                        );
+                    } else {
+                        let value_type = Affinity::try_from(&value)?;
+                        assert_with_runtime_err(value_type == table.columns[i].affinity, || {
+                            format!(
+                                "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
+                                table.columns[i].name, table.columns[i].affinity, value_type
+                            )
+                        })?;
+                    }
                     evalued_vals.push(value);
                 }
                 for cst in table.tbl_constraits.iter() {

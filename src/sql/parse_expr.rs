@@ -123,6 +123,7 @@ impl Parser {
             Some(NumberVar(x)) => self.arena.push(Expr::Number(*x)),
             Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
             Some(BoolVar(x)) => self.arena.push(Expr::Bool(*x)),
+            Some(Null) => self.arena.push(Expr::Null),
             Some(other) => {
                 return Err(InkError::runtime(format!(
                     "Unexpected token {:?} in expression: expected a column name, string, number, boolean or '('",

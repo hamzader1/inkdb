@@ -255,6 +255,7 @@ impl fmt::Display for Expr {
         match self {
             Expr::Number(n) => write!(f, "{n}"),
             Expr::Float(n) => write!(f, "{n}"),
+            Expr::Null => write!(f, "Null"),
             Expr::StringLitteral(s) => write!(f, "'{s}'"),
             Expr::Bool(b) => write!(f, "{b}"),
             Expr::ColumnRef(idx) => write!(f, "column[{idx}]"),

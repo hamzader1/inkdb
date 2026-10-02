@@ -43,6 +43,7 @@ impl<'a> Analyze<'a> {
         match arena.nodes[idx].clone() {
             Expr::Identifier(name) => sink.ident(table, arena, idx, &name),
             Expr::Star => sink.star(table, arena, idx),
+            node @ Expr::Null => Ok(sink.leaf(arena, node, idx)),
             node @ (Expr::Number(_) | Expr::Float(_) | Expr::Bool(_) | Expr::StringLitteral(_)) => {
                 Ok(sink.leaf(arena, node, idx))
             }

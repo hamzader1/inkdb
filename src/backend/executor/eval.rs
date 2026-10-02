@@ -100,6 +100,7 @@ impl Eval {
             Expr::Number(n) => Ok(Value::Integer(n)),
             Expr::Float(f) => Ok(Value::Float(f)),
             Expr::StringLitteral(ref str) => Ok(Value::Text(Cow::Owned(str.to_string()))),
+            Expr::Null => Ok(Value::Null),
             Expr::Bool(b) => Ok(Value::Integer(b as u8 as i64)),
             Expr::ColumnRef(col_idx) => match row {
                 Some(row) => row.column(col_idx),
