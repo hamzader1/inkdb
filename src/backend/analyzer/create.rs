@@ -6,13 +6,18 @@ use crate::{InkResult, Master};
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 
 impl<'a> Analyze<'a> {
-    pub(super) fn analyze_create_table_stmt(
+    pub fn analyze_create_table_stmt(
         &self,
-        stmt: CreateTableStmt,
+        mut stmt: CreateTableStmt,
     ) -> Result<ResolvedQuery, InkError> {
         if self.get_non_master_table(&stmt.name).is_ok() {
             return Err(InkError::TableAlreadyExists(stmt.name));
         }
+        let mut arena = stmt.arena.take();
+        for idx in stmt.tbl_constraints.iter() {
+            Self::fast_bind(&stmt, *idx, &mut arena)?;
+        }
+        stmt.arena = arena;
 
         Ok(ResolvedQuery::CreateTableQuery(ResolvedCreateTableQuery {
             meta: stmt,
