@@ -2,10 +2,11 @@ use crate::InkResult;
 use crate::backend::analyzer::{
     self, Analyze, IndexMetadata, ResolvedCreateTableQuery, ResolvedQuery,
 };
+use crate::backend::executor::eval::Eval;
 use crate::errors::CorruptError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
-use crate::sql::ast::CreateTableStmt;
+use crate::sql::ast::{CreateTableStmt, DefaultValue};
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::{ExprArena, Parser};
 use crate::storage::btree::{BTreeCursor, TableLeaf};
@@ -39,26 +40,31 @@ pub static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
             name: "type".to_string(),
             affinity: Affinity::Text,
             constraints: None,
+            default: None,
         },
         Column {
             name: "name".to_string(),
             affinity: Affinity::Text,
             constraints: None,
+            default: None,
         },
         Column {
             name: "tbl_name".to_string(),
             affinity: Affinity::Text,
             constraints: None,
+            default: None,
         },
         Column {
             name: "rootpage".to_string(),
             affinity: Affinity::Int,
             constraints: None,
+            default: None,
         },
         Column {
             name: "sql".to_string(),
             affinity: Affinity::Text,
             constraints: None,
+            default: None,
         },
     ],
     tbl_arena: ExprArena::new(),
@@ -203,7 +209,7 @@ impl Master {
         match ast {
             CreateTableAst(ast) => {
                 let analyzer = Analyze::new(self).analyze_create_table_stmt(ast)?;
-                let ResolvedQuery::CreateTableQuery(q) = analyzer else {
+                let ResolvedQuery::CreateTableQuery(mut q) = analyzer else {
                     unreachable!()
                 };
                 let mut table = Table {
