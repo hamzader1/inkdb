@@ -81,15 +81,13 @@ impl Table {
         self.columns.len()
     }
 
-    pub fn has_integer_primary_key(&self) -> Option<usize> {
-        for col in self.columns.iter() {
-            for ct in col.constraints.iter() {
-                if let Some(idx) = ct.iter().position(|c| c == &Constraint::PrimaryKey) {
-                    return Some(idx);
-                }
-            }
-        }
-        None
+    pub fn rowid_column(&self) -> Option<usize> {
+        self.columns.iter().position(|column| {
+            column
+                .constraints
+                .as_ref()
+                .is_some_and(|constraints| constraints.contains(&Constraint::PrimaryKey))
+        })
     }
 }
 
