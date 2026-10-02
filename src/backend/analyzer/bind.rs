@@ -1,5 +1,5 @@
 use crate::errors::InkError;
-use crate::schema::Table;
+use crate::schema::{Table, TableHandle};
 use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
 
@@ -7,7 +7,7 @@ use super::Analyze;
 
 impl<'a> Analyze<'a> {
     pub(super) fn slow_bind(
-        table: &Table,
+        table: &impl TableHandle,
         idx: usize,
         arena: &mut ExprArena,
         // new to move
@@ -22,7 +22,7 @@ impl<'a> Analyze<'a> {
 
     // General purpose
     pub(super) fn fast_bind(
-        table: &Table,
+        table: &impl TableHandle,
         idx: usize,
         arena: &mut ExprArena,
     ) -> Result<(), InkError> {
@@ -35,7 +35,7 @@ impl<'a> Analyze<'a> {
 
 impl<'a> Analyze<'a> {
     pub fn walk(
-        table: &Table,
+        table: &impl TableHandle,
         idx: usize,
         arena: &mut ExprArena,
         sink: &mut impl BindSink,
@@ -79,14 +79,18 @@ pub struct SlowBind<'a> {
 pub trait BindSink {
     fn ident(
         &mut self,
-        table: &Table,
+        table: &impl TableHandle,
         arena: &mut ExprArena,
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError>;
     fn leaf(&mut self, arena: &mut ExprArena, expr: Expr, idx: usize) -> usize;
-    fn star(&mut self, table: &Table, arena: &mut ExprArena, idx: usize)
-    -> Result<usize, InkError>;
+    fn star(
+        &mut self,
+        table: &impl TableHandle,
+        arena: &mut ExprArena,
+        idx: usize,
+    ) -> Result<usize, InkError>;
     fn unary(&mut self, arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize;
     fn binary(&mut self, node: &Expr, idx: usize, l: usize, r: usize) -> usize;
     fn unsupported(&mut self, expr: &Expr) -> InkError;
@@ -94,12 +98,12 @@ pub trait BindSink {
 impl BindSink for SlowBind<'_> {
     fn ident(
         &mut self,
-        table: &Table,
+        table: &impl TableHandle,
         _arena: &mut ExprArena,
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError> {
-        match table.get_col_idx(&name.to_lowercase()) {
+        match table.column_index(&name.to_lowercase()) {
             Some(col_idx) => {
                 self.new.push(Expr::ColumnRef(col_idx));
                 self.map[idx] = self.new.len() - 1;
@@ -116,11 +120,11 @@ impl BindSink for SlowBind<'_> {
     }
     fn star(
         &mut self,
-        table: &Table,
+        table: &impl TableHandle,
         _arena: &mut ExprArena,
         idx: usize,
     ) -> Result<usize, InkError> {
-        for i in 0..table.get_cols_len() {
+        for i in 0..table.columns_len() {
             self.new.push(Expr::ColumnRef(i));
             self.new_cols.push(self.new.len() - 1);
         }
@@ -168,12 +172,12 @@ pub struct FastBind;
 impl BindSink for FastBind {
     fn ident(
         &mut self,
-        table: &Table,
+        table: &impl TableHandle,
         arena: &mut ExprArena,
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError> {
-        match table.get_col_idx(&name.to_lowercase()) {
+        match table.column_index(&name.to_lowercase()) {
             Some(col_idx) => {
                 arena.nodes[idx] = Expr::ColumnRef(col_idx);
                 Ok(idx)
@@ -186,7 +190,7 @@ impl BindSink for FastBind {
     }
     fn star(
         &mut self,
-        _table: &Table,
+        _table: &impl TableHandle,
         _arena: &mut ExprArena,
         _idx: usize,
     ) -> Result<usize, InkError> {
