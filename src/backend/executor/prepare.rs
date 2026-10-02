@@ -54,7 +54,7 @@ impl<V: Vfs> PrepareRow<V> {
          */
         if self.root_page != 1
             && let Some(t) = ctx.master.table(&self.table_name)
-            && let Some(idx) = t.has_integer_primary_key()
+            && let Some(idx) = t.rowid_column()
             && !inner[idx].is_null()
         {
             btree.seek(&inner[idx])?;

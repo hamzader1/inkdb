@@ -134,7 +134,7 @@ impl<V: Vfs> IndexExactMatch<V> {
 
         let pk_as_rowid = {
             match ctx.master.table(&self.relation_name) {
-                Some(table) => table.has_integer_primary_key(),
+                Some(table) => table.rowid_column(),
                 _ => None,
             }
         };

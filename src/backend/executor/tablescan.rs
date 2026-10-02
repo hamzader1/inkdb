@@ -66,7 +66,7 @@ impl<V: Vfs> TableScan<V> {
                 self.is_done = true;
             }
             if let Some(table) = ctx.master.table(&self.table_name) {
-                self.rowid_column = table.has_integer_primary_key();
+                self.rowid_column = table.rowid_column();
             }
             self.is_init = true;
         }

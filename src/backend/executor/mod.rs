@@ -19,6 +19,7 @@ pub mod limit;
 pub mod materialized;
 pub mod prepare;
 pub mod project;
+pub mod rowid;
 pub mod scan_guard;
 pub mod sort;
 pub mod tablescan;

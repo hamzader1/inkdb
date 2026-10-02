@@ -1,7 +1,8 @@
 use crate::backend::analyzer::ResolvedCreateIndexQuery;
 use crate::backend::executor::eval::Eval;
 use crate::errors::InkError;
-use crate::sql::ast::{CreateIndex, CreateTableStmt, DefaultValue};
+use crate::sql::ast::{Constraint, CreateIndex, CreateTableStmt, DefaultValue};
+use crate::util::assert_with_runtime_err;
 use crate::{InkResult, Master};
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
@@ -14,6 +15,7 @@ impl<'a> Analyze<'a> {
         if self.get_non_master_table(&stmt.name).is_ok() {
             return Err(InkError::TableAlreadyExists(stmt.name));
         }
+        assert_single_primary_key(&stmt)?;
         let mut arena = stmt.arena.take();
         for idx in stmt.tbl_constraints.iter() {
             Self::fast_bind(&stmt, *idx, &mut arena)?;
@@ -66,4 +68,20 @@ impl<'a> Analyze<'a> {
             is_unique: stmt.unique,
         }))
     }
+}
+
+fn assert_single_primary_key(stmt: &CreateTableStmt) -> InkResult<()> {
+    let count = stmt
+        .columns
+        .iter()
+        .filter(|column| {
+            column
+                .constraints
+                .as_ref()
+                .is_some_and(|constraints| constraints.contains(&Constraint::PrimaryKey))
+        })
+        .count();
+    assert_with_runtime_err(count <= 1, || {
+        format!("table {} has more than one primary key", stmt.name)
+    })
 }
