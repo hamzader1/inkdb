@@ -1,5 +1,7 @@
 use crate::InkResult;
-use crate::backend::analyzer::IndexMetadata;
+use crate::backend::analyzer::{
+    self, Analyze, IndexMetadata, ResolvedCreateTableQuery, ResolvedQuery,
+};
 use crate::errors::CorruptError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
@@ -199,12 +201,16 @@ impl Master {
     fn parse_from_ast(&mut self, ast: Ast, record: &[Value]) -> Result<(), InkError> {
         match ast {
             CreateTableAst(ast) => {
-                let table = Table {
-                    name: ast.name,
+                let analyzer = Analyze::new(self).analyze_create_table_stmt(ast)?;
+                let ResolvedQuery::CreateTableQuery(q) = analyzer else {
+                    unreachable!()
+                };
+                let mut table = Table {
+                    name: q.meta.name,
                     root_page: record[3].cast_int()? as _,
-                    columns: ast.columns,
-                    tbl_constraits: ast.tbl_constraints,
-                    tbl_arena: ast.arena,
+                    columns: q.meta.columns,
+                    tbl_constraits: q.meta.tbl_constraints,
+                    tbl_arena: q.meta.arena,
                 };
                 self.tables.insert(table.name.clone(), table);
             }
