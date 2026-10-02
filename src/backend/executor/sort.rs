@@ -234,7 +234,6 @@ impl<V: Vfs> Sort<V> {
             if child.len + output_buffer.len() > page_size {
                 self.sort_buffer(&output_buffer, &mut sorted_buffer, &mut data, self.desc);
                 output_file.write_all(&sorted_buffer)?;
-                output_file.flush()?;
                 output_buffer.clear();
                 sorted_buffer.clear();
                 data.clear();
