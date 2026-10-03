@@ -11,11 +11,19 @@ use crate::{
 
 use super::context::ExecCtx;
 
+#[derive(Debug, Clone, Copy)]
+pub enum RootStateAfterTruncate {
+    Keep,
+    Release,
+}
+
 #[derive(Debug)]
 pub struct TruncateTable<V: Vfs> {
     root_page: u32,
     indexes: Vec<u32>,
     page_kind: BTreePageType,
+    free_root: RootStateAfterTruncate,
+    is_init: bool,
     child: Box<Plan<V>>,
 }
 
@@ -25,7 +33,16 @@ impl<V: Vfs> TruncateTable<V> {
             root_page,
             indexes,
             page_kind: BTreePageType::LeafTable,
+            free_root: RootStateAfterTruncate::Keep,
+            is_init: false,
             child,
+        }
+    }
+
+    pub fn dropping(root_page: u32, indexes: Vec<u32>, child: Box<Plan<V>>) -> Self {
+        Self {
+            free_root: RootStateAfterTruncate::Release,
+            ..Self::new(root_page, indexes, child)
         }
     }
     pub fn child(&self) -> &Plan<V> {
@@ -44,24 +61,46 @@ impl<V: Vfs> TruncateTable<V> {
             root_page,
             indexes: Vec::new(),
             page_kind: BTreePageType::LeafIndex,
+            free_root: RootStateAfterTruncate::Keep,
+            is_init: false,
             child: Box::new(Plan::Halt),
         }
     }
 
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
-        Self::dfs(self.root_page, self.root_page, ctx.pager)?;
-        let mut guard = ctx.pager.get_mut(self.root_page)?;
-        BTreePageMut::new_from_raw_bytes(
-            self.root_page,
-            self.page_kind,
-            guard.bytes_as_mut_unchecked(),
-            ctx.pager.page_size(),
-            ctx.pager.usable_size(),
-        )?;
-        for index in self.indexes.iter() {
-            Self::new_index(*index).next(ctx)?;
+        if !self.is_init {
+            self.is_init = true;
+            self.release_trees(ctx)?;
         }
         self.child.next(ctx)
+    }
+
+    fn release_trees(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<(), InkError> {
+        match self.free_root {
+            RootStateAfterTruncate::Keep => {
+                Self::dfs(self.root_page, self.root_page, ctx.pager)?;
+                let mut guard = ctx.pager.get_mut(self.root_page)?;
+                BTreePageMut::new_from_raw_bytes(
+                    self.root_page,
+                    self.page_kind,
+                    guard.bytes_as_mut_unchecked(),
+                    ctx.pager.page_size(),
+                    ctx.pager.usable_size(),
+                )?;
+                for index in self.indexes.iter() {
+                    Self::new_index(*index).next(ctx)?;
+                }
+            }
+            RootStateAfterTruncate::Release => {
+                Self::dfs(self.root_page, self.root_page, ctx.pager)?;
+                ctx.pager.dealloc(self.root_page)?;
+                for index in self.indexes.iter() {
+                    Self::dfs(*index, *index, ctx.pager)?;
+                    ctx.pager.dealloc(*index)?;
+                }
+            }
+        }
+        Ok(())
     }
     /*
      *
