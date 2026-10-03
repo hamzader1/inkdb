@@ -3,14 +3,15 @@ use self::Plan::Halt;
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
 use crate::backend::analyzer::{
-    ResolvedCountQuery, ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedInsertQuery,
-    ResolvedQuery, ResolvedSelectQuery, ResolvedUpdateQuery,
+    ResolvedCountQuery, ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedDropTableQuery,
+    ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery, ResolvedUpdateQuery,
 };
 use crate::backend::executor::Row;
 use crate::backend::executor::aggregate::Count;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::create::{CreateIndex, CreateTable};
 use crate::backend::executor::delete::Delete;
+use crate::backend::executor::drop::DropTbl as DropTblExec;
 use crate::backend::executor::eval::{Eval, render_expr};
 use crate::backend::executor::filter::Filter;
 use crate::backend::executor::index::{
@@ -33,7 +34,7 @@ use crate::backend::planner::plan;
 use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::schema::Table;
-use crate::sql::ast::Expr;
+use crate::sql::ast::Expr::{self, ColumnRef, Identifier, StringLitteral};
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
@@ -50,13 +51,14 @@ pub enum Plan<V: Vfs> {
     PrepareRow(PrepareRow<V>),
     Delete(Delete<V>),
     CreateTable(CreateTable<V>),
+    DropTbl(DropTblExec<V>),
     CreateIndex(CreateIndex<V>),
     PrepareIndex(PrepareIndex<V>),
     PrepareInsert(PrepareInsert<V>),
     IndexExactMatch(IndexExactMatch<V>),
     RowRangeScan(RowRangeScan<V>),
     IndexRangeScan(IndexRangeScan<V>),
-    TruncateTable(TruncateTable),
+    TruncateTable(TruncateTable<V>),
     BeginTransaction(BeginTransaction),
     Materialized(MaterializedResult<V>),
     CommitTransaction(CommitTransaction),
@@ -85,6 +87,8 @@ impl<V: Vfs> Plan<V> {
             Plan::Materialized(m) => vec![m.child()],
             Plan::Delete(d) => vec![d.child()],
             Plan::Update(u) => vec![u.child()],
+            Plan::DropTbl(dt) => vec![dt.child()],
+            Plan::TruncateTable(tt) => vec![tt.child()],
             _ => Vec::new(),
         }
     }
@@ -152,7 +156,11 @@ impl<V: Vfs> Plan<V> {
             ResolvedQuery::TruncateTable(stmt) => {
                 let indexes = index_roots(master, &stmt.table_name)?;
                 Ok(PreparedPlan::new(
-                    Plan::TruncateTable(TruncateTable::new(stmt.root_page, indexes)),
+                    Plan::TruncateTable(TruncateTable::new(
+                        stmt.root_page,
+                        indexes,
+                        Box::new(Plan::<V>::Halt),
+                    )),
                     ExprArena::new(),
                 ))
             }
@@ -167,7 +175,7 @@ impl<V: Vfs> Plan<V> {
                 Ok(prepared)
             }
             ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
-            _ => todo!(),
+            ResolvedQuery::DropTblQuery(stmt) => Self::init_drop_table_plan(stmt),
         }
     }
 
@@ -392,6 +400,33 @@ impl<V: Vfs> Plan<V> {
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
         Ok(PreparedPlan::new(parent, arena).with_table(&rl_name))
     }
+    fn init_drop_table_plan(
+        mut resolved_query: ResolvedDropTableQuery,
+    ) -> InkResult<PreparedPlan<V>> {
+        let mut plan = Self::TableScan(TableScan::new(
+            1,
+            ScanMode::Unsafe,
+            resolved_query.tbl_name.clone(), /*Must be unused*/
+        )?);
+        let mut arena = ExprArena::new();
+        arena.push(ColumnRef(2));
+        arena.push(StringLitteral(resolved_query.tbl_name.clone()));
+        let index = arena.push(Expr::BinaryOp {
+            left: 0,
+            op: crate::sql::ast::BinaryOperator::Eq,
+            right: 1,
+        });
+        plan = Self::Filter(Filter::new(Box::new(plan), index));
+        plan = Self::Delete(Delete::new(Box::new(plan), 1));
+        plan = Self::TruncateTable(TruncateTable::new(
+            resolved_query.root_page,
+            std::mem::take(&mut resolved_query.indexes),
+            Box::new(plan),
+        ));
+        plan = Self::DropTbl(DropTblExec::new(Box::new(plan)));
+
+        Ok(PreparedPlan::new(plan, arena))
+    }
 }
 
 impl<V: Vfs> Plan<V> {
@@ -421,8 +456,8 @@ impl<V: Vfs> Plan<V> {
             Self::Update(u) => u.next(ctx),
             Self::PrepareInsert(pi) => pi.next(ctx),
             Self::Materialized(m) => m.next(ctx),
+            Self::DropTbl(dt) => dt.next(ctx),
             Halt => Ok(None),
-            // _ => todo!(),
         }
     }
 
@@ -501,12 +536,12 @@ impl<V: Vfs> Plan<V> {
             ),
             Self::Materialized(m) => "MaterializedResult".into(),
             Halt => "Halt".into(),
-            _ => todo!(),
+            Self::DropTbl(dt) => "Drop Table".into(),
         }
     }
 }
 
-fn index_roots(master: &Master, table_name: &str) -> InkResult<Vec<u32>> {
+pub(crate) fn index_roots(master: &Master, table_name: &str) -> InkResult<Vec<u32>> {
     Ok(master
         .indexes_on(table_name)?
         .into_iter()
