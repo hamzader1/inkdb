@@ -1,27 +1,35 @@
 use crate::{
-    backend::executor::Row,
+    backend::{executor::Row, planner::plan::Plan},
     errors::InkError,
     pager::pager::Pager,
-    storage::{btree::page_as_mut_with_pager, page::BTreePageType, page::PageMut as BTreePageMut},
+    storage::{
+        btree::page_as_mut_with_pager,
+        page::{BTreePageType, PageMut as BTreePageMut},
+    },
     vfs::Vfs,
 };
 
 use super::context::ExecCtx;
 
 #[derive(Debug)]
-pub struct TruncateTable {
+pub struct TruncateTable<V: Vfs> {
     root_page: u32,
     indexes: Vec<u32>,
     page_kind: BTreePageType,
+    child: Box<Plan<V>>,
 }
 
-impl TruncateTable {
-    pub fn new(root_page: u32, indexes: Vec<u32>) -> Self {
+impl<V: Vfs> TruncateTable<V> {
+    pub fn new(root_page: u32, indexes: Vec<u32>, child: Box<Plan<V>>) -> Self {
         Self {
             root_page,
             indexes,
             page_kind: BTreePageType::LeafTable,
+            child,
         }
+    }
+    pub fn child(&self) -> &Plan<V> {
+        &self.child
     }
 
     pub fn root_page(&self) -> u32 {
@@ -36,10 +44,11 @@ impl TruncateTable {
             root_page,
             indexes: Vec::new(),
             page_kind: BTreePageType::LeafIndex,
+            child: Box::new(Plan::Halt),
         }
     }
 
-    pub fn next<V: Vfs>(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
+    pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         Self::dfs(self.root_page, self.root_page, ctx.pager)?;
         let mut guard = ctx.pager.get_mut(self.root_page)?;
         BTreePageMut::new_from_raw_bytes(
@@ -52,7 +61,7 @@ impl TruncateTable {
         for index in self.indexes.iter() {
             Self::new_index(*index).next(ctx)?;
         }
-        Ok(None)
+        self.child.next(ctx)
     }
     /*
      *
@@ -65,7 +74,7 @@ impl TruncateTable {
      *      Back to row by row delete or add a linked list of overflow pages
      *
      * */
-    fn dfs<V: Vfs>(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), InkError> {
+    fn dfs(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), InkError> {
         let (is_leaf, children, rmp) = {
             let mut guard = pager.get_mut(page_no)?;
             let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;
