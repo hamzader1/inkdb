@@ -46,6 +46,7 @@ impl<V: Vfs> CreateTable<V> {
             bytes,
             ctx.pager.page_size(),
             ctx.pager.usable_size(),
+            ctx.pager.header_len(),
         );
         let row = [
             ("table").into(),                     // type
@@ -179,6 +180,7 @@ impl<V: Vfs> CreateIndex<V> {
             bytes,
             ctx.pager.page_size(),
             ctx.pager.usable_size(),
+            ctx.pager.header_len(),
         );
         let q = match self.meta.query {
             Some(ref q) => q.as_ref().into(),

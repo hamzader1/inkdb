@@ -86,6 +86,7 @@ impl<V: Vfs> TruncateTable<V> {
                     guard.bytes_as_mut_unchecked(),
                     ctx.pager.page_size(),
                     ctx.pager.usable_size(),
+                    ctx.pager.header_len(),
                 )?;
                 for index in self.indexes.iter() {
                     Self::new_index(*index).next(ctx)?;

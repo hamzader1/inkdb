@@ -59,6 +59,7 @@ impl<V: Vfs> TableScan<V> {
                 page_no,
                 ctx.pager.page_size(),
                 ctx.pager.usable_size(),
+                ctx.pager.header_len(),
                 guard.bytes(),
             )?;
             let empty = page.no_of_cells()? == 0;
@@ -93,6 +94,7 @@ impl<V: Vfs> TableScan<V> {
                             page_no,
                             ctx.pager.page_size(),
                             ctx.pager.usable_size(),
+                            ctx.pager.header_len(),
                             guard.bytes(),
                         )?;
                         let record = Record::new(&page.bytes()[cell.payload_range().clone()])?;
