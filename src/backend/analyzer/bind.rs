@@ -34,7 +34,7 @@ impl<'a> Analyze<'a> {
 }
 
 impl<'a> Analyze<'a> {
-    pub fn walk(
+    pub(crate) fn walk(
         table: &impl TableSchema,
         idx: usize,
         arena: &mut ExprArena,
@@ -71,13 +71,13 @@ impl<'a> Analyze<'a> {
     }
 }
 
-pub struct SlowBind<'a> {
+pub(crate) struct SlowBind<'a> {
     new: &'a mut Vec<Expr>,
     map: &'a mut Vec<usize>,
     new_cols: &'a mut Vec<usize>,
 }
 
-pub trait BindSink {
+pub(crate) trait BindSink {
     fn ident(
         &mut self,
         table: &impl TableSchema,
@@ -169,7 +169,7 @@ impl BindSink for SlowBind<'_> {
     }
 }
 
-pub struct FastBind;
+pub(crate) struct FastBind;
 impl BindSink for FastBind {
     fn ident(
         &mut self,

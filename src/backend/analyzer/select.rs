@@ -8,7 +8,7 @@ use crate::sql::parser::ExprArena;
 use super::{Analyze, ResolvedCountQuery, ResolvedQuery, ResolvedSelectQuery};
 
 impl<'a> Analyze<'a> {
-    pub fn analyze_select_stmt(&self, select_stmt: SelectStmt) -> Result<ResolvedQuery, InkError> {
+    pub(crate) fn analyze_select_stmt(&self, select_stmt: SelectStmt) -> Result<ResolvedQuery, InkError> {
         let SelectStmt {
             table_name,
             mut arena,
@@ -32,8 +32,8 @@ impl<'a> Analyze<'a> {
                 Analyze::fast_bind(table, limit_expr, &mut arena)?;
             }
             return Ok(ResolvedQuery::CountQuery(ResolvedCountQuery {
-                table_name: table.name.clone(),
-                root_page: table.root_page,
+                table_name: table.name().clone(),
+                root_page: table.root_page(),
                 arena,
                 arg,
                 where_clause,
@@ -68,7 +68,7 @@ impl<'a> Analyze<'a> {
             }
             let stmt = ResolvedSelectQuery {
                 table_name,
-                root_page: table.root_page,
+                root_page: table.root_page(),
                 arena,
                 columns: columns.into(),
                 where_clause,
@@ -143,7 +143,7 @@ impl<'a> Analyze<'a> {
         }
         let stmt = ResolvedSelectQuery {
             table_name,
-            root_page: table.root_page,
+            root_page: table.root_page(),
             arena: ExprArena { nodes: new_arena },
             columns: new_cols.into(),
             where_clause,

@@ -7,7 +7,7 @@ use crate::sql::ast::UpdateStmt;
 use super::ResolvedUpdateQuery;
 
 impl<'a> Analyze<'a> {
-    pub fn analyze_update_stmt(&self, update_stmt: UpdateStmt) -> Result<ResolvedQuery, InkError> {
+    pub(crate) fn analyze_update_stmt(&self, update_stmt: UpdateStmt) -> Result<ResolvedQuery, InkError> {
         let UpdateStmt {
             table_name,
             columns,
@@ -15,7 +15,7 @@ impl<'a> Analyze<'a> {
             mut arena,
         } = update_stmt;
         let table = self.get_table(&table_name)?;
-        let root_page = table.root_page;
+        let root_page = table.root_page();
         for (col, expr) in columns.iter() {
             Self::fast_bind(table, *col, &mut arena)?;
             Self::fast_bind(table, *expr, &mut arena)?;

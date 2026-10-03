@@ -22,20 +22,20 @@ pub struct Analyze<'a> {
 }
 #[derive(Debug)]
 pub struct ResolvedSelectQuery {
-    pub table_name: String,
-    pub root_page: u32,
-    pub arena: ExprArena,
-    pub columns: Box<[usize]>,
-    pub where_clause: Option<usize>,
-    pub limit: Option<usize>,
-    pub orderby: Option<OrderBy>,
+    pub(crate) table_name: String,
+    pub(crate) root_page: u32,
+    pub(crate) arena: ExprArena,
+    pub(crate) columns: Box<[usize]>,
+    pub(crate) where_clause: Option<usize>,
+    pub(crate) limit: Option<usize>,
+    pub(crate) orderby: Option<OrderBy>,
 }
 
 #[derive(Debug)]
 pub struct ResolvedInsertQuery {
-    pub table_name: String,
-    pub root_page: PageNo,
-    pub values: Vec<Vec<Value<'static>>>,
+    pub(crate) table_name: String,
+    pub(crate) root_page: PageNo,
+    pub(crate) values: Vec<Vec<Value<'static>>>,
 }
 
 impl ResolvedInsertQuery {
@@ -50,20 +50,20 @@ impl ResolvedInsertQuery {
 
 #[derive(Debug)]
 pub struct ResolvedDropTableQuery {
-    pub root_page: u32,
-    pub tbl_name: String,
-    pub indexes: Vec<u32>,
+    pub(crate) root_page: u32,
+    pub(crate) tbl_name: String,
+    pub(crate) indexes: Vec<u32>,
 }
 #[derive(Debug)]
 pub struct ResolvedDropIndexQuery {
-    pub index_name: String,
-    pub root_page: u32,
+    pub(crate) index_name: String,
+    pub(crate) root_page: u32,
 }
 #[derive(Debug, Copy, Clone)]
-pub struct IndexMetadata {
-    pub index_root_page: u32,
-    pub col_idx: usize,
-    pub is_unique: bool,
+pub(crate) struct IndexMetadata {
+    pub(crate) index_root_page: u32,
+    pub(crate) col_idx: usize,
+    pub(crate) is_unique: bool,
 }
 impl IndexMetadata {
     pub fn new(index_root_page: u32, col_idx: usize, is_unique: bool) -> Self {
@@ -79,7 +79,7 @@ impl IndexMetadata {
     }
 }
 
-pub fn rowid_of(entry: &Record<'_>) -> InkResult<u64> {
+pub(crate) fn rowid_of(entry: &Record<'_>) -> InkResult<u64> {
     match entry.last() {
         Some(rowid) => rowid?.cast_int().map(|rowid| rowid as u64),
         None => Err(InkError::runtime("index entry is empty")),
@@ -87,43 +87,43 @@ pub fn rowid_of(entry: &Record<'_>) -> InkResult<u64> {
 }
 #[derive(Debug)]
 pub struct ResolvedCountQuery {
-    pub table_name: String,
-    pub root_page: u32,
-    pub arena: ExprArena,
-    pub arg: Option<usize>,
-    pub where_clause: Option<usize>,
-    pub limit: Option<usize>,
+    pub(crate) table_name: String,
+    pub(crate) root_page: u32,
+    pub(crate) arena: ExprArena,
+    pub(crate) arg: Option<usize>,
+    pub(crate) where_clause: Option<usize>,
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
-    pub meta: CreateTableStmt,
-    pub unique_on: Vec<usize>,
+    pub(crate) meta: CreateTableStmt,
+    pub(crate) unique_on: Vec<usize>,
 }
 
 #[derive(Debug)]
 pub struct ResolvedDeleteQuery {
-    pub table_name: String,
-    pub root_page: PageNo,
-    pub arena: Option<ExprArena>,
-    pub where_clause: Option<usize>,
+    pub(crate) table_name: String,
+    pub(crate) root_page: PageNo,
+    pub(crate) arena: Option<ExprArena>,
+    pub(crate) where_clause: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct ResolvedTruncateTableQuery {
-    pub table_name: String,
-    pub root_page: u32,
+    pub(crate) table_name: String,
+    pub(crate) root_page: u32,
 }
 
 use std::rc::Rc;
 #[derive(Debug)]
 pub struct ResolvedCreateIndexQuery {
-    pub query: Option<Rc<str>>,
-    pub relation_root_page: u32,
-    pub relation_name: String,
-    pub index_name: String,
-    pub column_index: usize, // todo: usize -> Vec::<usize>
-    pub is_unique: bool,
+    pub(crate) query: Option<Rc<str>>,
+    pub(crate) relation_root_page: u32,
+    pub(crate) relation_name: String,
+    pub(crate) index_name: String,
+    pub(crate) column_index: usize, // todo: usize -> Vec::<usize>
+    pub(crate) is_unique: bool,
 }
 
 impl ResolvedCreateIndexQuery {
@@ -147,11 +147,11 @@ impl ResolvedCreateIndexQuery {
 }
 #[derive(Debug)]
 pub struct ResolvedUpdateQuery {
-    pub table_name: String,
-    pub root_page: u32,
-    pub affected_columns: Box<[(usize, usize)]>,
-    pub where_clause: Option<usize>,
-    pub arena: ExprArena,
+    pub(crate) table_name: String,
+    pub(crate) root_page: u32,
+    pub(crate) affected_columns: Box<[(usize, usize)]>,
+    pub(crate) where_clause: Option<usize>,
+    pub(crate) arena: ExprArena,
 }
 
 impl ResolvedUpdateQuery {
@@ -174,7 +174,7 @@ impl ResolvedUpdateQuery {
 
 #[derive(Debug)]
 pub struct ResolvedExplainQuery {
-    pub query: Box<ResolvedQuery>,
+    pub(crate) query: Box<ResolvedQuery>,
 }
 
 #[derive(Debug)]
@@ -212,8 +212,8 @@ impl<'a> Analyze<'a> {
             Ast::TruncateTableAst(t_stmt) => {
                 let table = self.get_non_master_table(&t_stmt.table_name)?;
                 Ok(ResolvedQuery::TruncateTable(ResolvedTruncateTableQuery {
-                    table_name: table.name.clone(),
-                    root_page: table.root_page,
+                    table_name: table.name().clone(),
+                    root_page: table.root_page(),
                 }))
             }
             Ast::CreateIndexAst(ci_stmt) => self.analyze_create_index_stmt(ci_stmt),
@@ -226,7 +226,7 @@ impl<'a> Analyze<'a> {
         }
     }
 
-    pub fn get_table(&'a self, table_name: &str) -> Result<&'a Table, InkError> {
+    pub(crate) fn get_table(&'a self, table_name: &str) -> Result<&'a Table, InkError> {
         if table_name.eq_ignore_ascii_case("master") {
             return Ok(&MASTER);
         }
@@ -234,7 +234,7 @@ impl<'a> Analyze<'a> {
             .table(table_name)
             .ok_or_else(|| InkError::TableNotFound(table_name.to_string()))
     }
-    pub fn get_non_master_table(&self, table_name: &str) -> Result<&'a Table, InkError> {
+    pub(crate) fn get_non_master_table(&self, table_name: &str) -> Result<&'a Table, InkError> {
         assert_with_runtime_err(!table_name.eq_ignore_ascii_case("master"), || {
             InkError::MasterTableError.to_string()
         })?;

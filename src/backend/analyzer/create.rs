@@ -8,7 +8,7 @@ use crate::{InkResult, Master};
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 
 impl<'a> Analyze<'a> {
-    pub fn analyze_create_table_stmt(
+    pub(crate) fn analyze_create_table_stmt(
         &self,
         mut stmt: CreateTableStmt,
     ) -> Result<ResolvedQuery, InkError> {
@@ -45,9 +45,9 @@ impl<'a> Analyze<'a> {
         }))
     }
 
-    pub fn analyze_create_index_stmt(&self, stmt: CreateIndexStmt) -> InkResult<ResolvedQuery> {
+    pub(crate) fn analyze_create_index_stmt(&self, stmt: CreateIndexStmt) -> InkResult<ResolvedQuery> {
         let relation = self.get_non_master_table(&stmt.table)?;
-        if self.master.indexes.contains_key(&stmt.name) {
+        if self.master.indexes().contains_key(&stmt.name) {
             return Err(InkError::runtime(format!(
                 "Index with name {} already exists",
                 stmt.name
@@ -66,8 +66,8 @@ impl<'a> Analyze<'a> {
 
         Ok(ResolvedQuery::CreateIndexQuery(ResolvedCreateIndexQuery {
             query: Some(stmt.query),
-            relation_root_page: relation.root_page,
-            relation_name: relation.name.clone(),
+            relation_root_page: relation.root_page(),
+            relation_name: relation.name().clone(),
             index_name: stmt.name,
             column_index,
             is_unique: stmt.unique,

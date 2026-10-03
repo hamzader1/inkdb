@@ -9,7 +9,7 @@ use crate::util::assert_with_runtime_err;
 use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 
 impl<'a> Analyze<'a> {
-    pub fn analyze_insert_stmt(&self, stmt: InsertStmt) -> Result<ResolvedQuery, InkError> {
+    pub(crate) fn analyze_insert_stmt(&self, stmt: InsertStmt) -> Result<ResolvedQuery, InkError> {
         let InsertStmt {
             table_name,
             columns,
@@ -24,11 +24,11 @@ impl<'a> Analyze<'a> {
         let columns_list = {
             let mut columns_list = Vec::new();
             if columns.is_empty() {
-                for (i, column) in table.columns.iter().enumerate() {
+                for (i, column) in table.columns().iter().enumerate() {
                     columns_list.push((i, i, column));
                 }
             } else {
-                for (i, column) in table.columns.iter().enumerate() {
+                for (i, column) in table.columns().iter().enumerate() {
                     for (j, col_name) in columns.iter().enumerate() {
                         if col_name.eq_ignore_ascii_case(&column.name) {
                             columns_list.push((i, j, column));
@@ -44,7 +44,7 @@ impl<'a> Analyze<'a> {
         let mut j = 0;
         for inner_values in values.iter() {
             assert_value_count(inner_values.len(), columns_list.len())?;
-            for i in 0..table.columns.len() {
+            for i in 0..table.columns().len() {
                 let mapped = columns_list
                     .get(j)
                     .filter(|(k, _, _)| j < inner_values.len() && *k == i);
@@ -52,31 +52,33 @@ impl<'a> Analyze<'a> {
                     // if let Some(idx) = table.has_integer_primary_key() {
                     //
                     // }
-                    handle_missing(&table.columns[i], &table.name, &mut evalued_vals)?;
+                    handle_missing(&table.columns()[i], table.name(), &mut evalued_vals)?;
                     continue;
                 };
 
                 let value = Eval::eval(&arena, inner_values[delta], None)?;
                 if matches!(value, Value::Null) {
-                    assert_not_null(&table.columns[i], &table.name)?;
+                    assert_not_null(&table.columns()[i], table.name())?;
                 } else {
                     let value_type = Affinity::try_from(&value)?;
-                    assert_with_runtime_err(value_type == table.columns[i].affinity, || {
+                    assert_with_runtime_err(value_type == table.columns()[i].affinity, || {
                         format!(
                             "Type mismatch on column '{}': table defines '{}' but the value has affinity '{}'",
-                            table.columns[i].name, table.columns[i].affinity, value_type
+                            table.columns()[i].name,
+                            table.columns()[i].affinity,
+                            value_type
                         )
                     })?;
                 }
                 evalued_vals.push(value);
                 j += 1;
             }
-            for cst in table.tbl_constraits.iter() {
-                let bool_res = Eval::eval(&table.tbl_arena, *cst, Some(&evalued_vals))?.to_bool();
+            for cst in table.constraints().iter() {
+                let bool_res = Eval::eval(table.arena(), *cst, Some(&evalued_vals))?.to_bool();
                 assert_with_runtime_err(bool_res, || {
                     format!(
                         "CHECK constraint failed: {}",
-                        render_expr(&table.tbl_arena, *cst, Some(table))
+                        render_expr(table.arena(), *cst, Some(table))
                     )
                 })?;
             }
@@ -86,7 +88,7 @@ impl<'a> Analyze<'a> {
 
         Ok(ResolvedQuery::InsertQuery(ResolvedInsertQuery {
             table_name,
-            root_page: table.root_page,
+            root_page: table.root_page(),
             values: evalued_rows,
         }))
     }
@@ -104,20 +106,21 @@ fn assert_columns_resolved(table: &Table, columns: &[String], resolved: usize) -
     }
     let unknown = columns.iter().find(|name| {
         !table
-            .columns
+            .columns()
             .iter()
             .any(|column| column.name.eq_ignore_ascii_case(name))
     });
     match unknown {
         Some(name) => Err(InkError::runtime(format!(
             "table {} has no column named {}",
-            table.name, name
+            table.name(),
+            name
         ))),
         None => Err(InkError::runtime(format!(
             "INSERT names {} columns but only {} of them match {}",
             columns.len(),
             resolved,
-            table.name
+            table.name()
         ))),
     }
 }
