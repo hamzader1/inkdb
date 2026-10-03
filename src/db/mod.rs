@@ -23,7 +23,7 @@ use crate::vfs::disk::{DiskFile, DiskVfs};
 pub struct Database<V: crate::vfs::Vfs> {
     pub pager: Pager<V>,
     pub master: Master,
-    header: InkDatabaseHeader,
+    pub header: InkDatabaseHeader,
 }
 
 impl Database<DiskVfs> {

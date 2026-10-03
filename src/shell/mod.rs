@@ -4,93 +4,81 @@ use crate::db::Database;
 use crate::vfs::disk::DiskVfs;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct InkShell;
+
 impl InkShell {
     pub fn run(database: &mut Database<DiskVfs>) {
-        let mut rl = DefaultEditor::new().expect("Error initiliazing the shell");
+        let mut rl = DefaultEditor::new().expect("failed to initialize line editor");
         loop {
-            let command = match InkShell::read_command(&mut rl) {
-                Ok(cmd) => {
-                    let start = Instant::now();
-                    match Self::_run(database, &cmd) {
-                        Ok(_) => {}
-                        Err(e) => match crate::errors::render_syntax_error(cmd.as_str(), &e) {
-                            Some(rendered) => println!("{rendered}"),
-                            None => println!("Error: {e}"),
-                        },
-                    }
-                    let end = start.elapsed();
-                    println!("Time elapsed: {:.2} s", end.as_secs_f64());
-                    cmd
-                }
+            let cmd = match Self::read_statement(&mut rl) {
+                Ok(cmd) => cmd,
                 Err(ReadlineError::Interrupted) => {
                     println!("^C");
                     break;
                 }
-                Err(ReadlineError::Eof) => {
-                    break;
-                }
+                Err(ReadlineError::Eof) => break,
                 Err(e) => {
-                    eprintln!("Error: {}", e);
+                    eprintln!("input error: {e}");
                     continue;
                 }
             };
 
-            if command.trim().is_empty() {
+            let cmd = cmd.trim();
+            if cmd.is_empty() {
                 continue;
             }
-            if command.trim().eq_ignore_ascii_case("quit")
-                || command.trim().eq_ignore_ascii_case("exit")
-            {
-                break;
+            let start = Instant::now();
+            match Self::exec(database, cmd) {
+                Ok(()) => {}
+                Err(e) => match crate::errors::render_syntax_error(cmd, &e) {
+                    Some(rendered) => println!("{rendered}"),
+                    None => println!("Error: {e}"),
+                },
             }
         }
     }
+
     pub fn test(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
-        Self::_run(database, cmd)
+        Self::exec(database, cmd)
     }
-    fn _run(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
-        let mut s = database.execute(cmd)?;
-        for row in s.rows() {
+
+    fn exec(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
+        let mut stmt = database.execute(cmd)?;
+        for row in stmt.rows() {
             println!("{}", RowWrapper(row?));
         }
         Ok(())
     }
-    fn read_command(rl: &mut DefaultEditor) -> Result<String, ReadlineError> {
-        let mut buffer = String::new();
-        let mut line_number = 0;
 
+    fn read_statement(rl: &mut DefaultEditor) -> Result<String, ReadlineError> {
+        let mut buf = String::new();
         loop {
-            line_number += 1;
-
-            let prompt = if line_number == 1 || buffer.is_empty() {
-                "ink> "
-            } else {
-                "      -> "
-            };
-
+            let prompt = if buf.is_empty() { "ink> " } else { " ... " };
             let line = rl.readline(prompt)?;
-
-            if !buffer.is_empty() {
-                buffer.push(' ');
+            if !buf.is_empty() {
+                buf.push(' ');
             }
-            buffer.push_str(line.trim());
+            buf.push_str(line.trim());
 
-            if buffer.ends_with(';') {
-                rl.add_history_entry(&buffer)?;
-
-                return Ok(buffer.trim_end_matches(';').trim().to_string());
-            }
-
-            if line_number == 1 {
-                let upper = buffer.trim().to_uppercase();
-                if matches!(upper.as_str(), "QUIT" | "EXIT" | "HELP" | "STATUS") {
-                    rl.add_history_entry(&buffer)?;
-                    return Ok(buffer);
-                }
+            if buf.trim_end().ends_with(';') {
+                break;
             }
         }
+        if !buf.trim().is_empty() {
+            rl.add_history_entry(buf.trim())?;
+        }
+        Ok(buf.trim().trim_end_matches(';').trim().to_string())
+    }
+}
+
+fn format_elapsed(d: Duration) -> String {
+    if d.as_secs() > 0 {
+        format!("{:.2}s", d.as_secs_f64())
+    } else if d.as_millis() > 0 {
+        format!("{}ms", d.as_millis())
+    } else {
+        format!("{}µs", d.as_micros())
     }
 }
