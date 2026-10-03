@@ -6,7 +6,7 @@ use crate::InkResult;
 use crate::errors::InkError;
 
 impl Parser {
-    pub fn parse_create(&mut self) -> Result<Ast, InkError> {
+    pub(crate) fn parse_create(&mut self) -> Result<Ast, InkError> {
         self.expect(Create)?;
         let unique = self.eat(Unique);
         match self.peek() {
@@ -24,7 +24,7 @@ impl Parser {
             )),
         }
     }
-    pub fn parse_drop(&mut self) -> InkResult<Ast> {
+    pub(crate) fn parse_drop(&mut self) -> InkResult<Ast> {
         self.expect(Drop)?;
         match self.peek() {
             Some(Table) => self.parse_drop_table(),
@@ -189,14 +189,14 @@ impl Parser {
         self.expect(RightParen)
     }
 
-    pub fn parse_drop_table(&mut self) -> InkResult<Ast> {
+    pub(crate) fn parse_drop_table(&mut self) -> InkResult<Ast> {
         self.expect(Table)?;
         let tbl_name = self.expect_ident()?.to_ascii_lowercase();
         self.expect_eof()?;
         Ok(Ast::DropTblAst(DropTableStmt { tbl_name }))
     }
 
-    pub fn parse_drop_index(&mut self) -> InkResult<Ast> {
+    pub(crate) fn parse_drop_index(&mut self) -> InkResult<Ast> {
         self.expect(Index)?;
         let index_name = self.expect_ident()?.to_ascii_lowercase();
         self.expect_eof()?;

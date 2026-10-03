@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Token {
-    pub kind: TokenKind,
-    pub span: Span,
+    pub(crate) kind: TokenKind,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

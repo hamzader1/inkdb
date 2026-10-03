@@ -20,17 +20,17 @@ use std::{rc::Rc, string::String};
 use super::ast::Expr;
 #[derive(Debug, Default, Clone)]
 pub struct ExprArena {
-    pub nodes: Vec<Expr>,
+    pub(crate) nodes: Vec<Expr>,
 }
 impl ExprArena {
     pub fn new() -> Self {
         Self { nodes: Vec::new() }
     }
-    pub fn push(&mut self, expr: Expr) -> usize {
+    pub(crate) fn push(&mut self, expr: Expr) -> usize {
         self.nodes.push(expr);
         self.nodes.len() - 1
     }
-    pub fn take(&mut self) -> ExprArena {
+    pub(crate) fn take(&mut self) -> ExprArena {
         Self {
             nodes: std::mem::take(&mut self.nodes),
         }
@@ -61,7 +61,7 @@ impl Parser {
         };
         parser.parse_statement()
     }
-    pub fn at(&self, t_kind: TokenKind) -> bool {
+    pub(crate) fn at(&self, t_kind: TokenKind) -> bool {
         if let Some(t) = self.tokens.get(self.pos)
             && t_kind == t.kind
         {
@@ -70,7 +70,7 @@ impl Parser {
         false
     }
 
-    pub fn eat(&mut self, t_kind: TokenKind) -> bool {
+    pub(crate) fn eat(&mut self, t_kind: TokenKind) -> bool {
         if self.at(t_kind) {
             self.pos += 1;
             return true;
@@ -78,14 +78,14 @@ impl Parser {
         false
     }
 
-    pub fn peek(&self) -> Option<&TokenKind> {
+    pub(crate) fn peek(&self) -> Option<&TokenKind> {
         if let Some(t) = self.tokens.get(self.pos) {
             return Some(&t.kind);
         }
         None
     }
 
-    pub fn next_token(&mut self) -> Option<Token> {
+    pub(crate) fn next_token(&mut self) -> Option<Token> {
         let t = self.tokens.get(self.pos).cloned();
         self.pos += 1;
         t
@@ -93,11 +93,11 @@ impl Parser {
 
     // Should be called only if we know there
     // is at least one token left
-    pub fn current_token_span(&self) -> Span {
+    pub(crate) fn current_token_span(&self) -> Span {
         self.tokens.get(self.pos).unwrap().span.clone()
     }
 
-    pub fn expect(&mut self, t_kind: TokenKind) -> Result<(), InkError> {
+    pub(crate) fn expect(&mut self, t_kind: TokenKind) -> Result<(), InkError> {
         if !self.at(t_kind.clone()) {
             match self.peek() {
                 Some(t) => {
@@ -120,7 +120,7 @@ impl Parser {
         self.pos += 1;
         Ok(())
     }
-    pub fn expect_eof(&self) -> InkResult<()> {
+    pub(crate) fn expect_eof(&self) -> InkResult<()> {
         if self.peek().is_some() {
             return Err(InkError::syntax(
                 SyntaxErrorKind::ExpectedEoi(self.tokens[self.pos].kind.clone()),
@@ -129,10 +129,10 @@ impl Parser {
         }
         Ok(())
     }
-    pub fn default_end_span(&self) -> Span {
+    pub(crate) fn default_end_span(&self) -> Span {
         Span(self.query.len(), self.query.len() + 1)
     }
-    pub fn expect_ident(&mut self) -> Result<String, InkError> {
+    pub(crate) fn expect_ident(&mut self) -> Result<String, InkError> {
         match self.peek() {
             Some(TokenKind::Identifier(_)) => match self.next_token() {
                 Some(Token {
@@ -155,7 +155,7 @@ impl Parser {
         }
     }
 
-    pub fn parse_statement(&mut self) -> Result<Ast, InkError> {
+    pub(crate) fn parse_statement(&mut self) -> Result<Ast, InkError> {
         match self.peek() {
             Some(Create) => self.parse_create(),
             Some(Explain) => {

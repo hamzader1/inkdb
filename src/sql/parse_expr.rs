@@ -4,11 +4,11 @@ use super::tokens::TokenKind::*;
 use crate::errors::InkError;
 
 impl Parser {
-    pub fn parse_expression(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_expression(&mut self) -> Result<usize, InkError> {
         self.parse_logical_or()
     }
 
-    pub fn parse_logical_or(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_logical_or(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_logical_and()?;
 
         while self.eat(Or) {
@@ -19,7 +19,7 @@ impl Parser {
         Ok(left)
     }
 
-    pub fn parse_logical_and(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_logical_and(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_condition()?;
         while self.eat(And) {
             let right = self.parse_condition()?;
@@ -28,7 +28,7 @@ impl Parser {
         Ok(left)
     }
 
-    pub fn parse_condition(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_condition(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_addition()?;
         while self.at(Equals)
             || self.at(NotEquals)
@@ -56,7 +56,7 @@ impl Parser {
         }
         Ok(left)
     }
-    pub fn parse_addition(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_addition(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_multiplication()?;
         while self.at(Plus) || self.at(Minus) {
             if self.eat(Plus) {
@@ -70,7 +70,7 @@ impl Parser {
         }
         Ok(left)
     }
-    pub fn parse_multiplication(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_multiplication(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_unary()?;
         while self.at(Star) || self.at(Slash) {
             if self.eat(Star) {
@@ -102,7 +102,7 @@ impl Parser {
             self.parse_factor()
         }
     }
-    pub fn parse_factor(&mut self) -> Result<usize, InkError> {
+    pub(crate) fn parse_factor(&mut self) -> Result<usize, InkError> {
         if self.eat(LeftParen) {
             let expr = self.parse_expression()?;
             self.expect(RightParen)?;

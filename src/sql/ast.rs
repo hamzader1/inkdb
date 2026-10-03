@@ -8,57 +8,57 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct CreateTableStmt {
-    pub query: Rc<str>,
-    pub name: String,
-    pub columns: Vec<Column>,
-    pub tbl_constraints: Vec<usize>,
-    pub arena: ExprArena,
+    pub(crate) query: Rc<str>,
+    pub(crate) name: String,
+    pub(crate) columns: Vec<Column>,
+    pub(crate) tbl_constraints: Vec<usize>,
+    pub(crate) arena: ExprArena,
 }
 
 #[derive(Debug)]
 pub struct CreateIndexStmt {
-    pub query: Rc<str>,
-    pub unique: bool,
-    pub name: String,
-    pub table: String,
-    pub columns: Vec<String>,
+    pub(crate) query: Rc<str>,
+    pub(crate) unique: bool,
+    pub(crate) name: String,
+    pub(crate) table: String,
+    pub(crate) columns: Vec<String>,
 }
 #[derive(Debug)]
 pub struct DropTableStmt {
-    pub tbl_name: String,
+    pub(crate) tbl_name: String,
 }
 #[derive(Debug)]
 pub struct DropIndexStmt {
-    pub index_name: String,
+    pub(crate) index_name: String,
 }
 #[derive(Debug, Clone)]
-pub struct Column {
-    pub name: String,
-    pub affinity: Affinity,
-    pub constraints: Option<Box<[Constraint]>>,
-    pub default: Option<DefaultValue>,
+pub(crate) struct Column {
+    pub(crate) name: String,
+    pub(crate) affinity: Affinity,
+    pub(crate) constraints: Option<Box<[Constraint]>>,
+    pub(crate) default: Option<DefaultValue>,
 }
 impl Column {
-    pub fn has_constraint(&self, constraint: Constraint) -> bool {
+    pub(crate) fn has_constraint(&self, constraint: Constraint) -> bool {
         self.constraints
             .as_ref()
             .is_some_and(|csts| csts.contains(&constraint))
     }
-    pub fn is_unique(&self) -> bool {
+    pub(crate) fn is_unique(&self) -> bool {
         self.has_constraint(Constraint::Unique)
     }
-    pub fn has_primary_key(&self) -> bool {
+    pub(crate) fn has_primary_key(&self) -> bool {
         self.has_constraint(Constraint::PrimaryKey)
     }
 }
 #[derive(Debug, Clone)]
-pub enum DefaultValue {
+pub(crate) enum DefaultValue {
     Node(usize),
     Val(Value<'static>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub(crate) enum Expr {
     Number(i64),
     Float(f64),
     StringLitteral(String),
@@ -95,7 +95,7 @@ pub enum Expr {
     },
 }
 impl Expr {
-    pub fn remap_l_r(expr: &Expr, l: usize, r: usize) -> Expr {
+    pub(crate) fn remap_l_r(expr: &Expr, l: usize, r: usize) -> Expr {
         match expr {
             Expr::Add(_, _) => Expr::Add(l, r),
             Expr::Substract(_, _) => Expr::Substract(l, r),
@@ -113,7 +113,7 @@ impl Expr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Copy)]
-pub enum BinaryOperator {
+pub(crate) enum BinaryOperator {
     Eq,
     NotEq,
     Ge,
@@ -124,31 +124,31 @@ pub enum BinaryOperator {
 
 #[derive(Debug, Clone)]
 pub struct SelectStmt {
-    pub table_name: String,
-    pub arena: ExprArena,
-    pub columns: Vec<usize>,
-    pub where_clause: Option<usize>, // same arena used twice
-    pub limit: Option<usize>,
-    pub orderby: Option<OrderBy>, /*The order ignored for now*/
+    pub(crate) table_name: String,
+    pub(crate) arena: ExprArena,
+    pub(crate) columns: Vec<usize>,
+    pub(crate) where_clause: Option<usize>, // same arena used twice
+    pub(crate) limit: Option<usize>,
+    pub(crate) orderby: Option<OrderBy>, /*The order ignored for now*/
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct OrderBy {
-    pub index: usize,
-    pub desc: bool,
+pub(crate) struct OrderBy {
+    pub(crate) index: usize,
+    pub(crate) desc: bool,
 }
 
 impl OrderBy {
-    pub fn new(index: usize, desc: bool) -> Self {
+    pub(crate) fn new(index: usize, desc: bool) -> Self {
         Self { index, desc }
     }
 }
 #[derive(Debug)]
 pub struct InsertStmt {
-    pub table_name: String,
-    pub columns: Vec<String>,
-    pub values: Vec<Vec<usize>>,
-    pub arena: ExprArena,
+    pub(crate) table_name: String,
+    pub(crate) columns: Vec<String>,
+    pub(crate) values: Vec<Vec<usize>>,
+    pub(crate) arena: ExprArena,
 }
 
 #[derive(Debug)]
@@ -168,7 +168,7 @@ pub struct ExplainStmt {
 // }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Affinity {
+pub(crate) enum Affinity {
     Text,
     Float,
     Int,
@@ -199,7 +199,7 @@ impl std::fmt::Display for Affinity {
 }
 
 impl Affinity {
-    pub fn from_type_name(name: &str) -> InkResult<Self> {
+    pub(crate) fn from_type_name(name: &str) -> InkResult<Self> {
         let upper = name.to_uppercase();
         if upper.contains("INT") {
             Ok(Self::Int)
@@ -214,22 +214,22 @@ impl Affinity {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Constraint {
+pub(crate) enum Constraint {
     PrimaryKey,
     NotNull,
     Unique,
 }
 #[derive(Debug)]
 pub struct TruncateTableStmt {
-    pub table_name: String,
+    pub(crate) table_name: String,
 }
 
 #[derive(Debug)]
 pub struct UpdateStmt {
-    pub table_name: String,
-    pub columns: Vec<(usize, usize)>,
-    pub where_clause: Option<usize>,
-    pub arena: ExprArena,
+    pub(crate) table_name: String,
+    pub(crate) columns: Vec<(usize, usize)>,
+    pub(crate) where_clause: Option<usize>,
+    pub(crate) arena: ExprArena,
 }
 
 impl UpdateStmt {

@@ -10,7 +10,7 @@ use crate::record::Value;
 use crate::sql::ast::{DeleteStmt, Expr, InsertStmt};
 
 impl Parser {
-    pub fn parse_select(&mut self) -> Result<Ast, InkError> {
+    pub(crate) fn parse_select(&mut self) -> Result<Ast, InkError> {
         self.expect(Select)?;
         let mut columns = Vec::new();
         loop {
@@ -65,7 +65,7 @@ impl Parser {
         }))
     }
 
-    pub fn parse_insert(&mut self) -> Result<Ast, InkError> {
+    pub(crate) fn parse_insert(&mut self) -> Result<Ast, InkError> {
         self.expect(Insert)?;
         self.expect(Into)?;
         let table_name = self.expect_ident()?.to_ascii_lowercase();
@@ -106,7 +106,7 @@ impl Parser {
             arena: self.arena.take(),
         }))
     }
-    pub fn parse_delete(&mut self) -> InkResult<Ast> {
+    pub(crate) fn parse_delete(&mut self) -> InkResult<Ast> {
         self.expect(Delete)?;
         self.expect(From)?;
         let table_name = self.expect_ident()?;
@@ -123,7 +123,7 @@ impl Parser {
             where_clause,
         }))
     }
-    pub fn parse_update(&mut self) -> InkResult<Ast> {
+    pub(crate) fn parse_update(&mut self) -> InkResult<Ast> {
         self.expect(Update)?;
         let table_name = self.expect_ident()?;
         self.expect(Set)?;
