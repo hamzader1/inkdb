@@ -21,9 +21,23 @@ use crate::vfs::disk::DiskVfs;
 use crate::vfs::file::InkFile;
 
 pub struct Database<V: crate::vfs::Vfs> {
-    pub pager: Pager<V>,
-    pub master: Master,
-    pub header: DatabaseHeader,
+    pager: Pager<V>,
+    master: Master,
+    header: DatabaseHeader,
+}
+
+impl<V: crate::vfs::Vfs> Database<V> {
+    pub fn pager(&mut self) -> &mut Pager<V> {
+        &mut self.pager
+    }
+
+    pub fn master(&self) -> &Master {
+        &self.master
+    }
+
+    pub fn header(&self) -> &DatabaseHeader {
+        &self.header
+    }
 }
 
 impl Database<DiskVfs> {
@@ -76,7 +90,7 @@ impl<V: crate::vfs::Vfs> Database<V> {
         Self::load(pager, header)
     }
 
-    pub fn create_with_vfs<P: AsRef<Path>>(
+    pub(crate) fn create_with_vfs<P: AsRef<Path>>(
         mut vfs: V,
         path: P,
         format: DbFormat,
@@ -117,7 +131,7 @@ impl<V: crate::vfs::Vfs> Database<V> {
         let query: Rc<str> = Rc::from(query);
         let lexer = Lexer::tokenize(&query)?;
         let res = Parser::parse(Rc::clone(&query), lexer)?;
-        if self.master.is_dirty {
+        if self.master.is_dirty() {
             self.master.parse(&mut self.pager)?;
         }
         let resolved_query = Analyze::new(&self.master).analyze(res)?;

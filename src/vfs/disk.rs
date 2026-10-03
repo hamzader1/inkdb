@@ -18,8 +18,8 @@ pub struct DiskVfs;
 
 #[derive(Debug)]
 pub struct DiskFile {
-    pub file: std::fs::File,
-    pub path: PathBuf,
+    file: std::fs::File,
+    path: PathBuf,
 }
 
 impl DiskVfs {

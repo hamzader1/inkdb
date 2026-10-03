@@ -189,8 +189,8 @@ pub enum CorruptError {
 #[derive(Debug, Error)]
 #[error("{kind} at {span:?}")]
 pub struct SyntaxError {
-    pub kind: SyntaxErrorKind,
-    pub span: Span,
+    pub(crate) kind: SyntaxErrorKind,
+    pub(crate) span: Span,
 }
 
 impl InkError {

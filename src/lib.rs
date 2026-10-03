@@ -17,11 +17,11 @@ pub mod pager;
 pub mod storage;
 mod util;
 
-pub mod varint;
+mod varint;
 pub mod vfs;
 use errors::InkError;
 
-pub use storage::cursor::MemCursor;
+pub(crate) use storage::cursor::MemCursor;
 pub type DbError = InkError;
 
 pub type Result<T, E = InkError> = std::result::Result<T, E>;
@@ -30,7 +30,7 @@ use self::vfs::Vfs;
 pub type InkResult<T> = Result<T, InkError>;
 use crate::pager::pager::Pager;
 
-pub struct InkDatabase<V: Vfs> {
+pub(crate) struct InkDatabase<V: Vfs> {
     pub pager: Pager<V>,
     header: InkDatabaseHeader,
 }

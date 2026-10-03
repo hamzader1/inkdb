@@ -23,16 +23,38 @@ use crate::sql::ast::{
 
 #[derive(Debug, Clone)]
 pub struct Table {
-    pub name: String,
-    pub root_page: u32,
-    pub columns: Box<[Column]>,
-    pub tbl_constraits: Box<[usize]>,
-    pub tbl_arena: ExprArena,
+    name: String,
+    root_page: u32,
+    columns: Box<[Column]>,
+    tbl_constraits: Box<[usize]>,
+    tbl_arena: ExprArena,
+}
+
+impl Table {
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn root_page(&self) -> u32 {
+        self.root_page
+    }
+
+    pub(crate) fn columns(&self) -> &[Column] {
+        &self.columns
+    }
+
+    pub(crate) fn constraints(&self) -> &[usize] {
+        &self.tbl_constraits
+    }
+
+    pub(crate) fn arena(&self) -> &ExprArena {
+        &self.tbl_arena
+    }
 }
 
 use std::sync::LazyLock;
 
-pub static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
+pub(crate) static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
     name: "master".to_string(),
     root_page: 1,
     columns: vec![
@@ -75,7 +97,7 @@ impl Table {
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
         self.columns.iter().position(|c| c.name == col_name)
     }
-    pub fn get_col_name(&self, idx: usize) -> Option<&Column> {
+    pub(crate) fn get_col_name(&self, idx: usize) -> Option<&Column> {
         self.columns.get(idx)
     }
     pub fn get_cols_len(&self) -> usize {
@@ -91,17 +113,23 @@ impl Table {
 
 #[derive(Debug, Clone)]
 pub struct Index {
-    pub name: String,  // name of the index
-    pub table: String, // name of the table
-    pub root_page: u32,
-    pub columns: Box<[String]>, // single/multi col index
-    pub unique: bool,           // is unique
+    name: String,
+    table: String,
+    root_page: u32,
+    columns: Box<[String]>,
+    unique: bool,
 }
 
 impl Index {
+    pub fn root_page(&self) -> u32 {
+        self.root_page
+    }
+
+    pub(crate) fn name(&self) -> &String {
+        &self.name
+    }
+
     pub fn is_on(&self, col_name: &str, table_name: &str) -> bool {
-        // LIMITED: for single col index
-        // TODO: HANDLE MULTIPLE INDEXES
         let (indexed_col, indexed_table) = (&self.columns[0], &self.table);
         indexed_table.eq_ignore_ascii_case(table_name) && indexed_col.eq_ignore_ascii_case(col_name)
     }
@@ -109,9 +137,27 @@ impl Index {
 
 #[derive(Debug)]
 pub struct Master {
-    pub tables: HashMap<String, Table>,
-    pub indexes: HashMap<String, Index>,
-    pub is_dirty: bool,
+    tables: HashMap<String, Table>,
+    indexes: HashMap<String, Index>,
+    is_dirty: bool,
+}
+
+impl Master {
+    pub fn tables(&self) -> &HashMap<String, Table> {
+        &self.tables
+    }
+
+    pub fn indexes(&self) -> &HashMap<String, Index> {
+        &self.indexes
+    }
+
+    pub(crate) fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+
+    pub(crate) fn mark_dirty(&mut self) {
+        self.is_dirty = true;
+    }
 }
 
 impl Master {
@@ -240,7 +286,7 @@ impl Master {
     }
 }
 
-pub trait TableSchema: std::fmt::Debug + Clone {
+pub(crate) trait TableSchema: std::fmt::Debug + Clone {
     fn column_index(&self, col_name: &str) -> Option<usize>;
     fn column_name(&self, col_idx: usize) -> Option<&Column>;
     fn columns_len(&self) -> usize;

@@ -13,7 +13,7 @@ const MEM_B: &str = "__INK_MEMORY_BUFFER";
 const MEM_D: &str = "__INK_MEMORY_DIR";
 
 #[derive(Debug, Default)]
-pub struct MemVfs {
+pub(crate) struct MemVfs {
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
     journals: HashMap<usize, Rc<RefCell<Vec<u8>>>>,
 }
@@ -69,13 +69,13 @@ impl Vfs for MemVfs {
 }
 
 #[derive(Debug)]
-pub struct MemFile {
+pub(crate) struct MemFile {
     bytes: Rc<RefCell<Vec<u8>>>,
     temp_dir: PathBuf,
 }
 
 impl MemFile {
-    pub fn new(bytes: Rc<RefCell<Vec<u8>>>) -> Self {
+    pub(crate) fn new(bytes: Rc<RefCell<Vec<u8>>>) -> Self {
         let path =
             create_temp_dir(MEM_D).expect("Error while trying to create a temporary memory dir");
         Self {

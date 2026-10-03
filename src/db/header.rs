@@ -156,13 +156,35 @@ impl DbFormat {
 
 #[derive(Debug, Clone, Copy)]
 pub struct InkFileHeader {
-    pub header_string: [u8; INK_MAGIC_SIZE],
-    pub database_page_size: u32,
-    pub reserved_space: u8,
-    pub database_size_in_pages: u32,
-    pub first_freelist_trunk_page: u32,
-    pub total_number_of_freelist_pages: u32,
-    pub version_number: u32,
+    header_string: [u8; INK_MAGIC_SIZE],
+    database_page_size: u32,
+    reserved_space: u8,
+    database_size_in_pages: u32,
+    first_freelist_trunk_page: u32,
+    total_number_of_freelist_pages: u32,
+    version_number: u32,
+}
+
+impl InkFileHeader {
+    pub(crate) fn database_page_size(&self) -> u32 {
+        self.database_page_size
+    }
+
+    pub(crate) fn reserved_space(&self) -> u8 {
+        self.reserved_space
+    }
+
+    pub(crate) fn database_size_in_pages(&self) -> u32 {
+        self.database_size_in_pages
+    }
+
+    pub(crate) fn first_freelist_trunk_page(&self) -> u32 {
+        self.first_freelist_trunk_page
+    }
+
+    pub(crate) fn total_number_of_freelist_pages(&self) -> u32 {
+        self.total_number_of_freelist_pages
+    }
 }
 
 impl Default for InkFileHeader {
@@ -363,29 +385,51 @@ impl DatabaseHeader {
 }
 #[derive(Debug, Clone, Copy)]
 pub struct InkDatabaseHeader {
-    pub header_string: [u8; 16], /*Universal*/
-    pub database_page_size: u32, /*Universal*/
-    pub file_format_write_version: u8,
-    pub file_format_read_version: u8,
-    pub reserved_space: u8,
-    pub maximum_embedded_payload_fraction: u8,
-    pub minimum_embedded_payload_fraction: u8,
-    pub leaf_payload_fraction: u8,
-    pub file_change_counter: u32,
-    pub database_size_in_pages: u32,         /*Universal*/
-    pub first_freelist_trunk_page: u32,      /*Universal*/
-    pub total_number_of_freelist_pages: u32, /*Universal*/
-    pub schema_cookie: u32,
-    pub schema_format_number: u32,
-    pub default_page_cache_size: u32,
-    pub largest_root_btree_page: u32,
-    pub database_text_encoding: u32,
-    pub user_version: u32,
-    pub incremental_vacuum_mode: u32,
-    pub application_id: u32,
-    pub reserved_for_expansion: [u8; 20],
-    pub version_valid_for_number: u32,
-    pub version_number: u32, /*NOT THE SAME */
+    header_string: [u8; 16],
+    database_page_size: u32,
+    file_format_write_version: u8,
+    file_format_read_version: u8,
+    reserved_space: u8,
+    maximum_embedded_payload_fraction: u8,
+    minimum_embedded_payload_fraction: u8,
+    leaf_payload_fraction: u8,
+    file_change_counter: u32,
+    database_size_in_pages: u32,
+    first_freelist_trunk_page: u32,
+    total_number_of_freelist_pages: u32,
+    schema_cookie: u32,
+    schema_format_number: u32,
+    default_page_cache_size: u32,
+    largest_root_btree_page: u32,
+    database_text_encoding: u32,
+    user_version: u32,
+    incremental_vacuum_mode: u32,
+    application_id: u32,
+    reserved_for_expansion: [u8; 20],
+    version_valid_for_number: u32,
+    version_number: u32,
+}
+
+impl InkDatabaseHeader {
+    pub(crate) fn database_page_size(&self) -> u32 {
+        self.database_page_size
+    }
+
+    pub(crate) fn reserved_space(&self) -> u8 {
+        self.reserved_space
+    }
+
+    pub(crate) fn database_size_in_pages(&self) -> u32 {
+        self.database_size_in_pages
+    }
+
+    pub(crate) fn first_freelist_trunk_page(&self) -> u32 {
+        self.first_freelist_trunk_page
+    }
+
+    pub(crate) fn total_number_of_freelist_pages(&self) -> u32 {
+        self.total_number_of_freelist_pages
+    }
 }
 
 impl InkDatabaseHeader {

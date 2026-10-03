@@ -2,7 +2,7 @@ use crate::{DbError, to_int};
 
 use super::file::InkFile;
 
-pub struct FileCursor<'source, S: ?Sized> {
+pub(crate) struct FileCursor<'source, S: ?Sized> {
     s: &'source S,
     offset: u64,
 }
