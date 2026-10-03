@@ -8,8 +8,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Update<V: Vfs> {
-    pub child: Box<Plan<V>>,
-    pub affected_columns: Box<[(usize, usize)]>, /*(ColumnIndex, NewValue)*/
+    pub(crate) child: Box<Plan<V>>,
+    pub(crate) affected_columns: Box<[(usize, usize)]>, /*(ColumnIndex, NewValue)*/
 }
 impl<V: Vfs> Update<V> {
     pub fn new(child: Box<Plan<V>>, affected_columns: Box<[(usize, usize)]>) -> Self {

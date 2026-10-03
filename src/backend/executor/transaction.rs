@@ -40,7 +40,7 @@ impl RollBackTransaction {
             return Err(InkError::NoActiveTransaction);
         }
         ctx.pager.rollback()?;
-        ctx.master.is_dirty = true;
+        ctx.master.mark_dirty();
         Ok(None)
     }
 }

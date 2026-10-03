@@ -9,7 +9,7 @@ use super::eval::Eval;
 
 #[derive(Debug)]
 pub struct Project<V: Vfs> {
-    pub child: Box<Plan<V>>,
+    pub(crate) child: Box<Plan<V>>,
     columns: Box<[usize]>,
 }
 

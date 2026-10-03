@@ -27,7 +27,7 @@ pub struct PrepareIndex<V: Vfs> {
 }
 
 impl<V: Vfs> PrepareIndex<V> {
-    pub fn new(
+    pub(crate) fn new(
         index: IndexMetadata,
         action: Box<dyn IndexMutation<V>>,
         child: Box<Plan<V>>,
@@ -178,7 +178,7 @@ impl<V: Vfs> IndexMutation<V> for IndexDelete {
 }
 #[derive(Debug)]
 pub struct IndexInsert {
-    pub is_unique: bool,
+    pub(crate) is_unique: bool,
 }
 impl<V: Vfs> IndexMutation<V> for IndexInsert {
     fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()> {
@@ -205,8 +205,8 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
 pub struct IndexRangeScan<V: Vfs> {
     index_root_page: u32,
     relation_root_page: u32,
-    pub range: (Bound<Value<'static>>, Bound<Value<'static>>),
-    pub scan_guard: Box<dyn ScanGuard<V>>,
+    pub(crate) range: (Bound<Value<'static>>, Bound<Value<'static>>),
+    pub(crate) scan_guard: Box<dyn ScanGuard<V>>,
     cursor: BTreeCursor<V>,
     is_init: bool,
     is_done: bool,

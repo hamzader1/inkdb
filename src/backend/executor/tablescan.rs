@@ -12,8 +12,8 @@ use super::{Row, RowView};
 
 #[derive(Debug)]
 pub struct TableScan<V: Vfs> {
-    pub cursor: BTreeCursor<V>,
-    pub guard: Box<dyn ScanGuard<V>>,
+    pub(crate) cursor: BTreeCursor<V>,
+    pub(crate) guard: Box<dyn ScanGuard<V>>,
     pushed_predicate: Option<usize>,
     table_name: String,
     rowid_column: Option<usize>,

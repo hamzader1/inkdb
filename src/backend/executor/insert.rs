@@ -8,9 +8,9 @@ use super::context::ExecCtx;
 
 #[derive(Debug)]
 pub struct Insert<'a, V> {
-    pub root_page: u32,
-    pub key: Value<'a>,
-    pub data: Vec<u8>,
+    pub(crate) root_page: u32,
+    pub(crate) key: Value<'a>,
+    pub(crate) data: Vec<u8>,
     _marker: std::marker::PhantomData<V>,
 }
 

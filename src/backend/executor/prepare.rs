@@ -16,9 +16,9 @@ use crate::{backend::planner::plan::Plan, record::Value, vfs::Vfs};
 #[derive(Debug)]
 pub struct PrepareRow<V: Vfs> {
     child: Box<Plan<V>>,
-    pub root_page: u32,
+    pub(crate) root_page: u32,
     table_name: String,
-    pub table_constraints: Option<Box<[usize]>>,
+    pub(crate) table_constraints: Option<Box<[usize]>>,
 }
 
 impl<V: Vfs> PrepareRow<V> {
@@ -65,7 +65,7 @@ impl<V: Vfs> PrepareRow<V> {
             if is_duplicated {
                 return Err(InkError::runtime(format!(
                     "Unique UNIQUE constraint failed on {}.{}",
-                    t.name,
+                    t.name(),
                     t.get_col_name(idx).unwrap().name
                 )));
             }
@@ -93,7 +93,7 @@ use super::insert::Insert;
 
 #[derive(Debug)]
 pub struct PrepareInsert<V: Vfs> {
-    pub rows: Vec<Vec<Value<'static>>>,
+    pub(crate) rows: Vec<Vec<Value<'static>>>,
     pos: usize,
     _marker: PhantomData<fn() -> V>,
 }

@@ -21,7 +21,7 @@ impl<V: Vfs> DropTbl<V> {
     }
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         while self.child.next(ctx)?.is_some() {}
-        ctx.master.is_dirty = true;
+        ctx.master.mark_dirty();
         Ok(None)
     }
 }

@@ -70,7 +70,7 @@ impl<V: Vfs> CreateTable<V> {
             None,
         );
         while prepare.next(ctx)?.is_some() {}
-        ctx.master.is_dirty = true;
+        ctx.master.mark_dirty();
         for (i, column) in self.meta.unique_on.iter().enumerate() {
             let col_name = self.meta.meta.columns[*column].name.clone();
             let query = format!(
@@ -206,7 +206,7 @@ impl<V: Vfs> CreateIndex<V> {
             None,
         );
         while prepare_row.next(ctx)?.is_some() {}
-        ctx.master.is_dirty = true;
+        ctx.master.mark_dirty();
         self.index = Some(IndexMetadata::new(
             new_page,
             self.meta.column_index,

@@ -79,7 +79,7 @@ fn render_expr_at(arena: &ExprArena, index: usize, table: Option<&Table>, depth:
     }
 }
 
-pub fn render_operator(op: BinaryOperator) -> &'static str {
+pub(crate) fn render_operator(op: BinaryOperator) -> &'static str {
     match op {
         BinaryOperator::Eq => "=",
         BinaryOperator::NotEq => "!=",

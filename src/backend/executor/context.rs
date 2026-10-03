@@ -4,10 +4,10 @@ use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 
 pub struct ExecCtx<'a, V: Vfs> {
-    pub pager: &'a mut Pager<V>,
-    pub master: &'a mut Master,
-    pub arena: &'a ExprArena,
-    pub statement_table: Option<&'a str>,
+    pub(crate) pager: &'a mut Pager<V>,
+    pub(crate) master: &'a mut Master,
+    pub(crate) arena: &'a ExprArena,
+    pub(crate) statement_table: Option<&'a str>,
 }
 
 impl<'a, V: Vfs> ExecCtx<'a, V> {

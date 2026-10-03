@@ -14,7 +14,7 @@ use super::scan_guard::ScanGuard;
 pub struct RowRangeScan<V: Vfs> {
     root_page: u32,
     rowid_column: Option<usize>,
-    pub range: (Bound<i64>, Bound<i64>),
+    pub(crate) range: (Bound<i64>, Bound<i64>),
     cursor: BTreeCursor<V>,
     scan_guard: Box<dyn ScanGuard<V>>,
     is_init: bool,

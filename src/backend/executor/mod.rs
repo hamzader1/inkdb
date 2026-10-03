@@ -31,7 +31,7 @@ pub mod update;
 pub(crate) const MEM_CAP: usize = 0xA00000; /*10MiB*/
 
 #[derive(Debug)]
-pub enum Columns {
+pub(crate) enum Columns {
     Stored(Vec<u8>),
     Computed(Vec<Value<'static>>),
 }
@@ -232,7 +232,7 @@ impl std::fmt::Display for RowWrapper {
     }
 }
 
-pub fn frame_len(record_len: usize, key: u64) -> usize {
+pub(crate) fn frame_len(record_len: usize, key: u64) -> usize {
     let mut buffer = [0u8; 9];
     let key_bytes = encode_varint(&mut buffer, key);
     let payload = key_bytes + record_len;
@@ -240,7 +240,7 @@ pub fn frame_len(record_len: usize, key: u64) -> usize {
     length_bytes + payload
 }
 
-pub fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize {
+pub(crate) fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize {
     let mut length_buffer = [0u8; 9];
     let mut key_buffer = [0u8; 9];
     let key_bytes = encode_varint(&mut key_buffer, key);
@@ -252,7 +252,7 @@ pub fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize {
     length_bytes + payload
 }
 
-pub fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
+pub(crate) fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
     let (payload, consumed) = decode_varint(frame).ok_or(CorruptError::TruncatedRecord {
         field: 0,
         size: frame.len(),
@@ -278,7 +278,7 @@ pub fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
 }
 
 #[derive(Debug)]
-pub enum StreamSource {
+pub(crate) enum StreamSource {
     Mem {
         buffer: Vec<u8>,
         offset: usize,

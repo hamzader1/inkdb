@@ -8,7 +8,7 @@ use super::context::ExecCtx;
 #[derive(Debug)]
 pub struct Limit<V: Vfs> {
     child: Box<Plan<V>>,
-    pub limit: usize,
+    pub(crate) limit: usize,
     is_done: bool,
 }
 
