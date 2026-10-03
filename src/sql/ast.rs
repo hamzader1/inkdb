@@ -27,6 +27,10 @@ pub struct CreateIndexStmt {
 pub struct DropTableStmt {
     pub tbl_name: String,
 }
+#[derive(Debug)]
+pub struct DropIndexStmt {
+    pub index_name: String,
+}
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
@@ -250,6 +254,7 @@ pub enum Ast {
     CreateIndexAst(CreateIndexStmt),
     SelectStmtAst(SelectStmt),
     DropTblAst(DropTableStmt),
+    DropIndexAst(DropIndexStmt),
     InsertStmtAst(InsertStmt),
     DeleteStmtAst(DeleteStmt),
     ExplainStmtAst(ExplainStmt),

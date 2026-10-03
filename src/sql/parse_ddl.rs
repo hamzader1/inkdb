@@ -28,7 +28,10 @@ impl Parser {
         self.expect(Drop)?;
         match self.peek() {
             Some(Table) => self.parse_drop_table(),
-            _ => todo!(),
+            Some(Index) => self.parse_drop_index(),
+            _ => Err(InkError::runtime(
+                "Expected TABLE or INDEX after DROP (e.g. DROP TABLE t or DROP INDEX i)",
+            )),
         }
     }
 
@@ -188,8 +191,15 @@ impl Parser {
 
     pub fn parse_drop_table(&mut self) -> InkResult<Ast> {
         self.expect(Table)?;
-        let tbl_name = self.expect_ident()?;
+        let tbl_name = self.expect_ident()?.to_ascii_lowercase();
         self.expect_eof()?;
         Ok(Ast::DropTblAst(DropTableStmt { tbl_name }))
+    }
+
+    pub fn parse_drop_index(&mut self) -> InkResult<Ast> {
+        self.expect(Index)?;
+        let index_name = self.expect_ident()?.to_ascii_lowercase();
+        self.expect_eof()?;
+        Ok(Ast::DropIndexAst(DropIndexStmt { index_name }))
     }
 }
