@@ -7,9 +7,11 @@ pub mod rebalance;
 pub mod tree;
 pub mod typed_mut;
 
-pub use cursor::{BTreeCursor, CursorState, Path, RestorePosition, SeekResult};
+pub use cursor::{BTreeCursor, CursorState, SeekResult};
+pub(crate) use cursor::{Path, RestorePosition};
 pub use insert::BTree;
-pub use kind::{IndexInterior, IndexLeaf, TableInterior, TableLeaf};
+pub use kind::TableLeaf;
+pub(crate) use kind::{IndexInterior, IndexLeaf, TableInterior};
 
 use std::cmp::Ordering;
 
@@ -35,7 +37,7 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
     )
 }
 
-pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
+pub(crate) fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b mut PageGuard,
     pager: &Pager<V>,

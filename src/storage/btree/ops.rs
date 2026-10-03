@@ -11,7 +11,7 @@ use crate::storage::btree::CellIndex;
 use crate::storage::cell::{IndexInteriorCell, TableInteriorCell, TableLeafCell};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Divider {
+pub(crate) enum Divider {
     RowId(u64),
     Entry {
         cell: Box<[u8]>,
@@ -36,26 +36,26 @@ impl Divider {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Consumed {
+pub(crate) enum Consumed {
     None,
     LastOfLeft,
     FirstOfRight,
 }
 
-pub struct Promotion {
+pub(crate) struct Promotion {
     pub divider: Divider,
     pub consumed: Consumed,
     pub left_rmp: Option<PageNo>,
 }
 
-pub struct Split {
+pub(crate) struct Split {
     pub left_page: PageNo,
     pub right_page: PageNo,
     pub divider: Divider,
     pub right_bound: Divider,
 }
 
-pub enum ParentSlot {
+pub(crate) enum ParentSlot {
     RightMost,
     Existing {
         cell: Box<[u8]>,
@@ -63,7 +63,7 @@ pub enum ParentSlot {
     },
 }
 
-pub trait CellOps: PageKind + Sized {
+pub(crate) trait CellOps: PageKind + Sized {
     fn slot_for<B: AsRef<[u8]>, V: Vfs>(
         page: &TypedPage<B, Self>,
         pager: &mut Pager<V>,
@@ -89,23 +89,23 @@ pub trait CellOps: PageKind + Sized {
     ) -> InkResult<Promotion>;
 }
 
-pub trait InteriorOps: RebalanceOps {
+pub(crate) trait InteriorOps: RebalanceOps {
     fn child_of<B: AsRef<[u8]>>(page: &TypedPage<B, Self>, i: CellIndex) -> InkResult<PageNo>;
 
     fn right_divider(old_cell: &[u8], old_key: Value<'static>, right_bound: Divider) -> Divider;
 }
 
-pub trait LeafKind: RebalanceOps {
+pub(crate) trait LeafKind: RebalanceOps {
     type Parent: InteriorOps;
 }
 
-pub struct Redistribute {
+pub(crate) struct Redistribute {
     pub parent_cell: Vec<u8>,
     pub drop_left_last: bool,
     pub left_rmp: Option<PageNo>,
 }
 
-pub trait RebalanceOps: CellOps {
+pub(crate) trait RebalanceOps: CellOps {
     fn pull_down(
         sep_cell: &[u8],
         left_rmp: Option<PageNo>,

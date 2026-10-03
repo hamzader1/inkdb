@@ -12,9 +12,9 @@ use super::ops::{CellOps, Consumed, Divider, InteriorOps, LeafKind, ParentSlot, 
 use super::typed_mut::{AnyPageMut, parse_ref};
 
 pub struct BTree<'a, V: Vfs> {
-    pub root_page: PageNo,
-    pub pager: &'a mut Pager<V>,
-    pub cursor: BTreeCursor<V>,
+    pub(crate) root_page: PageNo,
+    pub(crate) pager: &'a mut Pager<V>,
+    pub(crate) cursor: BTreeCursor<V>,
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {

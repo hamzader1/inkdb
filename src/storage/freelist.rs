@@ -8,7 +8,7 @@ use crate::{
     vfs::Vfs,
 };
 
-pub struct FreeList<'a, V: Vfs> {
+pub(crate) struct FreeList<'a, V: Vfs> {
     pager: &'a mut Pager<V>,
 }
 impl<'a, V: Vfs> FreeList<'a, V> {
@@ -110,10 +110,10 @@ impl<'a, V: Vfs> FreeList<'a, V> {
     }
 }
 
-pub struct FreeListAllocMeta {
-    pub allocated_page: Option<u32>,
-    pub first_freelist_trunk_page: u32,
-    pub total_freelist_pages: u32,
+pub(crate) struct FreeListAllocMeta {
+    pub(crate) allocated_page: Option<u32>,
+    pub(crate) first_freelist_trunk_page: u32,
+    pub(crate) total_freelist_pages: u32,
 }
 
 impl FreeListAllocMeta {

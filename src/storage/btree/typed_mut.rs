@@ -7,7 +7,7 @@ use crate::vfs::Vfs;
 
 use super::kind::{IndexInterior, IndexLeaf, PageKind, TableInterior, TableLeaf, TypedPage};
 
-pub enum AnyPageMut<B> {
+pub(crate) enum AnyPageMut<B> {
     TableInterior(TypedPage<B, TableInterior>),
     TableLeaf(TypedPage<B, TableLeaf>),
     IndexInterior(TypedPage<B, IndexInterior>),

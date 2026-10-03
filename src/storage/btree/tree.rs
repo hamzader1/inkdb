@@ -88,7 +88,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         self.cursor.save_position(self.pager)
     }
 
-    pub fn restore_position(&mut self) -> InkResult<RestorePosition> {
+    pub(crate) fn restore_position(&mut self) -> InkResult<RestorePosition> {
         self.cursor.restore_position(self.pager)
     }
     pub fn max_row_id(&mut self) -> InkResult<u64> {

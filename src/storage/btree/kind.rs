@@ -7,10 +7,10 @@ use crate::storage::page::{BTreePage, LEFT_CHILD_POINTER_SIZE, OVERFLOW_POINTER_
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
 
-pub struct TableInterior;
+pub(crate) struct TableInterior;
 pub struct TableLeaf;
-pub struct IndexInterior;
-pub struct IndexLeaf;
+pub(crate) struct IndexInterior;
+pub(crate) struct IndexLeaf;
 
 pub trait PageKind {
     type Cell: Cell;
@@ -192,7 +192,7 @@ impl HasPayload for TableLeafCell {
         self.payload_len
     }
 }
-pub struct TypedPage<B, K: PageKind> {
+pub(crate) struct TypedPage<B, K: PageKind> {
     inner: BTreePage<B>,
     _kind: std::marker::PhantomData<fn() -> K>,
 }
@@ -257,7 +257,7 @@ impl<B, K: PageKind> TypedPage<B, K> {
     }
 }
 
-pub enum AnyPage<B> {
+pub(crate) enum AnyPage<B> {
     TableInterior(TypedPage<B, TableInterior>),
     TableLeaf(TypedPage<B, TableLeaf>),
     IndexInterior(TypedPage<B, IndexInterior>),

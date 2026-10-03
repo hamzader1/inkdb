@@ -98,7 +98,7 @@ pub enum InsertionState {
     None,
 }
 
-pub struct OverflowPageRef<'a> {
+pub(crate) struct OverflowPageRef<'a> {
     pub next: PageNo,
     pub data: &'a [u8],
 }
@@ -130,7 +130,7 @@ impl<'a> OverflowPageRef<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct FreeCell {
+pub(crate) struct FreeCell {
     pub starting_offset: u16,
     pub next: u16,
     pub size: u16,
@@ -256,7 +256,7 @@ pub fn compute_index_local_payload_size(usable_size: usize, payload_len: usize) 
 }
 
 pub type PageRef<'a> = BTreePage<&'a [u8]>;
-pub type PageMut<'a> = BTreePage<&'a mut [u8]>;
+pub(crate) type PageMut<'a> = BTreePage<&'a mut [u8]>;
 
 #[derive(Debug)]
 pub struct BTreePage<B> {

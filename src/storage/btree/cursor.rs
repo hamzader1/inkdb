@@ -32,7 +32,7 @@ pub enum SeekResult {
 }
 
 #[derive(Debug)]
-pub struct Path {
+pub(crate) struct Path {
     pub page_no: PageNo,
     pub cell_idx: u16,
     pub(crate) guard: PageGuard,
@@ -53,13 +53,13 @@ impl Path {
     }
 }
 
-pub enum RestorePosition {
+pub(crate) enum RestorePosition {
     Exact,
     Next,
     Empty,
 }
 
-pub enum IndexSearchResult {
+pub(crate) enum IndexSearchResult {
     Exact(u16),
     EqualPrefix(u16),
     NotFound(u16),
@@ -67,10 +67,10 @@ pub enum IndexSearchResult {
 
 #[derive(Debug)]
 pub struct BTreeCursor<V: crate::vfs::Vfs> {
-    pub root: PageNo,
-    pub stack: Vec<Path>,
-    pub state: CursorState,
-    pub saved_key: Option<Value<'static>>,
+    pub(crate) root: PageNo,
+    pub(crate) stack: Vec<Path>,
+    pub(crate) state: CursorState,
+    pub(crate) saved_key: Option<Value<'static>>,
     saved_yielded: bool,
     _phantom: std::marker::PhantomData<V>,
 }
@@ -114,7 +114,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         }
         Ok(())
     }
-    pub fn restore_position(&mut self, pager: &mut Pager<V>) -> InkResult<RestorePosition> {
+    pub(crate) fn restore_position(&mut self, pager: &mut Pager<V>) -> InkResult<RestorePosition> {
         let Some(key) = self.saved_key.take() else {
             return Ok(RestorePosition::Empty);
         };
@@ -607,7 +607,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn last_visited_entry_unchecked(&self) -> (u32, u16) {
         self.last_visited_entry().expect("Path stack is empty")
     }
-    pub fn last_path(&self) -> Option<&Path> {
+    pub(crate) fn last_path(&self) -> Option<&Path> {
         self.stack.last()
     }
 }
