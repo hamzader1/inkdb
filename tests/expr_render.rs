@@ -14,13 +14,13 @@ fn plan_text(db: &mut Database<DiskVfs>, q: &str) -> String {
     let query: Rc<str> = Rc::from(q);
     let lexer = inkdb::sql::lexer::Lexer::tokenize(&query).expect("lex");
     let parsed = inkdb::sql::parser::Parser::parse(Rc::clone(&query), lexer).expect("parse");
-    let master = Master::new(&mut db.pager).expect("master");
+    let master = Master::new(db.pager()).expect("master");
     let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
-    let prepared = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
+    let prepared = Plan::create_plan(resolved, db.pager(), &master).expect("plan");
     let table = prepared.table_name().and_then(|name| master.table(name));
     format!(
         "{}",
-        PlanTree::new(&prepared.parent, &prepared.arena, table)
+        PlanTree::new(prepared.parent(), prepared.arena(), table)
     )
 }
 

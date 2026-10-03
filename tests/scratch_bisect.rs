@@ -9,9 +9,9 @@ fn walk_table_refs(
 ) -> Vec<(u32, Vec<(u32, u16)>)> {
     use inkdb::storage::cell::BTreeCell;
     use inkdb::storage::page::BTreePage;
-    let ps = db.pager.page_size();
-    let us = db.pager.usable_size();
-    let hl = db.pager.header_len();
+    let ps = db.pager().page_size();
+    let us = db.pager().usable_size();
+    let hl = db.pager().header_len();
     let mut counts: HashMap<u32, u32> = HashMap::new();
     let mut parents: HashMap<u32, Vec<(u32, u16)>> = HashMap::new();
     let mut seen = HashSet::new();
@@ -23,7 +23,7 @@ fn walk_table_refs(
         if seen.len() > 100000 {
             break;
         }
-        let Ok(guard) = db.pager.get(pn) else {
+        let Ok(guard) = db.pager().get(pn) else {
             continue;
         };
         let Ok(page) = BTreePage::new(pn, ps, us, hl, guard.bytes()) else {
@@ -66,9 +66,9 @@ fn walk_index_refs(
 ) -> Vec<(u32, Vec<(u32, u16)>)> {
     use inkdb::storage::cell::BTreeCell;
     use inkdb::storage::page::BTreePage;
-    let ps = db.pager.page_size();
-    let us = db.pager.usable_size();
-    let hl = db.pager.header_len();
+    let ps = db.pager().page_size();
+    let us = db.pager().usable_size();
+    let hl = db.pager().header_len();
     let mut counts: HashMap<u32, u32> = HashMap::new();
     let mut parents: HashMap<u32, Vec<(u32, u16)>> = HashMap::new();
     let mut seen = HashSet::new();
@@ -80,7 +80,7 @@ fn walk_index_refs(
         if seen.len() > 100000 {
             break;
         }
-        let Ok(guard) = db.pager.get(pn) else {
+        let Ok(guard) = db.pager().get(pn) else {
             continue;
         };
         let Ok(page) = BTreePage::new(pn, ps, us, hl, guard.bytes()) else {
@@ -123,8 +123,8 @@ fn bisect_groups() {
     build_users(&path, 512, 20_000);
     let mut db = open_engine(&path);
     run_ok(&mut db, "create index age_index on users(age)");
-    let master = inkdb::Master::new(&mut db.pager).unwrap();
-    let idx_root = master.indexes.values().next().unwrap().root_page;
+    let master = inkdb::Master::new(db.pager()).unwrap();
+    let idx_root = master.indexes().values().next().unwrap().root_page();
     let check = |db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>| {
         let mut out = walk_table_refs(db);
         out.extend(walk_index_refs(db, idx_root));

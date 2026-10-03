@@ -7,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root: u32) {
     use inkdb::storage::cell::BTreeCell;
     use inkdb::storage::page::BTreePage;
-    let ps = db.pager.page_size();
-    let us = db.pager.usable_size();
-    let hl = db.pager.header_len();
+    let ps = db.pager().page_size();
+    let us = db.pager().usable_size();
+    let hl = db.pager().header_len();
     let mut counts: HashMap<u32, u32> = HashMap::new();
     let mut parents: HashMap<u32, Vec<(u32, u16)>> = HashMap::new();
     let mut seen = HashSet::new();
@@ -22,7 +22,7 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
             eprintln!("walk runaway");
             break;
         }
-        let Ok(guard) = db.pager.get(pn) else {
+        let Ok(guard) = db.pager().get(pn) else {
             eprintln!("walk: page {pn} unreadable");
             continue;
         };
@@ -76,10 +76,10 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
 fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32) {
     use inkdb::storage::cell::BTreeCell;
     use inkdb::storage::page::BTreePage;
-    let ps = db.pager.page_size();
-    let us = db.pager.usable_size();
-    let hl = db.pager.header_len();
-    let guard = db.pager.get(pp).unwrap();
+    let ps = db.pager().page_size();
+    let us = db.pager().usable_size();
+    let hl = db.pager().header_len();
+    let guard = db.pager().get(pp).unwrap();
     let page = BTreePage::new(pp, ps, us, hl, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
     eprintln!(
@@ -91,7 +91,7 @@ fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32)
         let cell = page.cell(i).unwrap();
         match &cell {
             BTreeCell::IndexInterior(x) => {
-                let key = page.record_of(&cell, &mut db.pager).unwrap();
+                let key = page.record_of(&cell, db.pager()).unwrap();
                 eprintln!("dump slot {i}: left={} key={:?}", x.left_child, key);
             }
             BTreeCell::TableInterior(x) => {
@@ -107,10 +107,10 @@ fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32)
 
 fn dump_page_keys(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pn: u32) {
     use inkdb::storage::page::BTreePage;
-    let ps = db.pager.page_size();
-    let us = db.pager.usable_size();
-    let hl = db.pager.header_len();
-    let guard = db.pager.get(pn).unwrap();
+    let ps = db.pager().page_size();
+    let us = db.pager().usable_size();
+    let hl = db.pager().header_len();
+    let guard = db.pager().get(pn).unwrap();
     let page = BTreePage::new(pn, ps, us, hl, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
     eprintln!(
@@ -122,7 +122,7 @@ fn dump_page_keys(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pn: u
         if let Ok(cell) = page.cell(i) {
             eprintln!(
                 "dump page {pn} edge cell {i}: {:?}",
-                page.record_of(&cell, &mut db.pager).unwrap().first()
+                page.record_of(&cell, db.pager()).unwrap().first()
             );
         }
     }
@@ -135,8 +135,8 @@ fn probe(n: u64, tag: &str) {
     run_ok(&mut db, "create index age_index on users(age)");
     // Index root via the engine catalog (only one index exists).
     let root: u32 = {
-        let master = inkdb::Master::new(&mut db.pager).unwrap();
-        master.indexes.values().next().unwrap().root_page
+        let master = inkdb::Master::new(db.pager()).unwrap();
+        master.indexes().values().next().unwrap().root_page()
     };
     walk_refcounts(&mut db, root);
     commit_and_close(db);

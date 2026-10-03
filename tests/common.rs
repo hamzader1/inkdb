@@ -63,13 +63,13 @@ pub fn build_users(path: &Path, page_size: u32, n: u64) {
 
 pub fn open_engine(path: &Path) -> Database<DiskVfs> {
     let mut db = Database::new(path).expect("engine open");
-    db.pager.start_transaction();
+    db.pager().start_transaction();
     db
 }
 
 fn ensure_txn(db: &mut Database<DiskVfs>) {
-    if !db.pager.in_transaction() {
-        db.pager.start_transaction();
+    if !db.pager().in_transaction() {
+        db.pager().start_transaction();
     }
 }
 
@@ -80,16 +80,16 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     let lexer = Lexer::tokenize(&query).unwrap_or_else(|e| panic!("lex {q:?}: {e}"));
     let parsed =
         Parser::parse(Rc::clone(&query), lexer).unwrap_or_else(|e| panic!("parse {q:?}: {e}"));
-    let mut master = Master::new(&mut db.pager).expect("master");
+    let mut master = Master::new(db.pager()).expect("master");
     let resolved = Analyze::new(&master)
         .analyze(parsed)
         .unwrap_or_else(|e| panic!("analyze {q:?}: {e}"));
-    let mut plan = Plan::create_plan(resolved, &mut db.pager, &master)
+    let mut plan = Plan::create_plan(resolved, db.pager(), &master)
         .unwrap_or_else(|e| panic!("plan {q:?}: {e}"));
     let mut n = 0;
     loop {
         println!("query: {}", query);
-        match plan.next(&mut db.pager, &mut master) {
+        match plan.next(db.pager(), &mut master) {
             Ok(Some(_)) => n += 1,
             Ok(None) => break,
             Err(e) => panic!("exec {q:?}: {e}"),
@@ -129,17 +129,17 @@ where
         Ok(parsed) => parsed,
         Err(error) => return render(&error),
     };
-    let mut master = Master::new(&mut db.pager).expect("master");
+    let mut master = Master::new(db.pager()).expect("master");
     let resolved = match Analyze::new(&master).analyze(parsed) {
         Ok(resolved) => resolved,
         Err(error) => return render(&error),
     };
-    let mut plan = match Plan::create_plan(resolved, &mut db.pager, &master) {
+    let mut plan = match Plan::create_plan(resolved, db.pager(), &master) {
         Ok(plan) => plan,
         Err(error) => return render(&error),
     };
     loop {
-        match plan.next(&mut db.pager, &mut master) {
+        match plan.next(db.pager(), &mut master) {
             Ok(Some(_)) => {}
             Ok(None) => panic!("expected error, statement succeeded: {q:?}"),
             Err(error) => return render(&error),
@@ -149,8 +149,8 @@ where
 
 pub fn commit_and_close(db: Database<DiskVfs>) {
     let mut db = db;
-    if db.pager.in_transaction() {
-        db.pager.commit().expect("commit");
+    if db.pager().in_transaction() {
+        db.pager().commit().expect("commit");
     }
 }
 

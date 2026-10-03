@@ -16,9 +16,9 @@ fn plan_of(db: &mut Database<DiskVfs>, q: &str) -> (PreparedPlan<DiskVfs>, Maste
     let query: Rc<str> = Rc::from(q);
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
-    let master = Master::new(&mut db.pager).expect("master");
+    let master = Master::new(db.pager()).expect("master");
     let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
-    let prepared = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
+    let prepared = Plan::create_plan(resolved, db.pager(), &master).expect("plan");
     (prepared, master)
 }
 
@@ -32,7 +32,7 @@ fn nodes<'a>(plan: &'a Plan<DiskVfs>, out: &mut Vec<&'a Plan<DiskVfs>>) {
 fn check_shape(db: &mut Database<DiskVfs>, q: &str, has_where: bool) {
     let (prepared, _master) = plan_of(db, q);
     let mut all = Vec::new();
-    nodes(&prepared.parent, &mut all);
+    nodes(prepared.parent(), &mut all);
 
     let mut filters = 0;
     let mut index_paths = 0;
@@ -81,7 +81,7 @@ fn a_predicate_is_evaluated_exactly_once() {
 
     let (prepared, master) = plan_of(&mut db, "select * from users where age = 21");
     let table = prepared.table_name().and_then(|name| master.table(name));
-    let label = prepared.parent.node_label(&prepared.arena, table);
+    let label = prepared.parent().node_label(prepared.arena(), table);
     assert!(
         label.contains("filter:"),
         "the pushed predicate must be visible in EXPLAIN: {label}"
@@ -90,7 +90,7 @@ fn a_predicate_is_evaluated_exactly_once() {
     run_ok(&mut db, "create index age_index on users(age)");
 
     let (prepared, _master) = plan_of(&mut db, "select * from users where age = 21");
-    let Plan::Filter(filter) = &prepared.parent else {
+    let Plan::Filter(filter) = prepared.parent() else {
         panic!("with an index the plan must keep its Filter");
     };
     assert!(matches!(filter.child(), Plan::IndexExactMatch(_)));

@@ -25,14 +25,14 @@ fn u32_at(bytes: &[u8], off: usize) -> u32 {
 }
 
 fn file_page_count(db: &mut Database<DiskVfs>) -> u32 {
-    let guard = db.pager.get(1).expect("page 1");
+    let guard = db.pager().get(1).expect("page 1");
     u32_at(guard.bytes(), DATABASE_SIZE_IN_PAGES_OFFSET)
 }
 
 fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> HashSet<u32> {
-    let usable = db.pager.usable_size();
+    let usable = db.pager().usable_size();
     let (head, total) = {
-        let guard = db.pager.get(1).expect("page 1");
+        let guard = db.pager().get(1).expect("page 1");
         let bytes = guard.bytes();
         (
             u32_at(bytes, FIRST_FREELIST_TRUNK_PAGE_OFFSET),
@@ -55,7 +55,7 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
         }
         counted += 1;
         let (next, leaves) = {
-            let guard = match db.pager.get(current) {
+            let guard = match db.pager().get(current) {
                 Ok(g) => g,
                 Err(e) => {
                     problems.push(format!("freelist: trunk {current} unreadable: {e}"));
@@ -73,7 +73,7 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
         }
         for slot in 0..leaves {
             let leaf = {
-                let guard = db.pager.get(current).expect("trunk re-read");
+                let guard = db.pager().get(current).expect("trunk re-read");
                 u32_at(guard.bytes(), 8 + 4 * slot as usize)
             };
             if leaf == 0 || !free.insert(leaf) {
@@ -110,9 +110,9 @@ fn audit_page(
             .push(format!("page {page_no} is referenced more than once"));
         return empty;
     }
-    let page_size = db.pager.page_size();
-    let usable = db.pager.usable_size();
-    let header_len = db.pager.header_len();
+    let page_size = db.pager().page_size();
+    let usable = db.pager().usable_size();
+    let header_len = db.pager().header_len();
     let file_pages = file_page_count(db);
     if page_no == 0 || page_no > file_pages {
         ctx.problems.push(format!(
@@ -122,7 +122,7 @@ fn audit_page(
     }
     let header_offset = if page_no == 1 { header_len } else { 0 };
     let bytes = {
-        let guard = match db.pager.get(page_no) {
+        let guard = match db.pager().get(page_no) {
             Ok(g) => g,
             Err(e) => {
                 ctx.problems.push(format!("page {page_no} unreadable: {e}"));
@@ -328,7 +328,7 @@ fn audit_page(
                 continue;
             }
         };
-        match page.cell_key(&cell, &mut db.pager) {
+        match page.cell_key(&cell, db.pager()) {
             Ok(key) => keys.push(key),
             Err(e) => ctx
                 .problems
@@ -396,7 +396,7 @@ fn audit_page(
 
 pub fn audit_database(db: &mut Database<DiskVfs>, tag: &str) -> Vec<String> {
     let mut problems = Vec::new();
-    let master = match Master::new(&mut db.pager) {
+    let master = match Master::new(db.pager()) {
         Ok(m) => m,
         Err(e) => return vec![format!("[{tag}] catalog unreadable: {e}")],
     };
@@ -404,12 +404,12 @@ pub fn audit_database(db: &mut Database<DiskVfs>, tag: &str) -> Vec<String> {
         problems: Vec::new(),
         referenced: HashSet::new(),
     };
-    let table_root = master.tables.get("users").map(|t| t.root_page).unwrap_or(0);
+    let table_root = master.tables().get("users").map(|t| t.root_page()).unwrap_or(0);
     audit_page(db, 1, &mut ctx);
     if table_root != 0 {
         audit_page(db, table_root, &mut ctx);
     }
-    let mut index_roots: Vec<u32> = master.indexes.values().map(|i| i.root_page).collect();
+    let mut index_roots: Vec<u32> = master.indexes().values().map(|i| i.root_page()).collect();
     index_roots.sort_unstable();
     for root in index_roots {
         audit_page(db, root, &mut ctx);

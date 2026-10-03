@@ -17,12 +17,12 @@ fn sorted_column(db: &mut Database<DiskVfs>, q: &str, column: usize) -> Vec<Valu
     let query: Rc<str> = Rc::from(q);
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
-    let mut master = Master::new(&mut db.pager).expect("master");
+    let mut master = Master::new(db.pager()).expect("master");
     let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
-    let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
+    let mut plan = Plan::create_plan(resolved, db.pager(), &master).expect("plan");
     let mut out = Vec::new();
     loop {
-        match plan.next(&mut db.pager, &mut master) {
+        match plan.next(db.pager(), &mut master) {
             Ok(Some(row)) => out.push(row.value(column).expect("column").into_static()),
             Ok(None) => break,
             Err(e) => panic!("exec {q}: {e}"),

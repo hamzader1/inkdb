@@ -49,17 +49,17 @@ fn measure(db: &mut Database<DiskVfs>, q: &str) -> Outcome {
     let query: Rc<str> = Rc::from(q);
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
-    let mut master = Master::new(&mut db.pager).expect("master");
+    let mut master = Master::new(db.pager()).expect("master");
     let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
 
     let before_plan = ALLOCATIONS.load(Ordering::Relaxed);
-    let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
+    let mut plan = Plan::create_plan(resolved, db.pager(), &master).expect("plan");
     let after_plan = ALLOCATIONS.load(Ordering::Relaxed);
 
     let mut rows = 0usize;
     let mut first_row = String::new();
     loop {
-        match plan.next(&mut db.pager, &mut master) {
+        match plan.next(db.pager(), &mut master) {
             Ok(Some(row)) => {
                 if rows == 0 {
                     first_row = format!("{}", RowWrapper(row));
