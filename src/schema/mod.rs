@@ -147,6 +147,12 @@ impl Master {
             .find(|table| table.name.eq_ignore_ascii_case(table_name))
     }
 
+    pub fn index(&self, index_name: &str) -> Option<&Index> {
+        self.indexes
+            .values()
+            .find(|index| index.name.eq_ignore_ascii_case(index_name))
+    }
+
     pub(crate) fn indexes_on(&self, table_name: &str) -> InkResult<Vec<IndexMetadata>> {
         if table_name.eq_ignore_ascii_case("master") {
             /*Change this to Option*/
