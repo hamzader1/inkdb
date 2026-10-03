@@ -39,9 +39,9 @@ pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     guard: &'b mut PageGuard,
     pager: &Pager<V>,
 ) -> Result<crate::storage::page::PageMut<'b>, InkError> {
-    let bytes = guard.bytes_as_mut().ok_or({
-        InkError::Internal("page_as_mut_with_pager: guard is not a mutable borrow")
-    })?;
+    let bytes = guard
+        .bytes_as_mut()
+        .ok_or({ InkError::Internal("page_as_mut_with_pager: guard is not a mutable borrow") })?;
     crate::storage::page::PageMut::new(page_no, pager.page_size(), pager.usable_size(), bytes)
 }
 

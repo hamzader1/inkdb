@@ -425,11 +425,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         let root = self.root;
         self.descend_to_last(pager, root)
     }
-    fn descend_to_last(
-        &mut self,
-        pager: &mut Pager<V>,
-        page_no: PageNo,
-    ) -> Result<(), InkError> {
+    fn descend_to_last(&mut self, pager: &mut Pager<V>, page_no: PageNo) -> Result<(), InkError> {
         let mut page_no = page_no;
         loop {
             let guard = pager.get(page_no)?;
@@ -456,10 +452,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         }
     }
 
-    pub fn current<K: PageKind>(
-        &self,
-        pager: &mut Pager<V>,
-    ) -> Result<Option<K::Cell>, InkError> {
+    pub fn current<K: PageKind>(&self, pager: &mut Pager<V>) -> Result<Option<K::Cell>, InkError> {
         if let Some(path) = self.stack.last() {
             let Path {
                 page_no,
@@ -491,9 +484,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             let inner = match page {
                 AnyPage::TableLeaf(ref inner) => inner,
                 AnyPage::TableInterior(_) => {
-                    return Err(InkError::Internal(
-                        "Cursor::last ends in a interior table",
-                    ));
+                    return Err(InkError::Internal("Cursor::last ends in a interior table"));
                 }
                 _ => return Err(InkError::Internal("Index pages has no RowId")),
             };
@@ -557,10 +548,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         };
         Ok(collected.map(|record| record.into_iter().map(|v| v.to_owned_static()).collect()))
     }
-    pub fn current_record_bytes(
-        &self,
-        pager: &mut Pager<V>,
-    ) -> Result<Option<Vec<u8>>, InkError> {
+    pub fn current_record_bytes(&self, pager: &mut Pager<V>) -> Result<Option<Vec<u8>>, InkError> {
         let Some(path) = self.stack.last() else {
             return Ok(None);
         };
