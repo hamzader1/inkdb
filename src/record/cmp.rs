@@ -87,7 +87,7 @@ fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
         }
     }
 }
-pub fn compare_num(i: i64, f: f64) -> Ordering {
+pub(crate) fn compare_num(i: i64, f: f64) -> Ordering {
     // Safe Window Optimization: If the integer safely fits in 53 bits,
     // casting to f64 is mathematically lossless.
     if (MIN_SAFE_INT..=MAX_SAFE_INT).contains(&i) {

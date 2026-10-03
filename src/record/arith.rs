@@ -9,19 +9,19 @@ enum Numeric {
     Real(f64),
 }
 
-pub trait TryAdd {
+pub(crate) trait TryAdd {
     fn try_add(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
-pub trait TrySub {
+pub(crate) trait TrySub {
     fn try_sub(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
-pub trait TryMul {
+pub(crate) trait TryMul {
     fn try_mul(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
-pub trait TryDiv {
+pub(crate) trait TryDiv {
     fn try_div(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 

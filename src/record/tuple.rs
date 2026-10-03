@@ -4,7 +4,7 @@ use super::*;
 
 pub struct Tuple;
 impl Tuple {
-    pub fn content_meta(serial_type: u64) -> RecordMetadata {
+    pub(crate) fn content_meta(serial_type: u64) -> RecordMetadata {
         /*
          * SerialType and Size
          */
@@ -92,7 +92,7 @@ const fn blob_encoding(len: usize) -> usize {
     (len * 2) + 12
 }
 
-pub enum DecodedValue<'a> {
+pub(crate) enum DecodedValue<'a> {
     Null,
     Integer(i64),
     Float(f64),
@@ -100,7 +100,7 @@ pub enum DecodedValue<'a> {
     Text(&'a str),
 }
 
-pub fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RecordMetadata) -> DecodedValue<'a> {
+pub(crate) fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RecordMetadata) -> DecodedValue<'a> {
     let mut buf = [0u8; 8];
 
     match record_metadata.serial_type {
@@ -144,7 +144,7 @@ pub fn decode_sqltype<'a>(bytes: &'a [u8], record_metadata: &RecordMetadata) -> 
     }
 }
 
-pub fn into_borrowed<'a>(value: DecodedValue<'a>) -> Value<'a> {
+pub(crate) fn into_borrowed<'a>(value: DecodedValue<'a>) -> Value<'a> {
     match value {
         DecodedValue::Null => Value::Null,
         DecodedValue::Integer(v) => Value::Integer(v),
@@ -154,7 +154,7 @@ pub fn into_borrowed<'a>(value: DecodedValue<'a>) -> Value<'a> {
     }
 }
 
-pub fn into_owned(value: DecodedValue<'_>) -> Value<'static> {
+pub(crate) fn into_owned(value: DecodedValue<'_>) -> Value<'static> {
     match value {
         DecodedValue::Null => Value::Null,
         DecodedValue::Integer(v) => Value::Integer(v),

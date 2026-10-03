@@ -5,7 +5,7 @@ pub mod cmp;
 pub mod record;
 pub mod tuple;
 
-pub use arith::{TryAdd, TryDiv, TryMul, TrySub};
+pub(crate) use arith::{TryAdd, TryDiv, TryMul, TrySub};
 pub use record::Record;
 
 use std::borrow::Cow;
@@ -50,7 +50,7 @@ const MAX_SAFE_INT: i64 = 9_007_199_254_740_992; //  2^53
 const MIN_SAFE_INT: i64 = -9_007_199_254_740_992; // -2^53
 
 #[derive(Debug)]
-pub struct RecordMetadata {
+pub(crate) struct RecordMetadata {
     pub serial_type: u8,
     pub size: usize,
 }
@@ -221,7 +221,7 @@ impl<'a> Value<'a> {
 }
 
 #[derive(Debug)]
-pub enum CompressedNumeric {
+pub(crate) enum CompressedNumeric {
     I8(i8),
     I16(i16),
     I32(i32),
