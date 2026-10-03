@@ -1,10 +1,3 @@
-//! Shared harness for engine-level integration tests.
-//!
-//! Fixtures are built at test time with real SQLite (rusqlite, bundled),
-//! the engine under test mutates them, and real SQLite verifies the result
-//! (`PRAGMA integrity_check` plus independent counts). Nothing is checked
-//! in: every fixture is generated, used, and deleted by the test run.
-
 #![allow(warnings)]
 use inkdb::Master;
 use inkdb::backend::analyzer::Analyze;
@@ -19,7 +12,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Deterministic RNG (LCG). No extra crates, same sequence everywhere.
 pub struct Rng(pub u64);
 impl Rng {
     pub fn next(&mut self, bound: usize) -> usize {
@@ -42,12 +34,6 @@ pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(journal);
 }
 
-/// Build a fresh `users` fixture with real SQLite.
-///
-/// Layout mirrors the historical manual fixture: `n` rows, ages spread
-/// over 40 groups (`20 + x % 40`), salaries and positions cycling. Small
-/// page sizes give deep trees from few rows, which is what stresses
-/// splits, merges, and rebalancing.
 pub fn build_users(path: &Path, page_size: u32, n: u64) {
     let _ = std::fs::remove_file(path);
     let conn = rusqlite::Connection::open(path).expect("open fixture");
@@ -75,7 +61,6 @@ pub fn build_users(path: &Path, page_size: u32, n: u64) {
     conn.execute_batch("COMMIT;").expect("commit fixture");
 }
 
-/// Open the fixture with the engine and start a write transaction.
 pub fn open_engine(path: &Path) -> Database<DiskVfs> {
     let mut db = Database::new(path).expect("engine open");
     db.pager.start_transaction();
@@ -88,8 +73,6 @@ fn ensure_txn(db: &mut Database<DiskVfs>) {
     }
 }
 
-/// Run any statement, return the number of yielded rows. Panics on error
-/// with the query attached, so failures point at the statement.
 pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     ensure_txn(db);
     let query = q.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -115,32 +98,51 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     n
 }
 
-/// Run a statement expected to yield no rows (DDL, INSERT, DELETE).
+/// Run a statement that must fail, reported through the SQL renderer, so a
+/// syntax/runtime error shows the offending text instead of a Debug dump.
+pub fn run_err_sql(db: &mut Database<DiskVfs>, q: &str) -> String {
+    let sql = q.split_whitespace().collect::<Vec<_>>().join(" ");
+    run_err_rendered(db, q, |error| {
+        inkdb::errors::render_syntax_error(&sql, error).unwrap_or_else(|| format!("{error}"))
+    })
+}
+
 pub fn run_ok(db: &mut Database<DiskVfs>, q: &str) {
     let n = run_count(db, q);
     assert_eq!(n, 0, "statement yielded rows: {q:?}");
 }
 
-/// Run a statement that must fail (constraint violations). Returns the error.
 pub fn run_err(db: &mut Database<DiskVfs>, q: &str) -> String {
+    run_err_rendered(db, q, |error| format!("{error}"))
+}
+
+pub fn run_err_rendered<F>(db: &mut Database<DiskVfs>, q: &str, render: F) -> String
+where
+    F: FnOnce(&inkdb::errors::InkError) -> String,
+{
     ensure_txn(db);
     let query = q.split_whitespace().collect::<Vec<_>>().join(" ");
     let query: Rc<str> = Rc::from(query.as_str());
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
     let mut master = Master::new(&mut db.pager).expect("master");
-    let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
-    let mut plan = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
+    let resolved = match Analyze::new(&master).analyze(parsed) {
+        Ok(resolved) => resolved,
+        Err(error) => return render(&error),
+    };
+    let mut plan = match Plan::create_plan(resolved, &mut db.pager, &master) {
+        Ok(plan) => plan,
+        Err(error) => return render(&error),
+    };
     loop {
         match plan.next(&mut db.pager, &mut master) {
             Ok(Some(_)) => {}
             Ok(None) => panic!("expected error, statement succeeded: {q:?}"),
-            Err(e) => return format!("{e}"),
+            Err(error) => return render(&error),
         }
     }
 }
 
-/// Commit engine writes so real SQLite can see them, then close.
 pub fn commit_and_close(db: Database<DiskVfs>) {
     let mut db = db;
     if db.pager.in_transaction() {
@@ -148,7 +150,6 @@ pub fn commit_and_close(db: Database<DiskVfs>) {
     }
 }
 
-/// Independent row count straight from SQLite, bypassing the engine.
 pub fn db_count(path: &Path, where_clause: &str) -> i64 {
     let conn = rusqlite::Connection::open(path).expect("sqlite open");
     let sql = if where_clause.is_empty() {
@@ -159,7 +160,6 @@ pub fn db_count(path: &Path, where_clause: &str) -> i64 {
     conn.query_row(&sql, [], |r| r.get(0)).expect("count")
 }
 
-/// The file the engine wrote must be a valid SQLite database.
 pub fn assert_integrity_ok(path: &Path) {
     let conn = rusqlite::Connection::open(path).expect("sqlite open");
     let verdict: String = conn

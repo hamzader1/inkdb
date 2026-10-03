@@ -4,7 +4,6 @@ mod common;
 use common::*;
 use std::collections::{HashMap, HashSet};
 
-/// Refcount walk over the TABLE tree (root 2): reports pages with >1 parent.
 fn walk_table_refs(
     db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>,
 ) -> Vec<(u32, Vec<(u32, u16)>)> {
@@ -60,7 +59,6 @@ fn walk_table_refs(
     multi
 }
 
-/// Same walk over ONE index tree root.
 fn walk_index_refs(
     db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>,
     root: u32,

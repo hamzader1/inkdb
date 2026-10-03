@@ -1,6 +1,4 @@
-//! ORDER BY against the reference engine: the spilled (external merge) path and
-//! the in-memory path must both return the same key sequence as real SQLite,
-//! with no row lost. Ties are not compared: SQL does not order them.
+
 
 #[path = "common.rs"]
 mod common;

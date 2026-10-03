@@ -1,11 +1,4 @@
-//! Randomized page-operation fuzz against a trivial model.
-//!
-//! Replaces the old-vs-new differential tests (the old page module is
-//! gone): random insert/remove/replace/reset sequences run against a
-//! real page while a plain `Vec` mirrors every op. After each step the
-//! page must contain exactly the model's cells (order-insensitive),
-//! satisfy the structural invariants, and report honest fullness.
-//! This is what guards the page layer the remake builds on.
+
 
 use inkdb::storage::page::{BTreePage, BTreePageType};
 
@@ -38,9 +31,6 @@ fn mkcell(rng: &mut Rng) -> Vec<u8> {
     Encode::encode_index_leaf_cell(Tuple::serialize(&rec))
 }
 
-/// Structural invariants straight from the file format: pointer array
-/// inside the gap, every body inside the content area, no overlaps, an
-/// interior always keeps its right-most pointer.
 fn check_page(buf: &[u8], page_no: u32, usable: usize) {
     let p = BTreePage::new(page_no, buf.len(), usable, buf).unwrap();
     let t = p.page_type().unwrap();

@@ -12,13 +12,14 @@ use inkdb::sql::parser::Parser;
 use inkdb::vfs::disk::DiskVfs;
 use std::rc::Rc;
 
-fn plan_of(db: &mut Database<DiskVfs>, q: &str) -> PreparedPlan<DiskVfs> {
+fn plan_of(db: &mut Database<DiskVfs>, q: &str) -> (PreparedPlan<DiskVfs>, Master) {
     let query: Rc<str> = Rc::from(q);
     let lexer = Lexer::tokenize(&query).expect("lex");
     let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
     let master = Master::new(&mut db.pager).expect("master");
     let resolved = Analyze::new(&master).analyze(parsed).expect("analyze");
-    Plan::create_plan(resolved, &mut db.pager, &master).expect("plan")
+    let prepared = Plan::create_plan(resolved, &mut db.pager, &master).expect("plan");
+    (prepared, master)
 }
 
 fn nodes<'a>(plan: &'a Plan<DiskVfs>, out: &mut Vec<&'a Plan<DiskVfs>>) {
@@ -29,7 +30,7 @@ fn nodes<'a>(plan: &'a Plan<DiskVfs>, out: &mut Vec<&'a Plan<DiskVfs>>) {
 }
 
 fn check_shape(db: &mut Database<DiskVfs>, q: &str, has_where: bool) {
-    let prepared = plan_of(db, q);
+    let (prepared, _master) = plan_of(db, q);
     let mut all = Vec::new();
     nodes(&prepared.parent, &mut all);
 
@@ -78,8 +79,9 @@ fn a_predicate_is_evaluated_exactly_once() {
     check_shape(&mut db, "update users set age = 30 where age = 21", true);
     check_shape(&mut db, "select * from users", false);
 
-    let prepared = plan_of(&mut db, "select * from users where age = 21");
-    let label = prepared.parent.node_label(&prepared.arena);
+    let (prepared, master) = plan_of(&mut db, "select * from users where age = 21");
+    let table = prepared.table_name().and_then(|name| master.table(name));
+    let label = prepared.parent.node_label(&prepared.arena, table);
     assert!(
         label.contains("filter:"),
         "the pushed predicate must be visible in EXPLAIN: {label}"
@@ -87,7 +89,7 @@ fn a_predicate_is_evaluated_exactly_once() {
 
     run_ok(&mut db, "create index age_index on users(age)");
 
-    let prepared = plan_of(&mut db, "select * from users where age = 21");
+    let (prepared, master) = plan_of(&mut db, "select * from users where age = 21");
     let Plan::Filter(filter) = &prepared.parent else {
         panic!("with an index the plan must keep its Filter");
     };

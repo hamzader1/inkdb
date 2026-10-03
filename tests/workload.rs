@@ -1,27 +1,9 @@
-//! Randomized mixed workload checked against an in-memory model.
-//!
-//! Inserts go through the engine's own INSERT path, deletes through the
-//! indexed delete path, and every step is verified against a HashMap
-//! model plus real SQLite at the end. Deterministic seed: same ops,
-//! same order, every run.
-
 #[path = "common.rs"]
 mod common;
 
 use common::*;
 use std::collections::HashMap;
 
-// FAILED:
-// thread 'random_inserts_then_indexed_deletes_match_model' (3836043) panicked at tests/common.rs:111:23:
-/*
-// exec "select * from users where age = 20": index 174 holds rowid 596 but table 2 has no such row
-// stack backtrace:
-//    0: __rustc::rust_begin_unwind
-//    1: core::panicking::panic_fmt
-//    2: workload::common::run_count
-//    3: <workload::random_inserts_then_indexed_deletes_match_model::{closure#0} as core::ops::function::FnOnce<()>>::call_once
-// note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
-*/
 #[test]
 fn random_inserts_then_indexed_deletes_match_model() {
     let path = db_path("workload");

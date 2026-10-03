@@ -1,6 +1,3 @@
-//! UNIQUE index: duplicate NULLs are allowed (SQLite treats NULLs as
-//! distinct), real duplicates are rejected, and the index is usable afterwards.
-
 #[path = "common.rs"]
 mod common;
 
@@ -55,8 +52,8 @@ fn unique_index_rejects_a_real_duplicate() {
 
     let message = run_err(&mut db, "create unique index alpha on t1(name)");
     assert!(
-        message.contains("unique"),
-        "expected a uniqueness error, got: {message}"
+        message.to_lowercase().contains("unique") && message.contains("t1.name"),
+        "expected a uniqueness error naming the column, got: {message}"
     );
 
     let conn = Connection::open(&path).expect("reference");

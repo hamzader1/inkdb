@@ -1,16 +1,3 @@
-//! Engine-level regressions for the delete/index bug family.
-//!
-//! Every test follows the same shape: real SQLite builds the fixture,
-//! the engine mutates it, and real SQLite verifies (`integrity_check`
-//! plus independent counts). Fixtures use small page sizes so splits,
-//! merges, and rebalances fire constantly from a few thousand rows.
-//!
-//! Bug mapping:
-//! - `index_delete_*`: divider overwrite / merge-drop / borrow-copy /
-//!   restore past-the-end (survivor rows after indexed deletes).
-//! - `full_range_wipe`: ghost page + RMP-zero + double-insert saga.
-//! - `text_index_build`: full-parent divider growth during index build.
-
 #[path = "common.rs"]
 mod common;
 
@@ -208,11 +195,6 @@ fn index_build_100k_integrity() {
     cleanup(&path);
 }
 
-/// Rowids at or above 32768 need one more byte in the index record, so
-/// a divider that replaces an older one can be wider than the cell it
-/// replaces. On an exactly full parent that is the replace-refused path
-/// in balance. 512-byte pages keep parents full, 40k rows crosses the
-/// width boundary with plenty of splits after it. 1000 rows per group.
 
 #[test]
 

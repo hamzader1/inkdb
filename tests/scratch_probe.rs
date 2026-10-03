@@ -4,8 +4,6 @@ mod common;
 use common::*;
 use std::collections::{HashMap, HashSet};
 
-/// Walk the index tree from root, count references per page.
-/// Prints every page referenced more than once with its parents.
 fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root: u32) {
     use inkdb::storage::cell::BTreeCell;
     use inkdb::storage::page::BTreePage;

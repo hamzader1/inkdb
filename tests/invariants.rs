@@ -1,18 +1,3 @@
-//! Structural audit of the B-tree layer.
-//!
-//! Real SQLite is the final judge, but all it gives back is a page number and
-//! a verdict. These checks run *during* a workload and name the invariant that
-//! broke, the page it broke on, and the step that broke it. They cover the two
-//! classes of damage that keep showing up:
-//!
-//! * pages that are neither referenced by a tree nor on the freelist — exactly
-//!   what SQLite reports as `Page N: never used`
-//! * per page bookkeeping: keys ascending, cell spans inside the content area
-//!   and non overlapping, freeblock chain ordered with >= 4 byte gaps, and free
-//!   space accounting that matches the content area pointer
-//! * routing: a divider must never be smaller than the largest key of the
-//!   subtree it routes to, and sibling subtrees must not interleave.
-
 #[path = "common.rs"]
 mod common;
 
