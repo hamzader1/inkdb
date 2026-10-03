@@ -73,6 +73,9 @@ pub enum InkError {
     #[error("table '{0}' does not exist")]
     TableNotFound(String),
 
+    #[error("no such index: {0}")]
+    IndexNotFound(String),
+
     #[error("table master may not be modified")]
     MasterTableError,
 
