@@ -86,6 +86,7 @@ pub struct ResolvedCountQuery {
 #[derive(Debug)]
 pub struct ResolvedCreateTableQuery {
     pub meta: CreateTableStmt,
+    pub unique_on: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -105,12 +106,32 @@ pub struct ResolvedTruncateTableQuery {
 use std::rc::Rc;
 #[derive(Debug)]
 pub struct ResolvedCreateIndexQuery {
-    pub query: Rc<str>,
+    pub query: Option<Rc<str>>,
     pub relation_root_page: u32,
     pub relation_name: String,
     pub index_name: String,
     pub column_index: usize, // todo: usize -> Vec::<usize>
     pub is_unique: bool,
+}
+
+impl ResolvedCreateIndexQuery {
+    pub fn new(
+        query: Option<Rc<str>>,
+        relation_root_page: u32,
+        relation_name: String,
+        index_name: String,
+        column_index: usize,
+        is_unique: bool,
+    ) -> Self {
+        Self {
+            query,
+            relation_root_page,
+            relation_name,
+            index_name,
+            column_index,
+            is_unique,
+        }
+    }
 }
 #[derive(Debug)]
 pub struct ResolvedUpdateQuery {

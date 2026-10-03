@@ -20,7 +20,8 @@ impl<'a> Analyze<'a> {
         for idx in stmt.tbl_constraints.iter() {
             Self::fast_bind(&stmt, *idx, &mut arena)?;
         }
-        for column in stmt.columns.iter_mut() {
+        let mut unique_cols = Vec::new();
+        for (i, column) in stmt.columns.iter_mut().enumerate() {
             if let Some(ref mut default) = column.default {
                 assert!(matches!(default, DefaultValue::Node(_)));
                 let node = {
@@ -32,11 +33,15 @@ impl<'a> Analyze<'a> {
                 let value = Eval::eval(&arena, *node, None)?.into_static();
                 *default = DefaultValue::Val(value);
             }
+            if column.is_unique() {
+                unique_cols.push(i);
+            }
         }
         stmt.arena = arena;
 
         Ok(ResolvedQuery::CreateTableQuery(ResolvedCreateTableQuery {
             meta: stmt,
+            unique_on: unique_cols,
         }))
     }
 
@@ -60,7 +65,7 @@ impl<'a> Analyze<'a> {
         };
 
         Ok(ResolvedQuery::CreateIndexQuery(ResolvedCreateIndexQuery {
-            query: stmt.query,
+            query: Some(stmt.query),
             relation_root_page: relation.root_page,
             relation_name: relation.name.clone(),
             index_name: stmt.name,

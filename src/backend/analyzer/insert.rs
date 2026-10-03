@@ -50,7 +50,7 @@ impl<'a> Analyze<'a> {
                     .filter(|(k, _, _)| j < inner_values.len() && *k == i);
                 let Some(&(_, delta, _)) = mapped else {
                     // if let Some(idx) = table.has_integer_primary_key() {
-                    //     
+                    //
                     // }
                     handle_missing(&table.columns[i], &table.name, &mut evalued_vals)?;
                     continue;
