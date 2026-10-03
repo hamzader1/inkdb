@@ -2,6 +2,7 @@ use super::ast::Constraint;
 use super::ast::*;
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
+use crate::InkResult;
 use crate::errors::InkError;
 
 impl Parser {
@@ -21,6 +22,13 @@ impl Parser {
             _ => Err(InkError::runtime(
                 "Expected TABLE or INDEX after CREATE (e.g. CREATE TABLE ... or CREATE INDEX ...)",
             )),
+        }
+    }
+    pub fn parse_drop(&mut self) -> InkResult<Ast> {
+        self.expect(Drop)?;
+        match self.peek() {
+            Some(Table) => self.parse_drop_table(),
+            _ => todo!(),
         }
     }
 
@@ -68,7 +76,7 @@ impl Parser {
             }
         }
         self.expect(RightParen)?;
-        Ok(Ast::CreateIndexAst(CreateIndex {
+        Ok(Ast::CreateIndexAst(CreateIndexStmt {
             query: std::mem::take(&mut self.query),
             unique,
             name,
@@ -176,5 +184,12 @@ impl Parser {
             }
         }
         self.expect(RightParen)
+    }
+
+    pub fn parse_drop_table(&mut self) -> InkResult<Ast> {
+        self.expect(Table)?;
+        let tbl_name = self.expect_ident()?;
+        self.expect_eof()?;
+        Ok(Ast::DropTblAst(DropTableStmt { tbl_name }))
     }
 }

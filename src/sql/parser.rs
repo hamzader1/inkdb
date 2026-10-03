@@ -166,6 +166,7 @@ impl Parser {
                 }))
             }
             Some(Select) => self.parse_select(),
+            Some(Drop) => self.parse_drop(),
             Some(Update) => self.parse_update(),
             Some(Insert) => self.parse_insert(),
             Some(Delete) => self.parse_delete(),

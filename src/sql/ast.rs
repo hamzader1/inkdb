@@ -16,14 +16,17 @@ pub struct CreateTableStmt {
 }
 
 #[derive(Debug)]
-pub struct CreateIndex {
+pub struct CreateIndexStmt {
     pub query: Rc<str>,
     pub unique: bool,
     pub name: String,
     pub table: String,
     pub columns: Vec<String>,
 }
-
+#[derive(Debug)]
+pub struct DropTableStmt {
+    pub tbl_name: String,
+}
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: String,
@@ -244,8 +247,9 @@ impl UpdateStmt {
 #[derive(Debug)]
 pub enum Ast {
     CreateTableAst(CreateTableStmt),
-    CreateIndexAst(CreateIndex),
+    CreateIndexAst(CreateIndexStmt),
     SelectStmtAst(SelectStmt),
+    DropTblAst(DropTableStmt),
     InsertStmtAst(InsertStmt),
     DeleteStmtAst(DeleteStmt),
     ExplainStmtAst(ExplainStmt),
