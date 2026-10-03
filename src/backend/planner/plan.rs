@@ -3,8 +3,9 @@ use self::Plan::Halt;
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
 use crate::backend::analyzer::{
-    ResolvedCountQuery, ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedDropTableQuery,
-    ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery, ResolvedUpdateQuery,
+    ResolvedCountQuery, ResolvedCreateIndexQuery, ResolvedDeleteQuery, ResolvedDropIndexQuery,
+    ResolvedDropTableQuery, ResolvedInsertQuery, ResolvedQuery, ResolvedSelectQuery,
+    ResolvedUpdateQuery,
 };
 use crate::backend::executor::Row;
 use crate::backend::executor::aggregate::Count;
@@ -176,6 +177,7 @@ impl<V: Vfs> Plan<V> {
             }
             ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
             ResolvedQuery::DropTblQuery(stmt) => Self::init_drop_table_plan(stmt),
+            ResolvedQuery::DropIndexQuery(stmt) => Self::init_drop_index_plan(stmt),
         }
     }
 
@@ -403,14 +405,36 @@ impl<V: Vfs> Plan<V> {
     fn init_drop_table_plan(
         mut resolved_query: ResolvedDropTableQuery,
     ) -> InkResult<PreparedPlan<V>> {
+        Self::init_drop_plan(
+            2,
+            resolved_query.tbl_name.clone(),
+            resolved_query.root_page,
+            resolved_query.indexes,
+        )
+    }
+
+    fn init_drop_index_plan(resolved_query: ResolvedDropIndexQuery) -> InkResult<PreparedPlan<V>> {
+        Self::init_drop_plan(
+            1,
+            resolved_query.index_name.clone(),
+            resolved_query.root_page,
+            Vec::new(),
+        )
+    }
+    fn init_drop_plan(
+        target_col: usize,
+        target_name: String,
+        root_page: u32,
+        indexes: Vec<u32>,
+    ) -> InkResult<PreparedPlan<V>> {
         let mut plan = Self::TableScan(TableScan::new(
             1,
             ScanMode::Unsafe,
-            resolved_query.tbl_name.clone(), /*Must be unused*/
+            "MASTER".into(), /*Must be unused*/
         )?);
         let mut arena = ExprArena::new();
-        arena.push(ColumnRef(2));
-        arena.push(StringLitteral(resolved_query.tbl_name.clone()));
+        arena.push(ColumnRef(target_col));
+        arena.push(StringLitteral(target_name));
         let index = arena.push(Expr::BinaryOp {
             left: 0,
             op: crate::sql::ast::BinaryOperator::Eq,
@@ -418,11 +442,7 @@ impl<V: Vfs> Plan<V> {
         });
         plan = Self::Filter(Filter::new(Box::new(plan), index));
         plan = Self::Delete(Delete::new(Box::new(plan), 1));
-        plan = Self::TruncateTable(TruncateTable::new(
-            resolved_query.root_page,
-            std::mem::take(&mut resolved_query.indexes),
-            Box::new(plan),
-        ));
+        plan = Self::TruncateTable(TruncateTable::dropping(root_page, indexes, Box::new(plan)));
         plan = Self::DropTbl(DropTblExec::new(Box::new(plan)));
 
         Ok(PreparedPlan::new(plan, arena))
