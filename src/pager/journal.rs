@@ -4,7 +4,7 @@ use crate::vfs::file::InkFile;
 use super::raw_journal::{JournalMeta, RawJournal};
 
 #[derive(Debug, Default)]
-pub enum Journal<J: InkFile> {
+pub(crate) enum Journal<J: InkFile> {
     #[default]
     Disabled,
     Idle(RawJournal),
@@ -53,7 +53,7 @@ impl<J: InkFile> Journal<J> {
         Ok(())
     }
 
-    pub fn into_idle(&mut self) {
+    pub fn set_to_idle(&mut self) {
         if let Self::Open { .. } = self {
             let Self::Open { mut raw, .. } = std::mem::replace(self, Self::Disabled) else {
                 unreachable!()

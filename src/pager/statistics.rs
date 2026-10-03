@@ -1,7 +1,7 @@
 use std::cell::Cell;
 #[rustfmt::skip]
 #[derive(Default, Debug)]
-pub struct Statistics {
+pub(crate) struct Statistics {
     cache_hit    : Cell<usize>,
     cache_miss   : Cell<usize>,
     disk_write   : Cell<usize>,

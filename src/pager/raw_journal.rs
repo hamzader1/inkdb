@@ -21,16 +21,16 @@ pub(crate) const JOURNAL_HEADER_SIZE: usize = 20;
 const PAGE_NUMBER_SIZE: usize = 4;
 
 #[derive(Default)]
-pub struct RawJournal {
-    pub buffer: Vec<u8>,
-    pub page_size: u16,
-    pub db_size: u32,
-    pub page_count: u32,
+pub(crate) struct RawJournal {
+    pub(crate) buffer: Vec<u8>,
+    pub(crate) page_size: u16,
+    pub(crate) db_size: u32,
+    pub(crate) page_count: u32,
 }
 
-pub struct JournalMeta {
-    pub db_size: u32,
-    pub p_size: u16,
+pub(crate) struct JournalMeta {
+    pub(crate) db_size: u32,
+    pub(crate) p_size: u16,
 }
 
 impl RawJournal {
@@ -129,11 +129,11 @@ impl RawJournal {
         Ok(())
     }
 }
-pub struct RecoverMetadata {
-    pub iterator: JournalIter,
-    pub db_size: usize,
+pub(crate) struct RecoverMetadata {
+    pub(crate) iterator: JournalIter,
+    pub(crate) db_size: usize,
 }
-pub struct JournalIter {
+pub(crate) struct JournalIter {
     // TODO: Replace the allocation with immutable borrow
     bytes: Vec<u8>,
     start: usize,
@@ -142,9 +142,9 @@ pub struct JournalIter {
     count: usize,
     step_by: usize,
 }
-pub struct JournalPage<'a> {
-    pub page_no: PageNo,
-    pub data: &'a [u8],
+pub(crate) struct JournalPage<'a> {
+    pub(crate) page_no: PageNo,
+    pub(crate) data: &'a [u8],
 }
 impl<'a> JournalPage<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {

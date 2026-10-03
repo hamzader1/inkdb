@@ -27,7 +27,7 @@ pub struct Pager<V: Vfs> {
     buffer_pool: BufferPool,
     journal: Journal<V::File>,
     journal_pages: HashSet<PageNo>,
-    pub header: HeaderCache,
+    header: HeaderCache,
     flushed: HashSet<PageNo>,
     statistics: Statistics,
     in_transaction: bool,
@@ -78,11 +78,11 @@ impl HeaderCache {
 impl From<InkDatabaseHeader> for HeaderCache {
     fn from(value: InkDatabaseHeader) -> Self {
         HeaderCache::new(
-            value.database_page_size,
-            value.database_page_size - value.reserved_space as u32,
-            value.database_size_in_pages,
-            value.first_freelist_trunk_page,
-            value.total_number_of_freelist_pages,
+            value.database_page_size(),
+            value.database_page_size() - value.reserved_space() as u32,
+            value.database_size_in_pages(),
+            value.first_freelist_trunk_page(),
+            value.total_number_of_freelist_pages(),
             DbFormat::Sqlite.header_len(),
             DbFormat::Sqlite,
         )
@@ -91,17 +91,17 @@ impl From<InkDatabaseHeader> for HeaderCache {
 
 impl From<InkFileHeader> for HeaderCache {
     fn from(value: InkFileHeader) -> Self {
-        let page_size = if value.database_page_size == 1 {
+        let page_size = if value.database_page_size() == 1 {
             65536
         } else {
-            value.database_page_size
+            value.database_page_size()
         };
         HeaderCache::new(
             page_size,
-            page_size - value.reserved_space as u32,
-            value.database_size_in_pages,
-            value.first_freelist_trunk_page,
-            value.total_number_of_freelist_pages,
+            page_size - value.reserved_space() as u32,
+            value.database_size_in_pages(),
+            value.first_freelist_trunk_page(),
+            value.total_number_of_freelist_pages(),
             DbFormat::Ink.header_len(),
             DbFormat::Ink,
         )
@@ -322,7 +322,7 @@ impl<V: Vfs> Pager<V> {
             self.flush_all()?;
             self.source.sync()?;
             self.vfs.delete_journal(&self.source)?;
-            self.journal.into_idle();
+            self.journal.set_to_idle();
         }
 
         self.journal_pages.clear();
@@ -360,7 +360,7 @@ impl<V: Vfs> Pager<V> {
             }
             self.source.set_len(db_size as usize)?;
             self.vfs.delete_journal(&self.source)?;
-            self.journal.into_idle();
+            self.journal.set_to_idle();
         }
         self.journal_pages.clear();
         self.flushed.clear();
