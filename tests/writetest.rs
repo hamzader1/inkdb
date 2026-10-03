@@ -90,7 +90,7 @@ fn btree_index_split_roundtrip() {
         };
         let rec = vec![Value::Integer(i as i64), Value::Integer(i as i64)];
         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&rec));
-        let key = Value::Tuple(vec![Value::Integer(i as i64), Value::Integer(i as i64)]);
+        let key = Value::Tuple(vec![Value::Integer(i as i64), Value::Integer(i as i64)].into());
         if let Err(e) = BTree::new(root, &mut pager).insert(&key, &mut bytes) {
             eprintln!("ROW519-FAIL {:?}", e);
             if let Some(before) = snap_before {

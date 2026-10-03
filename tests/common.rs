@@ -121,8 +121,14 @@ where
     ensure_txn(db);
     let query = q.split_whitespace().collect::<Vec<_>>().join(" ");
     let query: Rc<str> = Rc::from(query.as_str());
-    let lexer = Lexer::tokenize(&query).expect("lex");
-    let parsed = Parser::parse(Rc::clone(&query), lexer).expect("parse");
+    let lexer = match Lexer::tokenize(&query) {
+        Ok(lexer) => lexer,
+        Err(error) => return render(&error),
+    };
+    let parsed = match Parser::parse(Rc::clone(&query), lexer) {
+        Ok(parsed) => parsed,
+        Err(error) => return render(&error),
+    };
     let mut master = Master::new(&mut db.pager).expect("master");
     let resolved = match Analyze::new(&master).analyze(parsed) {
         Ok(resolved) => resolved,
