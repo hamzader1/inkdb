@@ -46,9 +46,6 @@ impl<V: Vfs> Count<V> {
                 count += 1;
             }
         }
-        Ok(Some(Row::new(
-            0,
-            smallvec::smallvec![Value::Integer(count)],
-        )))
+        Ok(Some(Row::new(0, vec![Value::Integer(count)])))
     }
 }

@@ -144,9 +144,7 @@ impl<'a> Analyze<'a> {
         let stmt = ResolvedSelectQuery {
             table_name,
             root_page: table.root_page,
-            arena: ExprArena {
-                nodes: new_arena.into(),
-            },
+            arena: ExprArena { nodes: new_arena },
             columns: new_cols.into(),
             where_clause,
             limit,
