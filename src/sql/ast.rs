@@ -31,6 +31,19 @@ pub struct Column {
     pub constraints: Option<Vec<Constraint>>,
     pub default: Option<DefaultValue>,
 }
+impl Column {
+    pub fn has_constraint(&self, constraint: Constraint) -> bool {
+        self.constraints
+            .as_ref()
+            .is_some_and(|csts| csts.contains(&constraint))
+    }
+    pub fn is_unique(&self) -> bool {
+        self.has_constraint(Constraint::Unique)
+    }
+    pub fn has_primary_key(&self) -> bool {
+        self.has_constraint(Constraint::PrimaryKey)
+    }
+}
 #[derive(Debug, Clone)]
 pub enum DefaultValue {
     Node(usize),
