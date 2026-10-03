@@ -308,8 +308,14 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
 }
 
 impl<B: AsRef<[u8]>> BTreePage<B> {
-    pub fn new(page_no: PageNo, page_size: usize, usable_size: usize, bytes: B) -> InkResult<Self> {
-        let header_offset = if page_no == 1 { 100 } else { 0 };
+    pub fn new(
+        page_no: PageNo,
+        page_size: usize,
+        usable_size: usize,
+        header_len: usize,
+        bytes: B,
+    ) -> InkResult<Self> {
+        let header_offset = if page_no == 1 { header_len as u8 } else { 0 };
         let this = BTreePage {
             page_no,
             page_size,
@@ -699,8 +705,9 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         mut bytes: B,
         page_size: usize,
         usable_size: usize,
+        header_len: usize,
     ) -> InkResult<Self> {
-        let header_offset = if page_no == 1 { 100 } else { 0 };
+        let header_offset = if page_no == 1 { header_len as u8 } else { 0 };
         let bytes_mut = bytes.as_mut();
         bytes_mut[header_offset as usize..(header_offset as usize) + 1]
             .copy_from_slice(&page_kind.as_byte().to_be_bytes());
@@ -785,10 +792,16 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
     }
 
     fn downgrade(&mut self) -> InkResult<PageRef<'_>> {
+        let header_len = if self.page_no == 1 {
+            self.header_offset as usize
+        } else {
+            0
+        };
         BTreePage::<&[u8]>::new(
             self.page_no,
             self.page_size,
             self.usable_size,
+            header_len,
             &*self.bytes_mut(),
         )
     }
@@ -998,10 +1011,16 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         Ok(())
     }
     pub fn as_ref(&self) -> InkResult<PageRef<'_>> {
+        let header_len = if self.page_no == 1 {
+            self.header_offset as usize
+        } else {
+            0
+        };
         BTreePage::<&[u8]>::new(
             self.page_no,
             self.page_size,
             self.usable_size,
+            header_len,
             self.bytes.as_ref(),
         )
     }
