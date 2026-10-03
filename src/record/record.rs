@@ -89,7 +89,7 @@ impl<'a> Record<'a> {
         self.bytes
     }
 
-    pub fn serial_type(&self, field: usize) -> InkResult<u8> {
+    pub fn serial_type(&self, field: usize) -> InkResult<u64> {
         Ok(self.field_span(field)?.0)
     }
 
@@ -100,8 +100,9 @@ impl<'a> Record<'a> {
 
     pub fn value(&self, field: usize) -> InkResult<Value<'a>> {
         let (serial_type, start, size) = self.field_span(field)?;
+        let meta = Tuple::content_meta(serial_type);
         let payload = &self.bytes[start..start + size];
-        match Tuple::content_meta(serial_type as u64).serial_type {
+        match meta.serial_type {
             SERIAL_TEXT_MIN => match std::str::from_utf8(payload) {
                 Ok(text) => Ok(Value::Text(Cow::Borrowed(text))),
                 Err(_) => Err(CorruptError::InvalidUtf8 {
@@ -111,10 +112,7 @@ impl<'a> Record<'a> {
                 .into()),
             },
             SERIAL_BLOB_MIN => Ok(Value::Blob(Cow::Borrowed(payload))),
-            _ => Ok(into_borrowed(decode_sqltype(
-                payload,
-                &Tuple::content_meta(serial_type as u64),
-            ))),
+            _ => Ok(into_borrowed(decode_sqltype(payload, &meta))),
         }
     }
 
@@ -145,7 +143,7 @@ impl<'a> Record<'a> {
         }
     }
 
-    fn field_span(&self, field: usize) -> InkResult<(u8, usize, usize)> {
+    fn field_span(&self, field: usize) -> InkResult<(u64, usize, usize)> {
         if field >= self.fields {
             return Err(CorruptError::NoSuchField {
                 field,
@@ -164,7 +162,7 @@ impl<'a> Record<'a> {
                 })?;
             let size = Tuple::content_meta(serial_type).size;
             if index == field {
-                return Ok((serial_type as u8, start, size));
+                return Ok((serial_type, start, size));
             }
             pos += used;
             start += size;
@@ -253,6 +251,21 @@ mod tests {
         assert_eq!(record.serial_type(3).expect("serial"), 0);
         assert_eq!(record.value_owned(0).expect("owned"), values[0]);
         assert_eq!(record.to_values_owned().expect("owned"), values);
+    }
+
+    #[test]
+    fn long_values_keep_their_serial_type() {
+        for len in [121usize, 122, 125, 200, 255, 256, 1000] {
+            let value = text(&"x".repeat(len));
+            let bytes = Tuple::serialize(&[value.clone()]);
+            let record = Record::new(&bytes).expect("parse");
+            assert_eq!(
+                record.serial_type(0).expect("serial"),
+                13 + 2 * len as u64,
+                "serial type of a {len} byte text"
+            );
+            assert_eq!(record.value(0).expect("value"), value, "{len} bytes");
+        }
     }
 
     #[test]
