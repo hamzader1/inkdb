@@ -22,6 +22,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
     ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         let (left_cells, left_rmp, header_size) = {
             let guard = self.pager.get(left_page)?;
@@ -39,7 +40,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
         };
         let sep_cell = {
             let guard = self.pager.get(parent_no)?;
-            let parent = PageRef::new(parent_no, page_size, usable, guard.bytes())?;
+            let parent =
+                PageRef::new(parent_no, page_size, usable, header_len, guard.bytes())?;
             parent.cell_bytes_as_ref(divider_idx)?.to_vec()
         };
 
@@ -85,12 +87,19 @@ impl<'a, V: Vfs> BTree<'a, V> {
     ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         {
             let mut guard = self.pager.get_mut(right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page =
-                TypedPage::<&mut [u8], K>::parse_mut(right_page, page_size, usable, bytes)?;
+                TypedPage::<&mut [u8], K>::parse_mut(
+                    right_page,
+                    page_size,
+                    usable,
+                    header_len,
+                    bytes,
+                )?;
             page.reset_for_rebuild()?;
             for (i, cell) in pool.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
@@ -107,7 +116,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let parent_shrank = {
             let mut guard = self.pager.get_mut(parent_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut parent = PageMut::new(parent_no, page_size, usable, bytes)?;
+            let mut parent = PageMut::new(parent_no, page_size, usable, header_len, bytes)?;
             parent.remove_cell(divider_idx)?;
             parent.is_underflow()?
         };
@@ -134,6 +143,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
     ) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         let n = pool.len();
         if n < 3 {
@@ -168,7 +178,13 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let mut guard = self.pager.get_mut(right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page =
-                TypedPage::<&mut [u8], K>::parse_mut(right_page, page_size, usable, bytes)?;
+                TypedPage::<&mut [u8], K>::parse_mut(
+                    right_page,
+                    page_size,
+                    usable,
+                    header_len,
+                    bytes,
+                )?;
             page.reset_for_rebuild()?;
             for (i, cell) in right_share.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
@@ -185,7 +201,13 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let mut guard = self.pager.get_mut(left_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page =
-                TypedPage::<&mut [u8], K>::parse_mut(left_page, page_size, usable, bytes)?;
+                TypedPage::<&mut [u8], K>::parse_mut(
+                    left_page,
+                    page_size,
+                    usable,
+                    header_len,
+                    bytes,
+                )?;
             page.reset_for_rebuild()?;
             let keep = if plan.drop_left_last {
                 &left_share[..left_share.len() - 1]
@@ -206,7 +228,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(parent_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut parent = PageMut::new(parent_no, page_size, usable, bytes)?;
+            let mut parent = PageMut::new(parent_no, page_size, usable, header_len, bytes)?;
             if parent.replace_cell(divider_idx, &plan.parent_cell)? == InsertionState::None {
                 return Err(InkError::Internal(
                     "redistribute: parent separator does not fit",
@@ -237,10 +259,12 @@ impl<'a, V: Vfs> BTree<'a, V> {
 
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         let (left_page, right_page, divider_idx) = {
             let guard = self.pager.get(parent_no)?;
-            let parent = PageRef::new(parent_no, page_size, usable, guard.bytes())?;
+            let parent =
+                PageRef::new(parent_no, page_size, usable, header_len, guard.bytes())?;
             let n = parent.no_of_cells()?;
             if n == 0 {
                 return self.collapse_root(parent_no);
@@ -262,7 +286,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         };
 
         let guard = self.pager.get(child)?;
-        match AnyPage::parse(child, page_size, usable, guard.bytes())? {
+        match AnyPage::parse(child, page_size, usable, header_len, guard.bytes())? {
             AnyPage::TableLeaf(_) => {
                 self.rebalance::<TableLeaf>(left_page, right_page, parent_no, divider_idx)
             }
@@ -281,10 +305,11 @@ impl<'a, V: Vfs> BTree<'a, V> {
     fn collapse_root(&mut self, root_no: PageNo) -> InkResult<()> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         let (n, is_leaf, rmp) = {
             let guard = self.pager.get(root_no)?;
-            let page = PageRef::new(root_no, page_size, usable, guard.bytes())?;
+            let page = PageRef::new(root_no, page_size, usable, header_len, guard.bytes())?;
             (
                 page.no_of_cells()?,
                 page.page_type()?.is_leaf(),
@@ -300,7 +325,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
 
         let (cells, child_rmp, child_type) = {
             let guard = self.pager.get(child_no)?;
-            let page = PageRef::new(child_no, page_size, usable, guard.bytes())?;
+            let page = PageRef::new(child_no, page_size, usable, header_len, guard.bytes())?;
             let count = page.no_of_cells()?;
             let mut cells = Vec::with_capacity(count as usize);
             for i in 0..count {
@@ -313,7 +338,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let mut guard = self.pager.get_mut(root_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
             let mut page = BTreePage::<&mut [u8]>::new_from_raw_bytes(
-                root_no, child_type, bytes, page_size, usable,
+                root_no, child_type, bytes, page_size, usable, header_len,
             )?;
             for (i, cell) in cells.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {

@@ -42,6 +42,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 path.page_no,
                 self.pager.page_size(),
                 self.pager.usable_size(),
+                self.pager.header_len(),
                 path.guard.bytes(),
             )?;
             if path.cell_idx >= inner.no_of_cells()? {

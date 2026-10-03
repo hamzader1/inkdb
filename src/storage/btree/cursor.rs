@@ -97,6 +97,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 last_entry.page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 guard.bytes(),
             )?;
             if last_entry.cell_idx >= page.no_of_cells()? {
@@ -129,6 +130,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 path.page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 guard.bytes(),
             )?;
             if !matches!(any, AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_)) {
@@ -141,6 +143,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             page_no,
             pager.page_size(),
             pager.usable_size(),
+            pager.header_len(),
             guard.bytes(),
         )?;
         if cell_idx < page.no_of_cells()? {
@@ -215,6 +218,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 guard.bytes(),
             )? {
                 AnyPage::TableInterior(ref p) => {
@@ -288,6 +292,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 page.bytes(),
             )?;
             let max = any.no_of_cells()?;
@@ -343,6 +348,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 guard.bytes(),
             )?;
             page_no = {
@@ -378,6 +384,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 page.bytes(),
             )?;
 
@@ -435,6 +442,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 page.bytes(),
             )?;
 
@@ -479,6 +487,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
                 path.page_no,
                 pager.page_size(),
                 pager.usable_size(),
+                pager.header_len(),
                 path.guard.bytes(),
             )?;
             let inner = match page {
@@ -531,6 +540,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             path.page_no,
             pager.page_size(),
             pager.usable_size(),
+            pager.header_len(),
             path.guard.bytes(),
         )?;
         if path.cell_idx >= any.no_of_cells()? {
@@ -556,6 +566,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             path.page_no,
             pager.page_size(),
             pager.usable_size(),
+            pager.header_len(),
             path.guard.bytes(),
         )?;
         if path.cell_idx >= any.no_of_cells()? {
@@ -582,6 +593,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
             page_no,
             pager.page_size(),
             pager.usable_size(),
+            pager.header_len(),
             page_guard.bytes(),
         )?;
         f(&page)

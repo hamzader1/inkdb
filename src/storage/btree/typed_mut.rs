@@ -19,9 +19,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> AnyPageMut<B> {
         page_no: PageNo,
         page_size: usize,
         usable_size: usize,
+        header_len: usize,
         bytes: B,
     ) -> InkResult<Self> {
-        let page = BTreePage::new(page_no, page_size, usable_size, bytes)?;
+        let page = BTreePage::new(page_no, page_size, usable_size, header_len, bytes)?;
         Ok(match page.page_type()?.as_byte() {
             TableInterior::BYTE => Self::TableInterior(TypedPage::wrap(page)),
             TableLeaf::BYTE => Self::TableLeaf(TypedPage::wrap(page)),
@@ -46,9 +47,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: PageKind> TypedPage<B, K> {
         page_no: PageNo,
         page_size: usize,
         usable_size: usize,
+        header_len: usize,
         bytes: B,
     ) -> InkResult<Self> {
-        let page = BTreePage::new(page_no, page_size, usable_size, bytes)?;
+        let page = BTreePage::new(page_no, page_size, usable_size, header_len, bytes)?;
         if page.page_type()?.as_byte() != K::BYTE {
             return Err(InkError::Corrupt(CorruptError::UnexpectedPageKind {
                 page: page_no,
@@ -62,11 +64,18 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>, K: PageKind> TypedPage<B, K> {
         page_no: PageNo,
         page_size: usize,
         usable_size: usize,
+        header_len: usize,
         bytes: B,
     ) -> InkResult<Self> {
         let page_type = BTreePageType::try_from(K::BYTE)?;
-        let page =
-            BTreePage::new_from_raw_bytes(page_no, page_type, bytes, page_size, usable_size)?;
+        let page = BTreePage::new_from_raw_bytes(
+            page_no,
+            page_type,
+            bytes,
+            page_size,
+            usable_size,
+            header_len,
+        )?;
         Ok(TypedPage::wrap(page))
     }
 }
@@ -80,6 +89,7 @@ pub(crate) fn parse_ref<'b, K: PageKind, V: Vfs>(
         page_no,
         pager.page_size(),
         pager.usable_size(),
+        pager.header_len(),
         guard.bytes(),
     )?;
     if page.page_type()?.as_byte() != K::BYTE {

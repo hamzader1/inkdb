@@ -30,6 +30,7 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
         page_no,
         pager.page_size(),
         pager.usable_size(),
+        pager.header_len(),
         guard.bytes(),
     )
 }
@@ -42,7 +43,13 @@ pub fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     let bytes = guard
         .bytes_as_mut()
         .ok_or({ InkError::Internal("page_as_mut_with_pager: guard is not a mutable borrow") })?;
-    crate::storage::page::PageMut::new(page_no, pager.page_size(), pager.usable_size(), bytes)
+    crate::storage::page::PageMut::new(
+        page_no,
+        pager.page_size(),
+        pager.usable_size(),
+        pager.header_len(),
+        bytes,
+    )
 }
 
 pub(crate) fn compare_index_entry(

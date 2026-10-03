@@ -269,9 +269,10 @@ impl<B: AsRef<[u8]>> AnyPage<B> {
         page_no: PageNo,
         page_size: usize,
         usable_size: usize,
+        header_len: usize,
         b: B,
     ) -> InkResult<Self> {
-        let btree_page = BTreePage::new(page_no, page_size, usable_size, b)?;
+        let btree_page = BTreePage::new(page_no, page_size, usable_size, header_len, b)?;
         match btree_page.page_type()?.as_byte() {
             TableInterior::BYTE => Ok(Self::TableInterior(TypedPage::wrap(btree_page))),
             TableLeaf::BYTE => Ok(Self::TableLeaf(TypedPage::wrap(btree_page))),

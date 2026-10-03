@@ -18,10 +18,11 @@ impl<'a, V: Vfs> BTree<'a, V> {
         };
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         let (is_leaf, is_index, n, found) = {
             let guard = self.pager.get(page_no)?;
-            let any = AnyPage::parse(page_no, page_size, usable, guard.bytes())?;
+            let any = AnyPage::parse(page_no, page_size, usable, header_len, guard.bytes())?;
             let is_leaf = matches!(any, AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_));
             let is_index = matches!(any, AnyPage::IndexLeaf(_) | AnyPage::IndexInterior(_));
             let n = any.no_of_cells()?;
@@ -43,7 +44,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let underflow = {
                 let mut guard = self.pager.get_mut(page_no)?;
                 let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-                let mut page = PageMut::new(page_no, page_size, usable, bytes)?;
+                let mut page = PageMut::new(page_no, page_size, usable, header_len, bytes)?;
                 page.remove_cell(cell_idx)?;
                 page.is_underflow()?
             };
@@ -62,11 +63,12 @@ impl<'a, V: Vfs> BTree<'a, V> {
     fn delete_index_divider(&mut self, page_no: PageNo, cell_idx: CellIndex) -> InkResult<bool> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
+        let header_len = self.pager.header_len();
 
         let divider_left_child = {
             let guard = self.pager.get(page_no)?;
             let at = {
-                let page = BTreePage::<&[u8]>::new(page_no, page_size, usable, guard.bytes())?;
+                let page = BTreePage::<&[u8]>::new(page_no, page_size, usable, header_len, guard.bytes())?;
                 page.cell_ptr(cell_idx)? as usize
             };
             let bytes = guard.bytes();
@@ -76,7 +78,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let mut pred_no = divider_left_child;
         loop {
             let guard = self.pager.get(pred_no)?;
-            let any = AnyPage::parse(pred_no, page_size, usable, guard.bytes())?;
+            let any = AnyPage::parse(pred_no, page_size, usable, header_len, guard.bytes())?;
             let n = any.no_of_cells()?;
             if matches!(any, AnyPage::TableLeaf(_) | AnyPage::IndexLeaf(_)) {
                 if n == 0 {
@@ -87,7 +89,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
                     .push(super::cursor::Path::new(pred_no, n - 1, guard));
                 break;
             }
-            let rmp = PageRef::new(pred_no, page_size, usable, guard.bytes())?
+            let rmp = PageRef::new(pred_no, page_size, usable, header_len, guard.bytes())?
                 .right_most_ptr()?
                 .ok_or({
                     InkError::Corrupt(CorruptError::MissingRightMostChild { page: pred_no })
@@ -101,7 +103,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let (pred_page, pred_idx) = self.cursor.last_visited_entry_unchecked();
         let pred_bytes = {
             let guard = self.pager.get(pred_page)?;
-            let page = BTreePage::<&[u8]>::new(pred_page, page_size, usable, guard.bytes())?;
+            let page = BTreePage::<&[u8]>::new(pred_page, page_size, usable, header_len, guard.bytes())?;
             page.cell_bytes_as_ref(pred_idx)?.to_vec()
         };
         let new_divider = crate::storage::cell::Encode::encode_index_interior_cell(
@@ -111,7 +113,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(page_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page = PageMut::new(page_no, page_size, usable, bytes)?;
+            let mut page = PageMut::new(page_no, page_size, usable, header_len, bytes)?;
             if page.replace_cell(cell_idx, &new_divider)?
                 == crate::storage::page::InsertionState::None
             {
@@ -124,7 +126,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let underflow = {
             let mut guard = self.pager.get_mut(pred_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page = PageMut::new(pred_page, page_size, usable, bytes)?;
+            let mut page = PageMut::new(pred_page, page_size, usable, header_len, bytes)?;
             page.remove_cell(pred_idx)?;
             page.is_underflow()?
         };
