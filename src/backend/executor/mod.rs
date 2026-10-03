@@ -11,6 +11,7 @@ pub mod aggregate;
 pub mod context;
 pub mod create;
 pub mod delete;
+pub mod drop;
 pub mod eval;
 pub mod filter;
 pub mod index;
