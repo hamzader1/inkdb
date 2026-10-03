@@ -38,12 +38,8 @@ impl<V: Vfs> PreparedPlan<V> {
     ) -> Result<Option<Row>, InkError> {
         if pager.start_transaction() {
             let parent_res = {
-                let mut ctx = ExecCtx::new(
-                    pager,
-                    master,
-                    &self.arena,
-                    self.statement_table.as_deref(),
-                );
+                let mut ctx =
+                    ExecCtx::new(pager, master, &self.arena, self.statement_table.as_deref());
                 self.parent.next(&mut ctx)
             };
             match parent_res {
@@ -56,12 +52,8 @@ impl<V: Vfs> PreparedPlan<V> {
             parent_res
         } else {
             let parent_res = {
-                let mut ctx = ExecCtx::new(
-                    pager,
-                    master,
-                    &self.arena,
-                    self.statement_table.as_deref(),
-                );
+                let mut ctx =
+                    ExecCtx::new(pager, master, &self.arena, self.statement_table.as_deref());
                 self.parent.next(&mut ctx)
             };
             match parent_res {
