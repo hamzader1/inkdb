@@ -200,11 +200,7 @@ impl<'a> MemCursor<'a> {
         Ok((int, consumed))
     }
 
-    fn remaining_varint_bytes(
-        &self,
-        offset: u64,
-        usable_size: usize,
-    ) -> Result<usize, InkError> {
+    fn remaining_varint_bytes(&self, offset: u64, usable_size: usize) -> Result<usize, InkError> {
         let offset = offset as usize;
         let remaining = usable_size
             .checked_sub(offset)
