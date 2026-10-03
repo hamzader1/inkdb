@@ -12,6 +12,7 @@ use crate::util::assert_with_runtime_err;
 pub mod bind;
 pub mod create;
 pub(crate) mod delete;
+pub mod drop;
 pub mod insert;
 pub mod select;
 pub mod update;
@@ -47,6 +48,12 @@ impl ResolvedInsertQuery {
     }
 }
 
+#[derive(Debug)]
+pub struct ResolvedDropTableQuery {
+    pub root_page: u32,
+    pub tbl_name: String,
+    pub indexes: Vec<u32>,
+}
 #[derive(Debug, Copy, Clone)]
 pub struct IndexMetadata {
     pub index_root_page: u32,
@@ -171,6 +178,7 @@ pub enum ResolvedQuery {
     CountQuery(ResolvedCountQuery),
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
+    DropTblQuery(ResolvedDropTableQuery),
     CreateIndexQuery(ResolvedCreateIndexQuery),
     UpdateQuery(ResolvedUpdateQuery),
     DeleteQuery(ResolvedDeleteQuery),
@@ -207,7 +215,7 @@ impl<'a> Analyze<'a> {
                 query: Box::new(self.analyze(*stmt.query)?),
             })),
             Ast::UpdateStmtAst(update_stmt) => self.analyze_update_stmt(update_stmt),
-            _ => todo!(),
+            Ast::DropTblAst(stmt) => self.analyze_drop_tbl(stmt),
         }
     }
 

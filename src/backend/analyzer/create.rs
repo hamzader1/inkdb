@@ -1,7 +1,7 @@
 use crate::backend::analyzer::ResolvedCreateIndexQuery;
 use crate::backend::executor::eval::Eval;
 use crate::errors::InkError;
-use crate::sql::ast::{Constraint, CreateIndex, CreateTableStmt, DefaultValue};
+use crate::sql::ast::{Constraint, CreateIndexStmt, CreateTableStmt, DefaultValue};
 use crate::util::assert_with_runtime_err;
 use crate::{InkResult, Master};
 
@@ -45,7 +45,7 @@ impl<'a> Analyze<'a> {
         }))
     }
 
-    pub fn analyze_create_index_stmt(&self, stmt: CreateIndex) -> InkResult<ResolvedQuery> {
+    pub fn analyze_create_index_stmt(&self, stmt: CreateIndexStmt) -> InkResult<ResolvedQuery> {
         let relation = self.get_non_master_table(&stmt.table)?;
         if self.master.indexes.contains_key(&stmt.name) {
             return Err(InkError::runtime(format!(
