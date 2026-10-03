@@ -10,21 +10,46 @@ use super::plan::Plan;
 
 #[derive(Debug)]
 pub struct PreparedPlan<V: Vfs> {
-    pub parent: Plan<V>,
-    pub arena: ExprArena,
-    pub statement_table: Option<String>,
+    parent: Plan<V>,
+    arena: ExprArena,
+    statement_table: Option<String>,
 }
 impl<V: Vfs> PreparedPlan<V> {
+    pub fn parent(&self) -> &Plan<V> {
+        &self.parent
+    }
+
+    pub fn arena(&self) -> &ExprArena {
+        &self.arena
+    }
+
     pub fn table_name(&self) -> Option<&str> {
         self.statement_table.as_deref()
     }
 
-    pub fn with_table(mut self, table: &str) -> Self {
+    pub(crate) fn with_table(mut self, table: &str) -> Self {
         self.statement_table = Some(table.to_string());
         self
     }
 
-    pub fn new(parent: Plan<V>, arena: ExprArena) -> Self {
+    pub(crate) fn take_statement_table(&mut self) -> Option<String> {
+        self.statement_table.take()
+    }
+
+    pub(crate) fn set_statement_table(&mut self, table: Option<String>) {
+        self.statement_table = table;
+    }
+
+    pub(crate) fn into_parts(self) -> (Plan<V>, ExprArena, Option<String>) {
+        let Self {
+            parent,
+            arena,
+            statement_table,
+        } = self;
+        (parent, arena, statement_table)
+    }
+
+    pub(crate) fn new(parent: Plan<V>, arena: ExprArena) -> Self {
         Self {
             parent,
             arena,
@@ -46,7 +71,7 @@ impl<V: Vfs> PreparedPlan<V> {
                 Ok(_) => pager.commit()?,
                 _ => {
                     pager.rollback()?;
-                    master.is_dirty = true;
+                    master.mark_dirty();
                 }
             }
             parent_res
@@ -59,7 +84,7 @@ impl<V: Vfs> PreparedPlan<V> {
             match parent_res {
                 Err(e) => {
                     pager.rollback()?;
-                    master.is_dirty = true;
+                    master.mark_dirty();
                     Err(e)
                 }
                 ok => ok,

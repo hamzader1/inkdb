@@ -12,7 +12,7 @@ use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
 
-pub fn optimize_index_scan<V: Vfs>(
+pub(crate) fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,
     master: &Master,
     table_name: &str,
@@ -190,7 +190,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                     BinaryOperator::Lt => (Bound::Unbounded, Bound::Excluded(rowid)),
                     _ => return Ok(None),
                 };
-                let root_page = self.relation.root_page;
+                let root_page = self.relation.root_page();
                 if let Some(Plan::RowRangeScan(rrs)) = self.ready_index.as_mut()
                     && rrs.root_page() == root_page
                 {
@@ -228,9 +228,9 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
             }
 
             let mut index_root_page = None;
-            for index in self.master.indexes.values() {
-                if index.is_on(&col.name, &self.relation.name) {
-                    index_root_page = Some(index.root_page);
+            for index in self.master.indexes().values() {
+                if index.is_on(&col.name, self.relation.name()) {
+                    index_root_page = Some(index.root_page());
                     break;
                 }
             }
@@ -318,8 +318,8 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
     ) -> InkResult<Plan<V>> {
         Ok(Plan::IndexExactMatch(IndexExactMatch::new(
             index_root_page,
-            self.relation.root_page,
-            self.relation.name.clone(),
+            self.relation.root_page(),
+            self.relation.name().clone(),
             target,
             scan_guard,
         )?))
@@ -333,7 +333,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
     ) -> InkResult<Plan<V>> {
         Ok(Plan::IndexRangeScan(IndexRangeScan::new(
             index_root_page,
-            self.relation.root_page,
+            self.relation.root_page(),
             start,
             end,
             scan_guard,

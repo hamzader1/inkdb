@@ -168,11 +168,10 @@ impl<V: Vfs> Plan<V> {
             ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
             ResolvedQuery::ExplainQuery(stmt) => {
                 let inner = Self::create_plan(*stmt.query, pager, master)?;
-                let mut prepared = PreparedPlan::new(
-                    Plan::Explain(Explain::new(Box::new(inner.parent))),
-                    inner.arena,
-                );
-                prepared.statement_table = inner.statement_table;
+                let (parent, arena, table) = inner.into_parts();
+                let mut prepared =
+                    PreparedPlan::new(Plan::Explain(Explain::new(Box::new(parent))), arena);
+                prepared.set_statement_table(table);
                 Ok(prepared)
             }
             ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
