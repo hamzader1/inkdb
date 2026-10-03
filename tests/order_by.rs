@@ -1,5 +1,3 @@
-
-
 #[path = "common.rs"]
 mod common;
 
@@ -132,13 +130,7 @@ fn order_by_keeps_the_rowid_of_an_integer_primary_key_table() {
     drop(conn);
 
     let mut db = open_engine(&path);
-    check(
-        &mut db,
-        &path,
-        "select * from t",
-        "select id from t",
-        0,
-    );
+    check(&mut db, &path, "select * from t", "select id from t", 0);
     check(
         &mut db,
         &path,

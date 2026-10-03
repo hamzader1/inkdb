@@ -125,15 +125,9 @@ fn truncate_with_index_stays_usable() {
     let mut db = open_engine(&path);
     run_ok(&mut db, "create index age_index on users(age)");
     run_ok(&mut db, "delete from users");
-    assert_eq!(
-        run_count(&mut db, "select * from users where age = 21"),
-        0
-    );
+    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 0);
     run_ok(&mut db, "insert into users values ('Neo', 21, 1.5, 'P0')");
-    assert_eq!(
-        run_count(&mut db, "select * from users where age = 21"),
-        1
-    );
+    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 1);
     commit_and_close(db);
     assert_integrity_ok(&path);
     cleanup(&path);
@@ -147,10 +141,7 @@ fn big_indexed_delete_100k() {
     run_ok(&mut db, "create index age_index on users(age)");
     run_ok(&mut db, "delete from users where age = 20");
     run_ok(&mut db, "delete from users where age = 30");
-    assert_eq!(
-        run_count(&mut db, "select * from users where age = 30"),
-        0
-    );
+    assert_eq!(run_count(&mut db, "select * from users where age = 30"), 0);
     assert_eq!(
         run_count(&mut db, "select * from users where age = 30 or age = 20"),
         0
@@ -194,7 +185,6 @@ fn index_build_100k_integrity() {
 
     cleanup(&path);
 }
-
 
 #[test]
 
@@ -293,10 +283,7 @@ fn mixed_case_table_names_keep_indexes_in_step() {
     );
     // Uppercase DELETE without WHERE: the index is wiped along with the table.
     run_ok(&mut db, "delete from USERS");
-    assert_eq!(
-        run_count(&mut db, "select * from users where age = 21"),
-        0
-    );
+    assert_eq!(run_count(&mut db, "select * from users where age = 21"), 0);
     commit_and_close(db);
     assert_eq!(db_count(&path, "1 = 1"), 0);
     assert_integrity_ok(&path);

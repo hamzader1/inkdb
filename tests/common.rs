@@ -98,8 +98,6 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
     n
 }
 
-/// Run a statement that must fail, reported through the SQL renderer, so a
-/// syntax/runtime error shows the offending text instead of a Debug dump.
 pub fn run_err_sql(db: &mut Database<DiskVfs>, q: &str) -> String {
     let sql = q.split_whitespace().collect::<Vec<_>>().join(" ");
     run_err_rendered(db, q, |error| {

@@ -120,6 +120,30 @@ fn rollback_truncates_grown_file() {
 }
 
 #[test]
+fn rollback_keeps_pages_grown_before_the_transaction() {
+    let (mut pager, path) = test_pager("keepgrown", 8, 4);
+    pager.start_transaction();
+    let grown = pager.allocate_new_page().unwrap();
+    assert_eq!(grown, 5);
+    pager.commit().unwrap();
+    let committed = std::fs::metadata(&path).unwrap().len();
+
+    pager.start_transaction();
+    let grown_again = pager.allocate_new_page().unwrap();
+    assert_eq!(grown_again, 6);
+    pager.rollback().unwrap();
+
+    let len_after = std::fs::metadata(&path).unwrap().len();
+    assert_eq!(
+        len_after, committed,
+        "a rollback must undo its own growth, not the growth it committed earlier"
+    );
+    assert!(pager.get(5).is_ok(), "committed page must survive");
+    assert!(pager.get(6).is_err(), "uncommitted page must be gone");
+    cleanup(&path);
+}
+
+#[test]
 fn commit_with_eviction_flushes_all_dirty() {
     let (mut pager, path) = test_pager("evict", 2, 4);
     pager.start_transaction();

@@ -89,7 +89,7 @@ fn a_predicate_is_evaluated_exactly_once() {
 
     run_ok(&mut db, "create index age_index on users(age)");
 
-    let (prepared, master) = plan_of(&mut db, "select * from users where age = 21");
+    let (prepared, _master) = plan_of(&mut db, "select * from users where age = 21");
     let Plan::Filter(filter) = &prepared.parent else {
         panic!("with an index the plan must keep its Filter");
     };

@@ -24,14 +24,11 @@ fn u32_at(bytes: &[u8], off: usize) -> u32 {
     u32::from_be_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
 }
 
-/// Number of pages the file claims to hold.
 fn file_page_count(db: &mut Database<DiskVfs>) -> u32 {
     let guard = db.pager.get(1).expect("page 1");
     u32_at(guard.bytes(), DATABASE_SIZE_IN_PAGES_OFFSET)
 }
 
-/// Every page owned by the freelist, plus a check that the chain agrees with
-/// the page count stored in the database header.
 fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> HashSet<u32> {
     let usable = db.pager.usable_size();
     let (head, total) = {
@@ -102,8 +99,6 @@ struct PageAudit {
     referenced: HashSet<u32>,
 }
 
-/// Audits one page and every page below it, accumulating problems. Returns the
-/// (min, max) key of the subtree so callers can check divider routing.
 fn audit_page(
     db: &mut Database<DiskVfs>,
     page_no: u32,
@@ -398,7 +393,6 @@ fn audit_page(
     (subtree_min, subtree_max)
 }
 
-/// Full audit: catalog trees, freelist chain, and every page in the file.
 pub fn audit_database(db: &mut Database<DiskVfs>, tag: &str) -> Vec<String> {
     let mut problems = Vec::new();
     let master = match Master::new(&mut db.pager) {
@@ -459,7 +453,6 @@ fn checkpoint(db: &mut Database<DiskVfs>, tag: &str, assert_clean: bool) {
     }
 }
 
-/// Inserts, builds an index, deletes whole age groups, auditing as it goes.
 fn audit_run(tag: &str, page_size: u32, rows: usize, victims: usize, seed: u64) {
     let path = db_path(tag);
     build_users(&path, page_size, 0);
@@ -498,18 +491,11 @@ fn audit_run(tag: &str, page_size: u32, rows: usize, victims: usize, seed: u64) 
     cleanup(&path);
 }
 
-/// Small pages, smaller load: this has to stay clean.
 #[test]
 fn structural_audit_through_indexed_deletes() {
     audit_run("audit-small", 512, 600, 3, 0xC0FFEE);
 }
 
-/// Larger pages and deeper delete runs. Known failure: the free list ends up
-/// with two blocks one byte apart on the index root (page 69), which real
-/// SQLite rejects with "free space corruption" and then refuses to walk that
-/// subtree, reporting its children as "Page N: never used". `insert_freeblock`
-/// only coalesces exactly adjacent blocks; SQLite absorbs any gap shorter than
-/// a freeblock header. Run with `--ignored` to reproduce.
 #[test]
 #[ignore = "known free space corruption: <4 byte gap between free blocks"]
 fn structural_audit_large_pages_deep_deletes() {

@@ -1,6 +1,3 @@
-//! INSERT semantics against the reference engine: column lists (including
-//! reordered and partial), NOT NULL, arity, and unknown names.
-
 #[path = "common.rs"]
 mod common;
 

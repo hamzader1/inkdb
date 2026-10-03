@@ -1,5 +1,3 @@
-
-
 use inkdb::storage::page::{BTreePage, BTreePageType};
 
 struct Rng(u64);
