@@ -26,6 +26,7 @@ impl<'a, V: Vfs> ExecCtx<'a, V> {
     }
 
     pub fn table(&self) -> Option<&crate::schema::Table> {
-        self.statement_table.and_then(|name| self.master.table(name))
+        self.statement_table
+            .and_then(|name| self.master.table(name))
     }
 }
