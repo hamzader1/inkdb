@@ -4,11 +4,11 @@ use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
 
+use crate::assert_all;
 use crate::bytes::*;
 use crate::errors::InkError;
 use crate::seek_c;
 use crate::seek_s;
-use crate::assert_all;
 use crate::util::assert_one;
 use crate::vfs::cursor::FileCursor;
 use crate::vfs::file::InkFile;
@@ -198,10 +198,7 @@ impl InkDatabaseHeader {
             version_number,
         } = self;
 
-        assert_one(
-            self.header_string == *FILE_MAGIC,
-            Self::INVALID_HEADER_ERR,
-        )?;
+        assert_one(self.header_string == *FILE_MAGIC, Self::INVALID_HEADER_ERR)?;
 
         assert_one(
             self.database_page_size == 1
