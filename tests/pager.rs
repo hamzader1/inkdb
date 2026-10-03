@@ -24,7 +24,15 @@ fn test_pager(tag: &str, cache: usize, npages: usize) -> (Pager<DiskVfs>, PathBu
     let mut vfs = DiskVfs;
     let source = vfs.open(&path, InkOptions::all()).unwrap();
     source.set_len(PS * npages).unwrap();
-    let header = HeaderCache::new(PS as _, PS as _, npages as _, 0, 0);
+    let header = HeaderCache::new(
+        PS as _,
+        PS as _,
+        npages as _,
+        0,
+        0,
+        100,
+        inkdb::db::header::DbFormat::Sqlite,
+    );
     let pager = Pager::with_cache(vfs, source, header, cache).unwrap();
     (pager, path)
 }

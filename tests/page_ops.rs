@@ -30,7 +30,7 @@ fn mkcell(rng: &mut Rng) -> Vec<u8> {
 }
 
 fn check_page(buf: &[u8], page_no: u32, usable: usize) {
-    let p = BTreePage::new(page_no, buf.len(), usable, buf).unwrap();
+    let p = BTreePage::new(page_no, buf.len(), usable, 0, buf).unwrap();
     let t = p.page_type().unwrap();
     let n = p.no_of_cells().unwrap() as usize;
     let cca = p.cell_content_area().unwrap() as usize;
@@ -64,7 +64,7 @@ fn check_page(buf: &[u8], page_no: u32, usable: usize) {
 }
 
 fn page_cells(buf: &mut [u8], page_no: u32, usable: usize) -> Vec<Vec<u8>> {
-    let p = BTreePage::new(page_no, buf.len(), usable, buf).unwrap();
+    let p = BTreePage::new(page_no, buf.len(), usable, 0, buf).unwrap();
     let n = p.no_of_cells().unwrap();
     let mut cells: Vec<Vec<u8>> = (0..n)
         .map(|i| p.cell_bytes_as_ref(i).unwrap().to_vec())
@@ -76,7 +76,7 @@ fn page_cells(buf: &mut [u8], page_no: u32, usable: usize) -> Vec<Vec<u8>> {
 fn run_seed(seed: u64) {
     let ps = 512usize;
     let mut buf = vec![0u8; ps];
-    BTreePage::new_from_raw_bytes(7, BTreePageType::LeafIndex, &mut buf[..], ps, ps).unwrap();
+    BTreePage::new_from_raw_bytes(7, BTreePageType::LeafIndex, &mut buf[..], ps, ps, 0).unwrap();
     let mut model: Vec<Vec<u8>> = Vec::new();
     let mut rng = Rng(seed);
     let mut log: Vec<String> = Vec::new();
@@ -89,7 +89,7 @@ fn run_seed(seed: u64) {
             0..=59 => {
                 let content = mkcell(&mut rng);
                 let idx = rng.next(before_n + 1);
-                let mut p = BTreePage::new(7, ps, ps, &mut buf[..]).unwrap();
+                let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
                 match p.insert_cell(&content, idx as u16) {
                     Ok(state) => {
                         let inserted = format!("{state:?}") == "Inserted";
@@ -110,7 +110,7 @@ fn run_seed(seed: u64) {
                     continue;
                 }
                 let idx = rng.next(before_n);
-                let mut p = BTreePage::new(7, ps, ps, &mut buf[..]).unwrap();
+                let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
                 if let Err(e) = p.remove_cell(idx as u16) {
                     fail(step, format!("remove err {e:?}"), &log);
                 }
@@ -126,7 +126,7 @@ fn run_seed(seed: u64) {
                 let idx = rng.next(before_n);
                 let snapshot = buf.clone();
                 let outcome = {
-                    let mut p = BTreePage::new(7, ps, ps, &mut buf[..]).unwrap();
+                    let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
                     match p.replace_cell(idx as u16, &content) {
                         Ok(state) => format!("{state:?}"),
                         Err(e) => fail(step, format!("replace err {e:?}"), &log),
@@ -142,7 +142,7 @@ fn run_seed(seed: u64) {
                 log.push(format!("replace idx={idx} -> {outcome}"));
             }
             _ => {
-                let mut p = BTreePage::new(7, ps, ps, &mut buf[..]).unwrap();
+                let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
                 if let Err(e) = p.reset_for_rebuild() {
                     fail(step, format!("reset err {e:?}"), &log);
                 }
@@ -180,11 +180,11 @@ fn full_page_reports_honestly() {
     // Fill a page, then prove oversize work is refused, never half done.
     let ps = 512usize;
     let mut buf = vec![0u8; ps];
-    BTreePage::new_from_raw_bytes(7, BTreePageType::LeafIndex, &mut buf[..], ps, ps).unwrap();
+    BTreePage::new_from_raw_bytes(7, BTreePageType::LeafIndex, &mut buf[..], ps, ps, 0).unwrap();
     let big = vec![0xAAu8; 200];
     let mut inserted = 0;
     loop {
-        let mut p = BTreePage::new(7, ps, ps, &mut buf[..]).unwrap();
+                    let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
         match p.insert_cell(&big, 0) {
             Ok(state) => {
                 if format!("{state:?}") != "Inserted" {
@@ -202,7 +202,7 @@ fn full_page_reports_honestly() {
     assert!(inserted > 0);
     let snapshot = buf.clone();
     let outcome = {
-        let mut p = BTreePage::new(7, ps, ps, &mut buf[..]).unwrap();
+                    let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
         match p.replace_cell(0, &vec![0xBBu8; 400]) {
             Ok(state) => format!("{state:?}"),
             Err(e) => panic!("replace err {e:?}"),

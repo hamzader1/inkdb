@@ -112,6 +112,7 @@ fn audit_page(
     }
     let page_size = db.pager.page_size();
     let usable = db.pager.usable_size();
+    let header_len = db.pager.header_len();
     let file_pages = file_page_count(db);
     if page_no == 0 || page_no > file_pages {
         ctx.problems.push(format!(
@@ -119,7 +120,7 @@ fn audit_page(
         ));
         return empty;
     }
-    let header_offset = if page_no == 1 { 100usize } else { 0 };
+    let header_offset = if page_no == 1 { header_len } else { 0 };
     let bytes = {
         let guard = match db.pager.get(page_no) {
             Ok(g) => g,
@@ -130,7 +131,7 @@ fn audit_page(
         };
         guard.bytes().to_vec()
     };
-    let page = match BTreePage::new(page_no, page_size, usable, &bytes[..]) {
+    let page = match BTreePage::new(page_no, page_size, usable, header_len, &bytes[..]) {
         Ok(p) => p,
         Err(e) => {
             ctx.problems.push(format!("page {page_no} bad header: {e}"));

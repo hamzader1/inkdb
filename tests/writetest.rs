@@ -66,7 +66,15 @@ fn btree_index_split_roundtrip() {
     let mut vfs = DiskVfs;
     let source = vfs.open(&path, InkOptions::all()).unwrap();
     inkdb::vfs::file::InkFile::set_len(&source, ps * 4).unwrap();
-    let header = inkdb::pager::pager::HeaderCache::new(ps as u32, ps as u32, 4, 0, 0);
+    let header = inkdb::pager::pager::HeaderCache::new(
+        ps as u32,
+        ps as u32,
+        4,
+        0,
+        0,
+        100,
+        inkdb::db::header::DbFormat::Sqlite,
+    );
     let mut pager = Pager::with_cache(vfs, source, header, 4096).unwrap();
     pager.start_transaction();
     let root = pager.allocate_new_page().unwrap();
@@ -79,6 +87,7 @@ fn btree_index_split_roundtrip() {
             g.bytes_as_mut_unchecked(),
             ps,
             ps,
+            0,
         )
         .unwrap();
     }
@@ -110,7 +119,8 @@ fn btree_index_split_roundtrip() {
         }
         {
             let g = pager.get(root).unwrap();
-            let pg = inkdb::storage::page::BTreePage::new(root, 4096, 4096, g.bytes()).unwrap();
+            let pg =
+                inkdb::storage::page::BTreePage::new(root, 4096, 4096, 100, g.bytes()).unwrap();
             if pg.page_type().unwrap() as u8 == 2 || pg.page_type().is_err() {
                 let r = pg.right_most_ptr();
                 static LASTH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -149,6 +159,7 @@ fn btree_index_split_roundtrip() {
                     p,
                     4096,
                     4096,
+                    100,
                     g.bytes_as_mut_unchecked(),
                 ) {
                     Ok(pg) => pg,

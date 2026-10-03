@@ -33,6 +33,7 @@ fn record_accessor_agrees_with_the_page_decoder_on_rows() {
             page_no,
             db.pager.page_size(),
             db.pager.usable_size(),
+            db.pager.header_len(),
             guard.bytes(),
         )
         .expect("page ref");

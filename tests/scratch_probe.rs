@@ -9,6 +9,7 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
     use inkdb::storage::page::BTreePage;
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
+    let hl = db.pager.header_len();
     let mut counts: HashMap<u32, u32> = HashMap::new();
     let mut parents: HashMap<u32, Vec<(u32, u16)>> = HashMap::new();
     let mut seen = HashSet::new();
@@ -25,7 +26,7 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
             eprintln!("walk: page {pn} unreadable");
             continue;
         };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else {
+        let Ok(page) = BTreePage::new(pn, ps, us, hl, guard.bytes()) else {
             eprintln!("walk: page {pn} bad header");
             continue;
         };
@@ -77,8 +78,9 @@ fn dump_parent(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pp: u32)
     use inkdb::storage::page::BTreePage;
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
+    let hl = db.pager.header_len();
     let guard = db.pager.get(pp).unwrap();
-    let page = BTreePage::new(pp, ps, us, guard.bytes()).unwrap();
+    let page = BTreePage::new(pp, ps, us, hl, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
     eprintln!(
         "dump parent {pp}: kind={:?} cells={n} rmp={:?}",
@@ -107,8 +109,9 @@ fn dump_page_keys(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, pn: u
     use inkdb::storage::page::BTreePage;
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
+    let hl = db.pager.header_len();
     let guard = db.pager.get(pn).unwrap();
-    let page = BTreePage::new(pn, ps, us, guard.bytes()).unwrap();
+    let page = BTreePage::new(pn, ps, us, hl, guard.bytes()).unwrap();
     let n = page.no_of_cells().unwrap();
     eprintln!(
         "dump page {pn}: kind={:?} cells={n} rmp={:?}",

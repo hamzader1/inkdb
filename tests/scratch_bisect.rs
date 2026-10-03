@@ -11,6 +11,7 @@ fn walk_table_refs(
     use inkdb::storage::page::BTreePage;
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
+    let hl = db.pager.header_len();
     let mut counts: HashMap<u32, u32> = HashMap::new();
     let mut parents: HashMap<u32, Vec<(u32, u16)>> = HashMap::new();
     let mut seen = HashSet::new();
@@ -25,7 +26,7 @@ fn walk_table_refs(
         let Ok(guard) = db.pager.get(pn) else {
             continue;
         };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else {
+        let Ok(page) = BTreePage::new(pn, ps, us, hl, guard.bytes()) else {
             continue;
         };
         let Ok(t) = page.page_type() else { continue };
@@ -67,6 +68,7 @@ fn walk_index_refs(
     use inkdb::storage::page::BTreePage;
     let ps = db.pager.page_size();
     let us = db.pager.usable_size();
+    let hl = db.pager.header_len();
     let mut counts: HashMap<u32, u32> = HashMap::new();
     let mut parents: HashMap<u32, Vec<(u32, u16)>> = HashMap::new();
     let mut seen = HashSet::new();
@@ -81,7 +83,7 @@ fn walk_index_refs(
         let Ok(guard) = db.pager.get(pn) else {
             continue;
         };
-        let Ok(page) = BTreePage::new(pn, ps, us, guard.bytes()) else {
+        let Ok(page) = BTreePage::new(pn, ps, us, hl, guard.bytes()) else {
             continue;
         };
         let Ok(t) = page.page_type() else { continue };
