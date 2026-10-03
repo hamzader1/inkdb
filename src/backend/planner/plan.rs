@@ -159,7 +159,7 @@ impl<V: Vfs> Plan<V> {
                 Ok(PreparedPlan::new(
                     Plan::TruncateTable(TruncateTable::new(
                         stmt.root_page,
-                        indexes,
+                        indexes.into(),
                         Box::new(Plan::<V>::Halt),
                     )),
                     ExprArena::new(),
@@ -442,7 +442,11 @@ impl<V: Vfs> Plan<V> {
         });
         plan = Self::Filter(Filter::new(Box::new(plan), index));
         plan = Self::Delete(Delete::new(Box::new(plan), 1));
-        plan = Self::TruncateTable(TruncateTable::dropping(root_page, indexes, Box::new(plan)));
+        plan = Self::TruncateTable(TruncateTable::dropping(
+            root_page,
+            indexes.into(),
+            Box::new(plan),
+        ));
         plan = Self::DropTbl(DropTblExec::new(Box::new(plan)));
 
         Ok(PreparedPlan::new(plan, arena))

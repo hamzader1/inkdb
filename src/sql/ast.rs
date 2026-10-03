@@ -35,7 +35,7 @@ pub struct DropIndexStmt {
 pub struct Column {
     pub name: String,
     pub affinity: Affinity,
-    pub constraints: Option<Vec<Constraint>>,
+    pub constraints: Option<Box<[Constraint]>>,
     pub default: Option<DefaultValue>,
 }
 impl Column {

@@ -20,7 +20,7 @@ pub enum RootStateAfterTruncate {
 #[derive(Debug)]
 pub struct TruncateTable<V: Vfs> {
     root_page: u32,
-    indexes: Vec<u32>,
+    indexes: Box<[u32]>,
     page_kind: BTreePageType,
     free_root: RootStateAfterTruncate,
     is_init: bool,
@@ -28,7 +28,7 @@ pub struct TruncateTable<V: Vfs> {
 }
 
 impl<V: Vfs> TruncateTable<V> {
-    pub fn new(root_page: u32, indexes: Vec<u32>, child: Box<Plan<V>>) -> Self {
+    pub fn new(root_page: u32, indexes: Box<[u32]>, child: Box<Plan<V>>) -> Self {
         Self {
             root_page,
             indexes,
@@ -39,7 +39,7 @@ impl<V: Vfs> TruncateTable<V> {
         }
     }
 
-    pub fn dropping(root_page: u32, indexes: Vec<u32>, child: Box<Plan<V>>) -> Self {
+    pub fn dropping(root_page: u32, indexes: Box<[u32]>, child: Box<Plan<V>>) -> Self {
         Self {
             free_root: RootStateAfterTruncate::Release,
             ..Self::new(root_page, indexes, child)
@@ -59,7 +59,7 @@ impl<V: Vfs> TruncateTable<V> {
     fn new_index(root_page: u32) -> Self {
         Self {
             root_page,
-            indexes: Vec::new(),
+            indexes: [].into(),
             page_kind: BTreePageType::LeafIndex,
             free_root: RootStateAfterTruncate::Keep,
             is_init: false,

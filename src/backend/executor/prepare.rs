@@ -18,7 +18,7 @@ pub struct PrepareRow<V: Vfs> {
     child: Box<Plan<V>>,
     pub root_page: u32,
     table_name: String,
-    pub table_constraints: Option<Vec<usize>>,
+    pub table_constraints: Option<Box<[usize]>>,
 }
 
 impl<V: Vfs> PrepareRow<V> {
@@ -26,7 +26,7 @@ impl<V: Vfs> PrepareRow<V> {
         child: Box<Plan<V>>,
         root_page: u32,
         table_name: String,
-        table_constraints: Option<Vec<usize>>,
+        table_constraints: Option<Box<[usize]>>,
     ) -> Self {
         Self {
             child,
@@ -110,8 +110,8 @@ impl<V: Vfs> PrepareInsert<V> {
         if self.pos >= self.rows.len() {
             return Ok(None);
         }
-        let row = Row::new(0, self.rows[self.pos].clone());
+        let values = std::mem::take(&mut self.rows[self.pos]);
         self.pos += 1;
-        Ok(Some(row))
+        Ok(Some(Row::new(0, values.into_iter().collect())))
     }
 }

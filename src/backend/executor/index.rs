@@ -108,7 +108,7 @@ impl<V: Vfs> IndexExactMatch<V> {
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if !self.is_init {
             self.cursor
-                .seek_lower_bound(ctx.pager, &Value::Tuple(vec![self.target.clone()]))?;
+                .seek_lower_bound(ctx.pager, &Value::Tuple([self.target.clone()].into()))?;
             self.is_init = true;
         }
 
@@ -167,7 +167,7 @@ pub trait IndexMutation<V: Vfs>: std::fmt::Debug {
 pub struct IndexDelete;
 impl<V: Vfs> IndexMutation<V> for IndexDelete {
     fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()> {
-        if !btree.delete(Value::Tuple(entry.to_vec()))? {
+        if !btree.delete(Value::Tuple(entry.into()))? {
             return Err(CorruptError::IndexEntryMissing {
                 index_page: btree.root_page,
             }
@@ -183,7 +183,7 @@ pub struct IndexInsert {
 impl<V: Vfs> IndexMutation<V> for IndexInsert {
     fn next(&mut self, btree: &mut BTree<V>, entry: &[Value]) -> InkResult<()> {
         if self.is_unique {
-            btree.seek(&Value::Tuple(vec![entry[0].clone()]))?;
+            btree.seek(&Value::Tuple([entry[0].clone()].into()))?;
             if let Some(record) = btree.current_record::<IndexLeaf>()?
                 && !record[0].is_null()
                 && record[0] == entry[0]
@@ -196,7 +196,7 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
         }
 
         let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(entry));
-        btree.insert(&Value::Tuple(entry.to_vec()), &mut bytes)?;
+        btree.insert(&Value::Tuple(entry.into()), &mut bytes)?;
         Ok(())
     }
 }
@@ -249,11 +249,11 @@ impl<V: Vfs> IndexRangeScan<V> {
             match self.range.0 {
                 Bound::Included(ref i) => {
                     self.cursor
-                        .seek_lower_bound(ctx.pager, &Value::Tuple(vec![i.to_owned_static()]))?;
+                        .seek_lower_bound(ctx.pager, &Value::Tuple([i.to_owned_static()].into()))?;
                 }
                 Bound::Excluded(ref i) => {
                     self.cursor
-                        .seek_lower_bound(ctx.pager, &Value::Tuple(vec![i.to_owned_static()]))?;
+                        .seek_lower_bound(ctx.pager, &Value::Tuple([i.to_owned_static()].into()))?;
                     while let Some(bytes) = self.cursor.current_record_bytes(ctx.pager)?
                         && Record::new(&bytes)?.value(0)? == *i
                     {

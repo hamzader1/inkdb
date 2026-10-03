@@ -68,7 +68,7 @@ pub enum Value<'a> {
     Float(f64),
     Text(Cow<'a, str>),
     Blob(Cow<'a, [u8]>),
-    Tuple(Vec<Value<'a>>),
+    Tuple(Box<[Value<'a>]>),
 }
 
 impl<'a> Value<'a> {

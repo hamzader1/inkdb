@@ -425,7 +425,7 @@ mod tests {
             text("abc"),
             blob(b"12"),
             blob(&[0xff, 0xfe]),
-            Value::Tuple(vec![int(1)]),
+            Value::Tuple([int(1)].into()),
         ];
         for lhs in &values {
             for rhs in &values {
@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn tuples_are_an_error_not_a_panic() {
-        let tuple = Value::Tuple(vec![int(1), int(2)]);
+        let tuple = Value::Tuple([int(1), int(2)].into());
         assert!(int(1).try_add(&tuple).is_err());
         assert!(tuple.try_mul(&int(2)).is_err());
         assert!(tuple.try_div(&int(2)).is_err());

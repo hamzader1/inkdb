@@ -146,7 +146,7 @@ impl Parser {
             constraints: if constraints.is_empty() {
                 None
             } else {
-                Some(constraints)
+                Some(constraints.into())
             },
             default,
         })

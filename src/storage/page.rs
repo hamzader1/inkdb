@@ -581,11 +581,11 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             BTreeCell::TableInterior(table_interior) => Ok(table_interior.rowid_boundary.into()),
             BTreeCell::IndexInterior(_) => {
                 let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).to_owned_static())
+                Ok(Value::Tuple(record.into()).to_owned_static())
             }
             BTreeCell::IndexLeaf(_) => {
                 let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record).to_owned_static())
+                Ok(Value::Tuple(record.into()).to_owned_static())
             }
         }
     }

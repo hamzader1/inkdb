@@ -25,7 +25,7 @@ pub struct ResolvedSelectQuery {
     pub table_name: String,
     pub root_page: u32,
     pub arena: ExprArena,
-    pub columns: Vec<usize>,
+    pub columns: Box<[usize]>,
     pub where_clause: Option<usize>,
     pub limit: Option<usize>,
     pub orderby: Option<OrderBy>,
@@ -74,8 +74,8 @@ impl IndexMetadata {
         }
     }
 
-    pub fn key_for(&self, value: Value<'static>, rowid: u64) -> Vec<Value<'static>> {
-        vec![value, Value::Integer(rowid as i64)]
+    pub fn key_for(&self, value: Value<'static>, rowid: u64) -> Box<[Value<'static>]> {
+        [value, Value::Integer(rowid as i64)].into()
     }
 }
 
@@ -149,7 +149,7 @@ impl ResolvedCreateIndexQuery {
 pub struct ResolvedUpdateQuery {
     pub table_name: String,
     pub root_page: u32,
-    pub affected_columns: Vec<(usize, usize)>,
+    pub affected_columns: Box<[(usize, usize)]>,
     pub where_clause: Option<usize>,
     pub arena: ExprArena,
 }
@@ -158,7 +158,7 @@ impl ResolvedUpdateQuery {
     pub fn new(
         table_name: String,
         root_page: u32,
-        affected_columns: Vec<(usize, usize)>,
+        affected_columns: Box<[(usize, usize)]>,
         where_clause: Option<usize>,
         arena: ExprArena,
     ) -> Self {

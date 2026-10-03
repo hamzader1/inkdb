@@ -162,7 +162,7 @@ impl<V: Vfs> CreateIndex<V> {
             self.prev_unique_val = Some(value.clone());
             let key = index.key_for(value, row.key());
             let bytes = Encode::encode_index_leaf_cell(Tuple::serialize(&key));
-            Insert::new(index.index_root_page, Value::Tuple(key), bytes).next(ctx)?;
+            Insert::new(index.index_root_page, Value::Tuple(key.into()), bytes).next(ctx)?;
         }
         Ok(None)
     }

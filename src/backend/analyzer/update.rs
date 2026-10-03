@@ -26,7 +26,7 @@ impl<'a> Analyze<'a> {
         Ok(ResolvedQuery::UpdateQuery(ResolvedUpdateQuery::new(
             table_name,
             root_page,
-            columns,
+            columns.into(),
             where_clause,
             arena,
         )))

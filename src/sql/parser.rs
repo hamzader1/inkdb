@@ -15,16 +15,19 @@ use super::tokens::{
     Token,
     TokenKind::{self, *},
 };
+use smallvec::SmallVec;
 use std::{rc::Rc, string::String};
 
 use super::ast::Expr;
 #[derive(Debug, Default, Clone)]
 pub struct ExprArena {
-    pub nodes: Vec<Expr>,
+    pub nodes: SmallVec<[Expr; 32]>,
 }
 impl ExprArena {
     pub fn new() -> Self {
-        Self { nodes: Vec::new() }
+        Self {
+            nodes: SmallVec::new(),
+        }
     }
     pub fn push(&mut self, expr: Expr) -> usize {
         self.nodes.push(expr);

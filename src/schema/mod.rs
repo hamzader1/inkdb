@@ -25,8 +25,8 @@ use crate::sql::ast::{
 pub struct Table {
     pub name: String,
     pub root_page: u32,
-    pub columns: Vec<Column>,
-    pub tbl_constraits: Vec<usize>,
+    pub columns: Box<[Column]>,
+    pub tbl_constraits: Box<[usize]>,
     pub tbl_arena: ExprArena,
 }
 
@@ -66,9 +66,10 @@ pub static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
             constraints: None,
             default: None,
         },
-    ],
+    ]
+    .into(),
     tbl_arena: ExprArena::new(),
-    tbl_constraits: Vec::new(),
+    tbl_constraits: [].into(),
 });
 impl Table {
     pub fn get_col_idx(&self, col_name: &str) -> Option<usize> {
@@ -93,8 +94,8 @@ pub struct Index {
     pub name: String,  // name of the index
     pub table: String, // name of the table
     pub root_page: u32,
-    pub columns: Vec<String>, // single/multi col index
-    pub unique: bool,         // is unique
+    pub columns: Box<[String]>, // single/multi col index
+    pub unique: bool,           // is unique
 }
 
 impl Index {
@@ -217,8 +218,8 @@ impl Master {
                 let mut table = Table {
                     name: q.meta.name,
                     root_page: record[3].cast_int()? as _,
-                    columns: q.meta.columns,
-                    tbl_constraits: q.meta.tbl_constraints,
+                    columns: q.meta.columns.into(),
+                    tbl_constraits: q.meta.tbl_constraints.into(),
                     tbl_arena: q.meta.arena,
                 };
                 self.tables.insert(table.name.clone(), table);
@@ -228,7 +229,7 @@ impl Master {
                     name: ast.name,
                     table: ast.table,
                     root_page: record[3].cast_int()? as _,
-                    columns: ast.columns,
+                    columns: ast.columns.into(),
                     unique: ast.unique,
                 };
                 self.indexes.insert(index.name.clone(), index);

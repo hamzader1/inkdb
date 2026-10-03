@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::fs::File;
 
 use crate::errors::CorruptError;
@@ -33,7 +34,7 @@ pub(crate) const MEM_CAP: usize = 0xA00000; /*10MiB*/
 #[derive(Debug)]
 pub enum Columns {
     Stored(Vec<u8>),
-    Computed(Vec<Value<'static>>),
+    Computed(SmallVec<[Value<'static>; 4]>),
 }
 
 #[derive(Debug)]
@@ -44,7 +45,7 @@ pub struct Row {
 }
 
 impl Row {
-    pub fn new(key: u64, data: Vec<Value<'static>>) -> Self {
+    pub fn new(key: u64, data: SmallVec<[Value<'static>; 4]>) -> Self {
         Self {
             key,
             rowid_column: None,
@@ -120,12 +121,12 @@ impl Row {
         self.len() == 0
     }
 
-    pub fn to_values(&self) -> InkResult<Vec<Value<'static>>> {
+    pub fn to_values(&self) -> InkResult<SmallVec<[Value<'static>; 4]>> {
         match (&self.columns, self.rowid_column) {
             (Columns::Computed(values), _) => Ok(values.clone()),
             (Columns::Stored(_), None) => match self.raw_record()? {
-                Some(record) => record.to_values_owned(),
-                None => Ok(Vec::new()),
+                Some(record) => Ok(record.to_values_owned()?.into()),
+                None => Ok(SmallVec::new()),
             },
             (Columns::Stored(_), Some(_)) => (0..self.len())
                 .map(|index| Ok(self.value(index)?.into_static()))

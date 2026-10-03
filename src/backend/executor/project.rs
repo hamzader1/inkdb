@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use crate::backend::planner::plan::Plan;
 use crate::errors::InkError;
 use crate::record::Value;
@@ -10,11 +12,11 @@ use super::eval::Eval;
 #[derive(Debug)]
 pub struct Project<V: Vfs> {
     pub child: Box<Plan<V>>,
-    columns: Vec<usize>,
+    columns: Box<[usize]>,
 }
 
 impl<V: Vfs> Project<V> {
-    pub fn new(child: Box<Plan<V>>, columns: Vec<usize>) -> Self {
+    pub fn new(child: Box<Plan<V>>, columns: Box<[usize]>) -> Self {
         Self { child, columns }
     }
     pub fn columns(&self) -> &[usize] {
@@ -28,14 +30,14 @@ impl<V: Vfs> Project<V> {
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if let Some(row) = self.child.next(ctx)? {
             let key = row.key();
-            let output_row: Vec<Value<'static>> = self
+            let output_row: SmallVec<[Value<'static>; 4]> = self
                 .columns
                 .iter()
                 .map(|i| {
                     let value = Eval::eval(ctx.arena, *i, Some(&row))?;
                     Ok(value.into_static())
                 })
-                .collect::<Result<Vec<_>, InkError>>()?;
+                .collect::<Result<SmallVec<[Value<'static>; 4]>, InkError>>()?;
             return Ok(Some(Row::new(key, output_row)));
         }
 

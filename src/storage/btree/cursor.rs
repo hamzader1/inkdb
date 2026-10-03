@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use super::kind::HasChild;
 use crate::InkResult;
 use crate::errors::InkError;
@@ -68,7 +70,7 @@ pub enum IndexSearchResult {
 #[derive(Debug)]
 pub struct BTreeCursor<V: crate::vfs::Vfs> {
     pub root: PageNo,
-    pub stack: Vec<Path>,
+    pub stack: SmallVec<[Path; 4]>,
     pub state: CursorState,
     pub saved_key: Option<Value<'static>>,
     saved_yielded: bool,
@@ -79,7 +81,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
     pub fn new(root: PageNo) -> Self {
         Self {
             root,
-            stack: Vec::new(),
+            stack: SmallVec::new(),
             state: CursorState::Invalid,
             saved_key: None,
             saved_yielded: false,
