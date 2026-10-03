@@ -2,9 +2,8 @@ use std::collections::HashSet;
 use std::ptr::NonNull;
 
 use crate::db::header::{
-    DATABASE_SIZE_IN_PAGES_OFFSET, DATABASE_SIZE_IN_PAGES_SIZE, FIRST_FREELIST_TRUNK_PAGE_OFFSET,
-    FIRST_FREELIST_TRUNK_PAGE_SIZE, InkDatabaseHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
-    TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
+    DATABASE_SIZE_IN_PAGES_SIZE, FIRST_FREELIST_TRUNK_PAGE_SIZE, DatabaseHeader, DbFormat,
+    InkDatabaseHeader, InkFileHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
 use crate::errors::{CorruptError, InkError};
 use crate::util::assert_with_runtime_err;
@@ -42,6 +41,8 @@ pub struct HeaderCache {
     max_allocated_pages: u32,
     first_freelist_truck_page: u32,
     total_freelist_pages: u32,
+    header_len: usize,
+    format: DbFormat,
 }
 
 impl HeaderCache {
@@ -51,6 +52,8 @@ impl HeaderCache {
         max_allocated_pages: u32,
         first_freelist_truck_page: u32,
         total_freelist_pages: u32,
+        header_len: usize,
+        format: DbFormat,
     ) -> Self {
         Self {
             page_size,
@@ -58,7 +61,17 @@ impl HeaderCache {
             max_allocated_pages,
             first_freelist_truck_page,
             total_freelist_pages,
+            header_len,
+            format,
         }
+    }
+
+    pub fn header_len(&self) -> usize {
+        self.header_len
+    }
+
+    pub fn format(&self) -> DbFormat {
+        self.format
     }
 }
 
@@ -70,7 +83,37 @@ impl From<InkDatabaseHeader> for HeaderCache {
             value.database_size_in_pages,
             value.first_freelist_trunk_page,
             value.total_number_of_freelist_pages,
+            DbFormat::Sqlite.header_len(),
+            DbFormat::Sqlite,
         )
+    }
+}
+
+impl From<InkFileHeader> for HeaderCache {
+    fn from(value: InkFileHeader) -> Self {
+        let page_size = if value.database_page_size == 1 {
+            65536
+        } else {
+            value.database_page_size
+        };
+        HeaderCache::new(
+            page_size,
+            page_size - value.reserved_space as u32,
+            value.database_size_in_pages,
+            value.first_freelist_trunk_page,
+            value.total_number_of_freelist_pages,
+            DbFormat::Ink.header_len(),
+            DbFormat::Ink,
+        )
+    }
+}
+
+impl From<DatabaseHeader> for HeaderCache {
+    fn from(value: DatabaseHeader) -> Self {
+        match value {
+            DatabaseHeader::Sqlite(h) => HeaderCache::from(h),
+            DatabaseHeader::Ink(h) => HeaderCache::from(h),
+        }
     }
 }
 
@@ -150,6 +193,12 @@ impl<V: Vfs> Pager<V> {
     }
     pub fn usable_size(&self) -> usize {
         self.header.usable_size as _
+    }
+    pub fn header_len(&self) -> usize {
+        self.header.header_len()
+    }
+    pub fn format(&self) -> DbFormat {
+        self.header.format()
     }
     pub fn max_allocation_pages(&self) -> usize {
         self.header.max_allocated_pages as _
@@ -450,24 +499,24 @@ impl<V: Vfs> Pager<V> {
     pub fn update_max_allocated_pages(&mut self) -> Result<(), InkError> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        bytes[DATABASE_SIZE_IN_PAGES_OFFSET
-            ..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
+        let off = self.header.format().size_in_pages_offset();
+        bytes[off..off + DATABASE_SIZE_IN_PAGES_SIZE]
             .copy_from_slice(&(self.header.max_allocated_pages).to_be_bytes());
         Ok(())
     }
     pub fn update_first_freelist_truck_page(&mut self) -> Result<(), InkError> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        bytes[FIRST_FREELIST_TRUNK_PAGE_OFFSET
-            ..FIRST_FREELIST_TRUNK_PAGE_OFFSET + FIRST_FREELIST_TRUNK_PAGE_SIZE]
+        let off = self.header.format().freelist_trunk_offset();
+        bytes[off..off + FIRST_FREELIST_TRUNK_PAGE_SIZE]
             .copy_from_slice(&(self.header.first_freelist_truck_page).to_be_bytes());
         Ok(())
     }
     pub fn update_total_free_pages(&mut self) -> InkResult<()> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
-        bytes[TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET
-            ..TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET + TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE]
+        let off = self.header.format().freelist_total_offset();
+        bytes[off..off + TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE]
             .copy_from_slice(&(self.header.total_freelist_pages).to_be_bytes());
         Ok(())
     }
