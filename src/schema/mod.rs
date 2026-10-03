@@ -82,12 +82,9 @@ impl Table {
     }
 
     pub fn rowid_column(&self) -> Option<usize> {
-        self.columns.iter().position(|column| {
-            column
-                .constraints
-                .as_ref()
-                .is_some_and(|constraints| constraints.contains(&Constraint::PrimaryKey))
-        })
+        self.columns
+            .iter()
+            .position(|column| column.has_primary_key())
     }
 }
 
@@ -143,6 +140,7 @@ impl Master {
         self.is_dirty = false; /* We are having the latest update */
         Ok(())
     }
+
     pub fn table(&self, table_name: &str) -> Option<&Table> {
         self.tables
             .values()
