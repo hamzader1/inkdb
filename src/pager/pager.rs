@@ -17,7 +17,7 @@ use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::Statistics;
 use crate::vfs::Vfs;
 use crate::vfs::file::InkFile;
-use crate::{DbError, MemCursor, InkResult};
+use crate::{DbError, InkResult, MemCursor};
 
 pub type PageNo = u32;
 
@@ -128,6 +128,9 @@ impl<V: Vfs> Pager<V> {
     pub fn start_transaction(&mut self) -> bool {
         if self.in_transaction {
             return false;
+        }
+        if let Ok(len) = self.source.len() {
+            self.journal.record_db_size(len as u32);
         }
         self.txn_snapshot = Some(self.header);
         self.in_transaction = true;
@@ -362,11 +365,7 @@ impl<V: Vfs> Pager<V> {
         self.update_max_allocated_pages()?;
         Ok(new_page_no as _)
     }
-    fn freelist_alloc(
-        &mut self,
-        first: u32,
-        total: u32,
-    ) -> InkResult<Option<(PageNo, u32, u32)>> {
+    fn freelist_alloc(&mut self, first: u32, total: u32) -> InkResult<Option<(PageNo, u32, u32)>> {
         match (first, total) {
             (0, 0) => return Ok(None),
             (0, _) => {

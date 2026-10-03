@@ -1,6 +1,6 @@
 use crate::errors::InkError;
 use crate::vfs::file::InkFile;
-use crate::{MemCursor, InkResult, size_of};
+use crate::{InkResult, MemCursor, size_of};
 
 use super::pager::PageNo;
 
@@ -48,6 +48,12 @@ impl RawJournal {
             db_size,
             page_size: p_size,
         }
+    }
+
+    pub fn set_db_size(&mut self, db_size: u32) {
+        self.db_size = db_size;
+        self.buffer[DATABASE_SIZE_OFFSET..DATABASE_SIZE_OFFSET + 4]
+            .copy_from_slice(&u32::to_be_bytes(db_size));
     }
 
     pub fn init<J: InkFile>(&mut self, file: &J) -> Result<(), InkError> {

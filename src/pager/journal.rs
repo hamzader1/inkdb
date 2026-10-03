@@ -21,6 +21,11 @@ impl<J: InkFile> Journal<J> {
             *self = Self::Idle(RawJournal::new(journal_metadata));
         }
     }
+    pub fn record_db_size(&mut self, db_size: u32) {
+        if let Self::Idle(raw) = self {
+            raw.set_db_size(db_size);
+        }
+    }
     pub fn init(&mut self, file: J) -> Result<(), InkError> {
         if let Self::Idle(_) = self {
             let Self::Idle(raw) = std::mem::replace(self, Self::Disabled) else {
