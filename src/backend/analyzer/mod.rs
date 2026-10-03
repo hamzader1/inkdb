@@ -54,6 +54,11 @@ pub struct ResolvedDropTableQuery {
     pub tbl_name: String,
     pub indexes: Vec<u32>,
 }
+#[derive(Debug)]
+pub struct ResolvedDropIndexQuery {
+    pub index_name: String,
+    pub root_page: u32,
+}
 #[derive(Debug, Copy, Clone)]
 pub struct IndexMetadata {
     pub index_root_page: u32,
@@ -179,6 +184,7 @@ pub enum ResolvedQuery {
     InsertQuery(ResolvedInsertQuery),
     CreateTableQuery(ResolvedCreateTableQuery),
     DropTblQuery(ResolvedDropTableQuery),
+    DropIndexQuery(ResolvedDropIndexQuery),
     CreateIndexQuery(ResolvedCreateIndexQuery),
     UpdateQuery(ResolvedUpdateQuery),
     DeleteQuery(ResolvedDeleteQuery),
@@ -216,6 +222,7 @@ impl<'a> Analyze<'a> {
             })),
             Ast::UpdateStmtAst(update_stmt) => self.analyze_update_stmt(update_stmt),
             Ast::DropTblAst(stmt) => self.analyze_drop_tbl(stmt),
+            Ast::DropIndexAst(stmt) => self.analyze_drop_index(stmt),
         }
     }
 
