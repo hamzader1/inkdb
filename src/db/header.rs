@@ -85,10 +85,286 @@ pub const VERSION_VALID_FOR_NUMBER_SIZE: usize = 4;
 
 pub const VERSION_NUMBER_OFFSET: usize = 96;
 pub const VERSION_NUMBER_SIZE: usize = 4;
+
+pub const INK_MAGIC: &[u8; INK_MAGIC_SIZE] = b"InkDB format 1";
+pub const INK_MAGIC_SIZE: usize = 14;
+pub const INK_HEADER_SIZE: usize = 35;
+
+pub const INK_PAGE_SIZE_OFFSET: usize = 14;
+pub const INK_PAGE_SIZE_SIZE: usize = 4;
+
+pub const INK_RESERVED_SPACE_OFFSET: usize = 18;
+pub const INK_RESERVED_SPACE_SIZE: usize = 1;
+
+pub const INK_SIZE_IN_PAGES_OFFSET: usize = 19;
+pub const INK_SIZE_IN_PAGES_SIZE: usize = 4;
+
+pub const INK_FREELIST_TRUNK_OFFSET: usize = 23;
+pub const INK_FREELIST_TRUNK_SIZE: usize = 4;
+
+pub const INK_FREELIST_TOTAL_OFFSET: usize = 27;
+pub const INK_FREELIST_TOTAL_SIZE: usize = 4;
+
+pub const INK_VERSION_OFFSET: usize = 31;
+pub const INK_VERSION_SIZE: usize = 4;
+
+pub const INK_DEFAULT_VERSION: u32 = 1000000;
+pub const DEFAULT_PAGE_SIZE: u32 = 4096;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbFormat {
+    Sqlite,
+    Ink,
+}
+
+impl DbFormat {
+    pub fn header_len(self) -> usize {
+        match self {
+            DbFormat::Sqlite => HEADER_SIZE as usize,
+            DbFormat::Ink => INK_HEADER_SIZE,
+        }
+    }
+
+    pub fn for_path<P: AsRef<std::path::Path>>(path: P) -> Self {
+        match path.as_ref().extension().and_then(|e| e.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("inkdb") => DbFormat::Ink,
+            _ => DbFormat::Sqlite,
+        }
+    }
+
+    pub fn size_in_pages_offset(self) -> usize {
+        match self {
+            DbFormat::Sqlite => DATABASE_SIZE_IN_PAGES_OFFSET,
+            DbFormat::Ink => INK_SIZE_IN_PAGES_OFFSET,
+        }
+    }
+
+    pub fn freelist_trunk_offset(self) -> usize {
+        match self {
+            DbFormat::Sqlite => FIRST_FREELIST_TRUNK_PAGE_OFFSET,
+            DbFormat::Ink => INK_FREELIST_TRUNK_OFFSET,
+        }
+    }
+
+    pub fn freelist_total_offset(self) -> usize {
+        match self {
+            DbFormat::Sqlite => TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
+            DbFormat::Ink => INK_FREELIST_TOTAL_OFFSET,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InkFileHeader {
+    pub header_string: [u8; INK_MAGIC_SIZE],
+    pub database_page_size: u32,
+    pub reserved_space: u8,
+    pub database_size_in_pages: u32,
+    pub first_freelist_trunk_page: u32,
+    pub total_number_of_freelist_pages: u32,
+    pub version_number: u32,
+}
+
+impl Default for InkFileHeader {
+    fn default() -> Self {
+        Self {
+            header_string: *INK_MAGIC,
+            database_page_size: DEFAULT_PAGE_SIZE,
+            reserved_space: 0,
+            database_size_in_pages: 1,
+            first_freelist_trunk_page: 0,
+            total_number_of_freelist_pages: 0,
+            version_number: INK_DEFAULT_VERSION,
+        }
+    }
+}
+
+impl InkFileHeader {
+    pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
+        let mut raw = [0u8; INK_HEADER_SIZE];
+        source
+            .read_exact_at(0, &mut raw)
+            .map_err(|_| InkError::InvalidDatabaseHeader)?;
+        let header = Self {
+            header_string: raw[0..INK_MAGIC_SIZE]
+                .try_into()
+                .map_err(|_| InkError::InvalidDatabaseHeader)?,
+            database_page_size: u32::from_be_bytes(
+                raw[INK_PAGE_SIZE_OFFSET..INK_PAGE_SIZE_OFFSET + INK_PAGE_SIZE_SIZE]
+                    .try_into()
+                    .map_err(|_| InkError::InvalidDatabaseHeader)?,
+            ),
+            reserved_space: raw[INK_RESERVED_SPACE_OFFSET],
+            database_size_in_pages: u32::from_be_bytes(
+                raw[INK_SIZE_IN_PAGES_OFFSET..INK_SIZE_IN_PAGES_OFFSET + INK_SIZE_IN_PAGES_SIZE]
+                    .try_into()
+                    .map_err(|_| InkError::InvalidDatabaseHeader)?,
+            ),
+            first_freelist_trunk_page: u32::from_be_bytes(
+                raw[INK_FREELIST_TRUNK_OFFSET..INK_FREELIST_TRUNK_OFFSET + INK_FREELIST_TRUNK_SIZE]
+                    .try_into()
+                    .map_err(|_| InkError::InvalidDatabaseHeader)?,
+            ),
+            total_number_of_freelist_pages: u32::from_be_bytes(
+                raw[INK_FREELIST_TOTAL_OFFSET..INK_FREELIST_TOTAL_OFFSET + INK_FREELIST_TOTAL_SIZE]
+                    .try_into()
+                    .map_err(|_| InkError::InvalidDatabaseHeader)?,
+            ),
+            version_number: u32::from_be_bytes(
+                raw[INK_VERSION_OFFSET..INK_VERSION_OFFSET + INK_VERSION_SIZE]
+                    .try_into()
+                    .map_err(|_| InkError::InvalidDatabaseHeader)?,
+            ),
+        };
+        header.validate()?;
+        Ok(header)
+    }
+
+    fn validate(&self) -> Result<(), InkError> {
+        if self.header_string != *INK_MAGIC {
+            return Err(InkError::InvalidDatabaseHeader);
+        }
+        if self.database_page_size != 1
+            && (self.database_page_size < 512
+                || self.database_page_size > 32768
+                || !self.database_page_size.is_power_of_two())
+        {
+            return Err(InkError::InvalidPageSize(self.database_page_size as u16));
+        }
+        if (self.reserved_space as u32) >= self.page_size_real() {
+            return Err(InkError::InvalidDatabaseHeader);
+        }
+        Ok(())
+    }
+
+    fn page_size_real(&self) -> u32 {
+        if self.database_page_size == 1 {
+            65536
+        } else {
+            self.database_page_size
+        }
+    }
+
+    pub fn serialize(&self) -> [u8; INK_HEADER_SIZE] {
+        let mut raw = [0u8; INK_HEADER_SIZE];
+        raw[0..INK_MAGIC_SIZE].copy_from_slice(&self.header_string);
+        raw[INK_PAGE_SIZE_OFFSET..INK_PAGE_SIZE_OFFSET + INK_PAGE_SIZE_SIZE]
+            .copy_from_slice(&self.database_page_size.to_be_bytes());
+        raw[INK_RESERVED_SPACE_OFFSET] = self.reserved_space;
+        raw[INK_SIZE_IN_PAGES_OFFSET..INK_SIZE_IN_PAGES_OFFSET + INK_SIZE_IN_PAGES_SIZE]
+            .copy_from_slice(&self.database_size_in_pages.to_be_bytes());
+        raw[INK_FREELIST_TRUNK_OFFSET..INK_FREELIST_TRUNK_OFFSET + INK_FREELIST_TRUNK_SIZE]
+            .copy_from_slice(&self.first_freelist_trunk_page.to_be_bytes());
+        raw[INK_FREELIST_TOTAL_OFFSET..INK_FREELIST_TOTAL_OFFSET + INK_FREELIST_TOTAL_SIZE]
+            .copy_from_slice(&self.total_number_of_freelist_pages.to_be_bytes());
+        raw[INK_VERSION_OFFSET..INK_VERSION_OFFSET + INK_VERSION_SIZE]
+            .copy_from_slice(&self.version_number.to_be_bytes());
+        raw
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DatabaseHeader {
+    Sqlite(InkDatabaseHeader),
+    Ink(InkFileHeader),
+}
+
+impl DatabaseHeader {
+    pub fn format(&self) -> DbFormat {
+        match self {
+            DatabaseHeader::Sqlite(_) => DbFormat::Sqlite,
+            DatabaseHeader::Ink(_) => DbFormat::Ink,
+        }
+    }
+
+    pub fn header_len(&self) -> usize {
+        self.format().header_len()
+    }
+
+    pub fn page_size(&self) -> u32 {
+        match self {
+            DatabaseHeader::Sqlite(h) => h.database_page_size,
+            DatabaseHeader::Ink(h) => {
+                if h.database_page_size == 1 {
+                    65536
+                } else {
+                    h.database_page_size
+                }
+            }
+        }
+    }
+
+    pub fn reserved_space(&self) -> u8 {
+        match self {
+            DatabaseHeader::Sqlite(h) => h.reserved_space,
+            DatabaseHeader::Ink(h) => h.reserved_space,
+        }
+    }
+
+    pub fn usable_size(&self) -> u32 {
+        self.page_size() - self.reserved_space() as u32
+    }
+
+    pub fn size_in_pages(&self) -> u32 {
+        match self {
+            DatabaseHeader::Sqlite(h) => h.database_size_in_pages,
+            DatabaseHeader::Ink(h) => h.database_size_in_pages,
+        }
+    }
+
+    pub fn freelist_trunk(&self) -> u32 {
+        match self {
+            DatabaseHeader::Sqlite(h) => h.first_freelist_trunk_page,
+            DatabaseHeader::Ink(h) => h.first_freelist_trunk_page,
+        }
+    }
+
+    pub fn freelist_total(&self) -> u32 {
+        match self {
+            DatabaseHeader::Sqlite(h) => h.total_number_of_freelist_pages,
+            DatabaseHeader::Ink(h) => h.total_number_of_freelist_pages,
+        }
+    }
+
+    pub fn detect<R: InkFile>(source: &'_ R) -> Result<DbFormat, InkError> {
+        let mut magic = [0u8; HEADER_STRING_SIZE];
+        source
+            .read_exact_at(0, &mut magic)
+            .map_err(|_| InkError::InvalidDatabaseHeader)?;
+        if magic == *FILE_MAGIC {
+            return Ok(DbFormat::Sqlite);
+        }
+        if magic[..INK_MAGIC_SIZE] == *INK_MAGIC {
+            return Ok(DbFormat::Ink);
+        }
+        Err(InkError::InvalidDatabaseHeader)
+    }
+
+    pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
+        match Self::detect(source)? {
+            DbFormat::Sqlite => Ok(DatabaseHeader::Sqlite(InkDatabaseHeader::parse(source)?)),
+            DbFormat::Ink => Ok(DatabaseHeader::Ink(InkFileHeader::parse(source)?)),
+        }
+    }
+
+    pub fn default_for(format: DbFormat) -> Self {
+        match format {
+            DbFormat::Sqlite => DatabaseHeader::Sqlite(InkDatabaseHeader::new_database()),
+            DbFormat::Ink => DatabaseHeader::Ink(InkFileHeader::default()),
+        }
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        match self {
+            DatabaseHeader::Sqlite(h) => h.serialize().to_vec(),
+            DatabaseHeader::Ink(h) => h.serialize().to_vec(),
+        }
+    }
+}
 #[derive(Debug, Clone, Copy)]
 pub struct InkDatabaseHeader {
-    pub header_string: [u8; 16],
-    pub database_page_size: u32,
+    pub header_string: [u8; 16], /*Universal*/
+    pub database_page_size: u32, /*Universal*/
     pub file_format_write_version: u8,
     pub file_format_read_version: u8,
     pub reserved_space: u8,
@@ -96,9 +372,9 @@ pub struct InkDatabaseHeader {
     pub minimum_embedded_payload_fraction: u8,
     pub leaf_payload_fraction: u8,
     pub file_change_counter: u32,
-    pub database_size_in_pages: u32,
-    pub first_freelist_trunk_page: u32,
-    pub total_number_of_freelist_pages: u32,
+    pub database_size_in_pages: u32,         /*Universal*/
+    pub first_freelist_trunk_page: u32,      /*Universal*/
+    pub total_number_of_freelist_pages: u32, /*Universal*/
     pub schema_cookie: u32,
     pub schema_format_number: u32,
     pub default_page_cache_size: u32,
@@ -109,7 +385,7 @@ pub struct InkDatabaseHeader {
     pub application_id: u32,
     pub reserved_for_expansion: [u8; 20],
     pub version_valid_for_number: u32,
-    pub version_number: u32,
+    pub version_number: u32, /*NOT THE SAME */
 }
 
 impl InkDatabaseHeader {
@@ -254,5 +530,85 @@ impl InkDatabaseHeader {
             Self::INVALID_HEADER_ERR,
         )?;
         Ok(())
+    }
+
+    pub fn new_database() -> Self {
+        Self {
+            header_string: *FILE_MAGIC,
+            database_page_size: DEFAULT_PAGE_SIZE,
+            file_format_write_version: 1,
+            file_format_read_version: 1,
+            reserved_space: 0,
+            maximum_embedded_payload_fraction: 64,
+            minimum_embedded_payload_fraction: 32,
+            leaf_payload_fraction: 32,
+            file_change_counter: 1,
+            database_size_in_pages: 1,
+            first_freelist_trunk_page: 0,
+            total_number_of_freelist_pages: 0,
+            schema_cookie: 1,
+            schema_format_number: 4,
+            default_page_cache_size: 0,
+            largest_root_btree_page: 0,
+            database_text_encoding: 1,
+            user_version: 0,
+            incremental_vacuum_mode: 0,
+            application_id: 0,
+            reserved_for_expansion: [0u8; 20],
+            version_valid_for_number: 1,
+            version_number: 3043002,
+        }
+    }
+
+    pub fn serialize(&self) -> [u8; HEADER_SIZE as usize] {
+        let mut raw = [0u8; HEADER_SIZE as usize];
+        raw[HEADER_STRING_OFFSET..HEADER_STRING_OFFSET + HEADER_STRING_SIZE]
+            .copy_from_slice(&self.header_string);
+        raw[DATABASE_PAGE_SIZE_OFFSET..DATABASE_PAGE_SIZE_OFFSET + DATABASE_PAGE_SIZE]
+            .copy_from_slice(&(self.database_page_size as u16).to_be_bytes());
+        raw[FILE_FORMAT_WRITE_VERSION_OFFSET] = self.file_format_write_version;
+        raw[FILE_FORMAT_READ_VERSION_OFFSET] = self.file_format_read_version;
+        raw[RESERVED_SPACE_OFFSET] = self.reserved_space;
+        raw[MAXIMUM_EMBEDDED_PAYLOAD_FRACTION_OFFSET] = self.maximum_embedded_payload_fraction;
+        raw[MINIMUM_EMBEDDED_PAYLOAD_FRACTION_OFFSET] = self.minimum_embedded_payload_fraction;
+        raw[LEAF_PAYLOAD_FRACTION_OFFSET] = self.leaf_payload_fraction;
+        raw[FILE_CHANGE_COUNTER_OFFSET..FILE_CHANGE_COUNTER_OFFSET + FILE_CHANGE_COUNTER_SIZE]
+            .copy_from_slice(&self.file_change_counter.to_be_bytes());
+        raw[DATABASE_SIZE_IN_PAGES_OFFSET..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
+            .copy_from_slice(&self.database_size_in_pages.to_be_bytes());
+        raw[FIRST_FREELIST_TRUNK_PAGE_OFFSET
+            ..FIRST_FREELIST_TRUNK_PAGE_OFFSET + FIRST_FREELIST_TRUNK_PAGE_SIZE]
+            .copy_from_slice(&self.first_freelist_trunk_page.to_be_bytes());
+        raw[TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET
+            ..TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET + TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE]
+            .copy_from_slice(&self.total_number_of_freelist_pages.to_be_bytes());
+        raw[SCHEMA_COOKIE_OFFSET..SCHEMA_COOKIE_OFFSET + SCHEMA_COOKIE_SIZE]
+            .copy_from_slice(&self.schema_cookie.to_be_bytes());
+        raw[SCHEMA_FORMAT_NUMBER_OFFSET..SCHEMA_FORMAT_NUMBER_OFFSET + SCHEMA_FORMAT_NUMBER_SIZE]
+            .copy_from_slice(&self.schema_format_number.to_be_bytes());
+        raw[DEFAULT_PAGE_CACHE_SIZE_OFFSET
+            ..DEFAULT_PAGE_CACHE_SIZE_OFFSET + DEFAULT_PAGE_CACHE_SIZE]
+            .copy_from_slice(&self.default_page_cache_size.to_be_bytes());
+        raw[LARGEST_ROOT_BTREE_PAGE_OFFSET
+            ..LARGEST_ROOT_BTREE_PAGE_OFFSET + LARGEST_ROOT_BTREE_PAGE_SIZE]
+            .copy_from_slice(&self.largest_root_btree_page.to_be_bytes());
+        raw[DATABASE_TEXT_ENCODING_OFFSET..DATABASE_TEXT_ENCODING_OFFSET + DATABASE_TEXT_ENCODING_SIZE]
+            .copy_from_slice(&self.database_text_encoding.to_be_bytes());
+        raw[USER_VERSION_OFFSET..USER_VERSION_OFFSET + USER_VERSION_SIZE]
+            .copy_from_slice(&self.user_version.to_be_bytes());
+        raw[INCREMENTAL_VACUUM_MODE_OFFSET
+            ..INCREMENTAL_VACUUM_MODE_OFFSET + INCREMENTAL_VACUUM_MODE_SIZE]
+            .copy_from_slice(&self.incremental_vacuum_mode.to_be_bytes());
+        raw[APPLICATION_ID_OFFSET..APPLICATION_ID_OFFSET + APPLICATION_ID_SIZE]
+            .copy_from_slice(&self.application_id.to_be_bytes());
+        raw[RESERVED_FOR_EXPANSION_OFFSET
+            ..RESERVED_FOR_EXPANSION_OFFSET + RESERVED_FOR_EXPANSION_SIZE]
+            .copy_from_slice(&self.reserved_for_expansion);
+        raw[VERSION_VALID_FOR_NUMBER_OFFSET
+            ..VERSION_VALID_FOR_NUMBER_OFFSET + VERSION_VALID_FOR_NUMBER_SIZE]
+            .copy_from_slice(&self.version_valid_for_number.to_be_bytes());
+        raw[VERSION_NUMBER_OFFSET..VERSION_NUMBER_OFFSET + VERSION_NUMBER_SIZE]
+            .copy_from_slice(&self.version_number.to_be_bytes());
+        raw
     }
 }
