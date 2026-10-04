@@ -4,7 +4,6 @@ use crate::db::Database;
 use crate::vfs::disk::DiskVfs;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
-use std::time::{Duration, Instant};
 
 pub struct InkShell;
 
@@ -69,15 +68,5 @@ impl InkShell {
             rl.add_history_entry(buf.trim())?;
         }
         Ok(buf.trim().trim_end_matches(';').trim().to_string())
-    }
-}
-
-fn format_elapsed(d: Duration) -> String {
-    if d.as_secs() > 0 {
-        format!("{:.2}s", d.as_secs_f64())
-    } else if d.as_millis() > 0 {
-        format!("{}ms", d.as_millis())
-    } else {
-        format!("{}µs", d.as_micros())
     }
 }
