@@ -42,7 +42,10 @@ impl InkShell {
         Self::exec(database, cmd)
     }
 
-    pub fn exec(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
+    pub fn run_query(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
+        Self::exec(database, cmd)
+    }
+    fn exec(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
         let mut stmt = database.execute(cmd)?;
         for row in stmt.rows() {
             println!("{}", RowWrapper(row?));

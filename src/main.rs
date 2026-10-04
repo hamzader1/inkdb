@@ -14,7 +14,7 @@ fn main() -> Result<(), InkError> {
     };
     let mut database = Database::open_or_create(path)?;
     if let Some(q) = std::env::args().nth(2) {
-        InkShell::exec(&mut database, &q)?;
+        InkShell::run_query(&mut database, &q)?;
         return Ok(());
     }
     InkShell::run(&mut database);
