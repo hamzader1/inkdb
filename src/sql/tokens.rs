@@ -48,6 +48,7 @@ pub enum TokenKind {
     NumberVar(i64),
     FloatVar(f64),
     String(String),
+    BlobVar(Vec<u8>),
     Blob,
     Null,
 
@@ -124,6 +125,7 @@ impl fmt::Display for TokenKind {
             TokenKind::NumberVar(_) => write!(f, "NUMBER"),
             TokenKind::FloatVar(_) => write!(f, "FLOAT"),
             TokenKind::String(_) => write!(f, "STRING"),
+            TokenKind::BlobVar(_) => write!(f, "BLOB"),
             TokenKind::Blob => write!(f, "BLOB"),
             TokenKind::Null => write!(f, "NULL"),
 

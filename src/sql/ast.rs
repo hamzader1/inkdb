@@ -62,6 +62,7 @@ pub(crate) enum Expr {
     Number(i64),
     Float(f64),
     StringLitteral(String),
+    Blob(Vec<u8>),
     Bool(bool),
     ColumnRef(usize), // used only by select_v2
     Identifier(String),
@@ -124,7 +125,7 @@ pub(crate) enum BinaryOperator {
 
 #[derive(Debug, Clone)]
 pub struct SelectStmt {
-    pub(crate) table_name: String,
+    pub(crate) table_name: Option<String>,
     pub(crate) arena: ExprArena,
     pub(crate) columns: Vec<usize>,
     pub(crate) where_clause: Option<usize>, // same arena used twice
@@ -286,6 +287,9 @@ impl fmt::Display for Expr {
             Expr::Float(n) => write!(f, "{n}"),
             Expr::Null => write!(f, "Null"),
             Expr::StringLitteral(s) => write!(f, "'{s}'"),
+            Expr::Blob(bytes) => {
+                write!(f, "X'{}'", bytes.iter().map(|b| format!("{b:02X}")).collect::<String>())
+            }
             Expr::Bool(b) => write!(f, "{b}"),
             Expr::ColumnRef(idx) => write!(f, "column[{idx}]"),
             Expr::Identifier(s) => write!(f, "{s}"),

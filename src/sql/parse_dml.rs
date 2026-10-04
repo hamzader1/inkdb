@@ -22,7 +22,17 @@ impl Parser {
                 break;
             }
         }
-        self.expect(From)?;
+        if !self.eat(From) {
+            self.expect_eof()?;
+            return Ok(Ast::SelectStmtAst(SelectStmt {
+                table_name: None,
+                arena: self.arena.take(),
+                columns,
+                where_clause: None,
+                limit: None,
+                orderby: None,
+            }));
+        }
         let table_name = self.expect_ident()?.to_lowercase();
         let mut where_clause: Option<usize> = None;
         if self.eat(Where) {
@@ -52,7 +62,7 @@ impl Parser {
 
         self.expect_eof()?;
         Ok(Ast::SelectStmtAst(SelectStmt {
-            table_name,
+            table_name: Some(table_name),
             arena: self.arena.take(),
             columns,
             where_clause,

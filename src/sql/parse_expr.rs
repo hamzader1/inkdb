@@ -120,6 +120,7 @@ impl Parser {
 
         let expr = match self.peek() {
             Some(String(x)) => self.arena.push(Expr::StringLitteral(x.clone())),
+            Some(BlobVar(bytes)) => self.arena.push(Expr::Blob(bytes.clone())),
             Some(NumberVar(x)) => self.arena.push(Expr::Number(*x)),
             Some(FloatVar(x)) => self.arena.push(Expr::Float(*x)),
             Some(BoolVar(x)) => self.arena.push(Expr::Bool(*x)),

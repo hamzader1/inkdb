@@ -149,7 +149,7 @@ impl<'a> Lexer<'a> {
                         ));
                     }
                 }
-                c if c.is_alphabetic() || c == '_' => self.lex_word(&mut tokens),
+                c if c.is_alphabetic() || c == '_' => self.lex_word(&mut tokens)?,
                 _ => {
                     return Err(InkError::syntax(
                         SyntaxErrorKind::UnexpectedChar(ch),
@@ -203,7 +203,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn lex_word(&mut self, tokens: &mut Vec<Token>) {
+    fn lex_word(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let mut word = String::new();
         while let Some(ch) = self.peek() {
@@ -214,8 +214,50 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
+        if (word == "X" || word == "x") && self.peek() == Some('\'') {
+            return self.lex_blob(tokens, start);
+        }
         let kind = keyword(&word).unwrap_or(TokenKind::Identifier(word));
         self.emit(tokens, kind, start);
+        Ok(())
+    }
+
+    fn lex_blob(&mut self, tokens: &mut Vec<Token>, start: usize) -> Result<(), InkError> {
+        self.next_char();
+        let mut digits = String::new();
+        while let Some(ch) = self.peek() {
+            if ch == '\'' {
+                self.next_char();
+                if !digits.len().is_multiple_of(2) {
+                    return Err(InkError::syntax(
+                        SyntaxErrorKind::InvalidBlobLiteral,
+                        Span(start, self.pos),
+                    ));
+                }
+                let mut bytes = Vec::with_capacity(digits.len() / 2);
+                for pair in digits.as_bytes().chunks(2) {
+                    let hi = (pair[0] as char).to_digit(16);
+                    let lo = (pair[1] as char).to_digit(16);
+                    match (hi, lo) {
+                        (Some(hi), Some(lo)) => bytes.push((hi * 16 + lo) as u8),
+                        _ => {
+                            return Err(InkError::syntax(
+                                SyntaxErrorKind::InvalidBlobLiteral,
+                                Span(start, self.pos),
+                            ));
+                        }
+                    }
+                }
+                self.emit(tokens, TokenKind::BlobVar(bytes), start);
+                return Ok(());
+            }
+            digits.push(ch);
+            self.next_char();
+        }
+        Err(InkError::syntax(
+            SyntaxErrorKind::UnterminatedString,
+            Span(start, self.pos),
+        ))
     }
 
     fn extract_number(&mut self) -> Result<TokenKind, InkError> {
