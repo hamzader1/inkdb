@@ -193,6 +193,55 @@ impl<'a, V: Vfs> BTree<'a, V> {
     }
 }
 
+impl<'a, V: Vfs> BTree<'a, V> {
+    pub fn fix_overlow(&mut self, cell: &mut Vec<u8>) -> InkResult<()> {
+        if cell.len() <= self.pager.usable_size() {
+            return Ok(());
+        }
+        let usable_size = self.pager.usable_size();
+        let (page_no, _) = self.cursor.last_visited_entry_unchecked();
+        let index_page = {
+            let guard = self.pager.get(page_no)?;
+            BTreePage::new(
+                page_no,
+                self.pager.page_size(),
+                usable_size,
+                self.pager.header_len(),
+                guard.bytes(),
+            )?
+            .is_index()?
+        };
+        let local_payload_len = if index_page {
+            compute_index_local_payload_size(usable_size, cell.len())
+        } else {
+            compute_table_local_payload_size(usable_size, cell.len())
+        };
+        let overflow_data = cell.split_off(local_payload_len);
+        let first_overflow_page = self.pager.allocate_new_page()?;
+        cell.extend_from_slice(&first_overflow_page.to_be_bytes());
+
+        let mut remaining = overflow_data.len();
+        let mut cursor = MemCursor::new(&overflow_data);
+        let mut curr_page = first_overflow_page;
+        while remaining > 0 {
+            let mut guard = self.pager.get_mut(curr_page)?;
+            let page_bytes = guard.bytes_as_mut_unchecked();
+            let bytes_to_write = remaining.min(usable_size - 4);
+            let slice = &mut page_bytes[..usable_size];
+            cursor.read_next_exact(&mut slice[4..4 + bytes_to_write])?;
+            remaining -= bytes_to_write;
+            let next = if remaining == 0 {
+                0
+            } else {
+                self.pager.allocate_new_page()?
+            };
+            slice[0..4].copy_from_slice(&next.to_be_bytes());
+            curr_page = next;
+        }
+        Ok(())
+    }
+}
+
 pub(crate) fn guard_not_mutable() -> InkError {
     InkError::Internal("btree: page guard is not mutable")
 }
