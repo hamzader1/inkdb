@@ -1,5 +1,3 @@
-use self::Plan::Halt;
-
 use super::super::executor::{project::Project, tablescan::TableScan};
 use super::prepared_plan::PreparedPlan;
 use crate::backend::analyzer::{
@@ -73,6 +71,7 @@ impl<V: Vfs> Plan<V> {
     pub fn children(&self) -> Vec<&Plan<V>> {
         match self {
             Plan::CreateIndex(ci) => ci.child().into_iter().collect(),
+            Plan::Count(c) => vec![c.child()],
             Plan::Delete(d) => vec![d.child()],
             Plan::DropTbl(dt) => vec![dt.child()],
             Plan::Explain(e) => vec![e.child()],
@@ -467,7 +466,7 @@ impl<V: Vfs> Plan<V> {
             Self::Terminate(t) => t.next(ctx),
             Self::TruncateTable(tb) => tb.next(ctx),
             Self::Update(u) => u.next(ctx),
-            Halt => Ok(None),
+            Self::Halt => Ok(None),
         }
     }
 
@@ -545,7 +544,7 @@ impl<V: Vfs> Plan<V> {
                 u.affected_columns
             ),
             Self::Materialized(_) => "MaterializedResult".into(),
-            Halt => "Halt".into(),
+            Self::Halt => "Halt".into(),
             Self::DropTbl(_) => "Drop Table".into(),
         }
     }
