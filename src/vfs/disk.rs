@@ -230,6 +230,11 @@ impl InkFile for DiskFile {
 
         Ok(())
     }
+    fn write_all(&mut self, bytes: &[u8]) -> InkResult<()> {
+        use std::io::Write;
+        self.file.write_all(bytes)?;
+        Ok(())
+    }
 
     fn set_len(&self, len: usize) -> Result<(), InkError> {
         self.file.set_len(len as u64)?;
