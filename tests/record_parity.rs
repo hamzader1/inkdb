@@ -14,7 +14,11 @@ fn record_accessor_agrees_with_the_page_decoder_on_rows() {
     build_users(&path, 4096, 500);
     let mut db = open_engine(&path);
     let master = Master::new(db.pager()).expect("master");
-    let root_page = master.tables().get("users").expect("users table").root_page();
+    let root_page = master
+        .tables()
+        .get("users")
+        .expect("users table")
+        .root_page();
 
     let mut cursor = BTreeCursor::new(root_page);
     cursor.first(db.pager()).expect("first");

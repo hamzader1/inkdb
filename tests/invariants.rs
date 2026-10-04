@@ -404,7 +404,11 @@ pub fn audit_database(db: &mut Database<DiskVfs>, tag: &str) -> Vec<String> {
         problems: Vec::new(),
         referenced: HashSet::new(),
     };
-    let table_root = master.tables().get("users").map(|t| t.root_page()).unwrap_or(0);
+    let table_root = master
+        .tables()
+        .get("users")
+        .map(|t| t.root_page())
+        .unwrap_or(0);
     audit_page(db, 1, &mut ctx);
     if table_root != 0 {
         audit_page(db, table_root, &mut ctx);

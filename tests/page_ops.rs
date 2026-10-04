@@ -184,7 +184,7 @@ fn full_page_reports_honestly() {
     let big = vec![0xAAu8; 200];
     let mut inserted = 0;
     loop {
-                    let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
+        let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
         match p.insert_cell(&big, 0) {
             Ok(state) => {
                 if format!("{state:?}") != "Inserted" {
@@ -202,7 +202,7 @@ fn full_page_reports_honestly() {
     assert!(inserted > 0);
     let snapshot = buf.clone();
     let outcome = {
-                    let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
+        let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
         match p.replace_cell(0, &vec![0xBBu8; 400]) {
             Ok(state) => format!("{state:?}"),
             Err(e) => panic!("replace err {e:?}"),
