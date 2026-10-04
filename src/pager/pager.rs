@@ -194,6 +194,9 @@ impl<V: Vfs> Pager<V> {
     pub fn usable_size(&self) -> usize {
         self.header.usable_size as _
     }
+    pub(crate) fn vfs_mut(&mut self) -> &mut V {
+        &mut self.vfs
+    }
     pub fn header_len(&self) -> usize {
         self.header.header_len()
     }
