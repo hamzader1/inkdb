@@ -1,8 +1,7 @@
-use std::fs::File;
-
 use crate::errors::CorruptError;
 use crate::record::{Record, Value};
 use crate::varint::{decode_varint, encode_varint};
+use crate::vfs::Vfs;
 use crate::{InkResult, MemCursor};
 
 use self::sort::load_page;
@@ -278,14 +277,14 @@ pub(crate) fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
 }
 
 #[derive(Debug)]
-pub(crate) enum StreamSource {
+pub(crate) enum StreamSource<V: Vfs> {
     Mem {
         buffer: Vec<u8>,
         offset: usize,
         nrows: usize,
     },
     Disk {
-        f: File,
+        f: V::File,
         buffer: Vec<u8>,
         file_offset: usize,
         buffer_offset: usize,
@@ -296,7 +295,7 @@ pub(crate) enum StreamSource {
     None,
 }
 
-impl StreamSource {
+impl<V: Vfs> StreamSource<V> {
     fn yield_from_stream(
         &mut self,
         nread: &mut usize,
@@ -437,7 +436,7 @@ mod tests {
         for row in &rows {
             encode_frame(&mut buffer, row.key(), row.stored_bytes().expect("bytes"));
         }
-        let mut source = StreamSource::Mem {
+        let mut source = StreamSource::<crate::vfs::disk::DiskVfs>::Mem {
             buffer,
             offset: 0,
             nrows: rows.len(),

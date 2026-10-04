@@ -1,7 +1,4 @@
 use std::collections::BinaryHeap;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::FileExt;
 
 use super::super::planner::plan;
 use super::MEM_CAP;
@@ -13,6 +10,7 @@ use crate::backend::planner::plan::Plan;
 use crate::record::{Record, Value};
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
+use crate::vfs::file::InkFile;
 use crate::{InkResult, MemCursor};
 
 fn temp_prefix() -> String {
@@ -24,7 +22,7 @@ fn temp_prefix() -> String {
 #[derive(Debug)]
 pub struct Sort<V: Vfs> {
     child: Box<plan::Plan<V>>,
-    sort_source: StreamSource,
+    sort_source: StreamSource<V>,
     desc: bool,   /*Asc is the default*/
     index: usize, /*Arena index*/
     is_sorted: bool,
@@ -62,26 +60,23 @@ impl<V: Vfs> Sort<V> {
         if !self.is_sorted {
             self.sort(ctx)?;
         }
-        self.sort_source
-            .yield_from_stream(&mut self.nread, self.rowid_column)
-        // self.yield_row()
+        let row = self
+            .sort_source
+            .yield_from_stream(&mut self.nread, self.rowid_column)?;
+        if row.is_none() {
+            self.is_done = true;
+            let _ = ctx.pager.vfs_mut().remove_temp(self.out_path());
+        }
+        Ok(row)
     }
     pub fn id(&self) -> usize {
         self.index
     }
     fn run_path(&self, run: usize) -> String {
-        V::create_temp_file(format!("{}_run_{}", self.temp, run))
-        // std::env::temp_dir()
-        //     .join(format!("{}_run_{}", self.temp, run))
-        //     .to_string_lossy()
-        //     .into_owned()
+        format!("{}_run_{}", self.temp, run)
     }
     fn out_path(&self) -> String {
-        V::create_temp_file(format!("{}_out", self.temp))
-        // std::env::temp_dir()
-        //     .join(format!("{}_out", self.temp))
-        //     .to_string_lossy()
-        //     .into_owned()
+        format!("{}_out", self.temp)
     }
     fn sort(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut unsorted_buffer: Vec<u8> = Vec::new();
@@ -121,10 +116,10 @@ impl<V: Vfs> Sort<V> {
                     &mut data_buffer,
                     self.desc,
                 );
-                let mut file = V::open_temp_file(self.run_path(n_of_runs))?;
+                let mut file = ctx.pager.vfs_mut().open_temp(self.run_path(n_of_runs))?;
                 sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
-                file.write_all_at(&sorted_buffer, 0)?;
-                file.flush()?;
+                file.set_len(0)?;
+                file.write_all(&sorted_buffer)?;
                 unsorted_buffer.clear();
                 data_buffer.clear();
                 offset = 0;
@@ -158,10 +153,10 @@ impl<V: Vfs> Sort<V> {
                 &mut data_buffer,
                 self.desc,
             );
-            let mut file = V::open_temp_file(self.run_path(n_of_runs))?;
+            let mut file = ctx.pager.vfs_mut().open_temp(self.run_path(n_of_runs))?;
             sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
-            file.write_all_at(&sorted_buffer, 0)?;
-            file.flush()?;
+            file.set_len(0)?;
+            file.write_all(&sorted_buffer)?;
             self.external_sort(n_of_runs, ctx)?;
         }
         self.is_sorted = true;
@@ -170,19 +165,14 @@ impl<V: Vfs> Sort<V> {
     fn external_sort(&mut self, nruns: usize, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let page_size = (MEM_CAP / (nruns + 1)).max(self.max_frame).max(64);
         let mut sort_buffers = Vec::new();
-        let mut temp_buffer = vec![0u8; page_size];
         let mut page_buffer: Vec<u8> = Vec::with_capacity(page_size as _);
         for i in 0..nruns {
             let run_id = i + 1;
-            let mut file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(self.run_path(run_id))?;
-            let file_len = file.metadata()?.len();
+            let mut file = ctx.pager.vfs_mut().open_temp(self.run_path(run_id))?;
+            let file_len = file.len()?;
             let mut nrows_buffer = [0u8; 4];
-            file.read_exact_at(&mut nrows_buffer, file_len - 4)?;
+            file.read_exact_at(file_len - 4, &mut nrows_buffer)?;
             let nrows = u32::from_be_bytes(nrows_buffer);
-            file.read_exact_at(&mut temp_buffer, 0)?;
             let mut children = Vec::new();
             let mut offset = 0;
             let rrows = load_page(
@@ -215,7 +205,8 @@ impl<V: Vfs> Sort<V> {
             heap.push(entry);
         }
         let mut output_buffer = Vec::with_capacity(page_size);
-        let mut output_file = V::open_temp_file(self.out_path())?;
+        let mut output_file = ctx.pager.vfs_mut().open_temp(self.out_path())?;
+        output_file.set_len(0)?;
         let mut writte_nrows = 0u32;
         let mut sorted_buffer = Vec::new();
         let mut data = Vec::new();
@@ -223,7 +214,6 @@ impl<V: Vfs> Sort<V> {
             let Some(entry) = heap.pop() else {
                 self.sort_buffer(&output_buffer, &mut sorted_buffer, &mut data, self.desc);
                 output_file.write_all(&sorted_buffer)?;
-                output_file.flush()?;
                 break;
             };
             let child = &sort_buffers[entry.buffer_id].children[entry.child_id];
@@ -279,7 +269,7 @@ impl<V: Vfs> Sort<V> {
             /*
              * Do not Try
              */
-            let _ = V::remove_temp_file(self.run_path(run));
+            let _ = ctx.pager.vfs_mut().remove_temp(self.run_path(run));
         }
         self.sort_source = sort_source;
         Ok(())
@@ -302,18 +292,18 @@ impl<V: Vfs> Sort<V> {
     }
 }
 
-pub fn load_page(
-    file: &mut File,
+pub fn load_page<F: InkFile>(
+    file: &mut F,
     out: &mut Vec<u8>,
     limit: usize,
     chunk_size: usize,
     offset: &mut usize,
 ) -> InkResult<usize> {
     out.clear();
-    let remaining = file.metadata()?.len().saturating_sub(*offset as u64);
+    let remaining = file.len()?.saturating_sub(*offset as u64);
     let read_len = remaining.min(chunk_size as u64) as usize;
     let mut temp_buffer = vec![0u8; read_len];
-    file.read_exact_at(&mut temp_buffer, *offset as _)?;
+    file.read_exact_at(*offset as u64, &mut temp_buffer)?;
 
     let mut pos = 0usize;
     let mut niter = 0usize;
@@ -369,8 +359,8 @@ fn load_children<V: Vfs>(
     Ok(())
 }
 
-struct SortBuffer {
-    f: File,      /*Change to Vfs*/
+struct SortBuffer<V: Vfs> {
+    f: V::File,
     rid: usize,   /*Run id*/
     rrows: usize, /*read rows*/
     nrows: usize, /*number of rows*/
@@ -379,10 +369,10 @@ struct SortBuffer {
     offset: usize,
 }
 
-impl SortBuffer {
+impl<V: Vfs> SortBuffer<V> {
     #[allow(clippy::too_many_arguments)] /*Temporary*/
     fn new(
-        f: File,
+        f: V::File,
         rid: usize,
         rrows: usize,
         nrows: usize,
@@ -400,7 +390,7 @@ impl SortBuffer {
             offset,
         }
     }
-    fn yield_entry<V: Vfs>(
+    fn yield_entry(
         &mut self,
         mut child_id: usize,
         page_size: usize,
@@ -442,31 +432,6 @@ struct InnerSortBuffer {
 impl InnerSortBuffer {
     fn new(key: Value<'static>, start: usize, len: usize) -> Self {
         Self { key, start, len }
-    }
-}
-
-#[derive(Debug)]
-pub enum SortSource {
-    Mem {
-        buffer: Vec<u8>,
-        offset: usize,
-        nrows: usize,
-    },
-    Disk {
-        f: File,
-        buffer: Vec<u8>,
-        file_offset: usize,
-        buffer_offset: usize,
-        page_size: usize,
-        nrows: u32,
-        rrows: usize,
-    },
-    None,
-}
-
-impl<V: Vfs> Drop for Sort<V> {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(self.out_path());
     }
 }
 

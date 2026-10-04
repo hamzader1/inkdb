@@ -1,5 +1,3 @@
-use std::{fs::File, io::Write};
-
 use crate::{
     InkResult,
     backend::{
@@ -8,6 +6,8 @@ use crate::{
     },
     vfs::Vfs,
 };
+
+use crate::vfs::file::InkFile;
 
 use super::StreamSource;
 
@@ -18,8 +18,8 @@ const FILE: &str = "ink_update";
 #[derive(Debug)]
 pub struct MaterializedResult<V: Vfs> {
     child: Box<Plan<V>>,
-    stream_source: StreamSource,
-    stream_backup: Option<File>,
+    stream_source: StreamSource<V>,
+    stream_backup: Option<V::File>,
     nread: usize,
     rowid_column: Option<usize>,
     rowid_captured: bool,
@@ -63,13 +63,12 @@ impl<V: Vfs> MaterializedResult<V> {
             .stream_source
             .yield_from_stream(&mut self.nread, self.rowid_column);
         if res.as_ref().is_ok_and(|opt| opt.is_none()) {
-            let _ = V::remove_temp_file(FILE);
+            let _ = ctx.pager.vfs_mut().remove_temp(FILE);
         }
         res
     }
     fn collect(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut buffer = Vec::new();
-        let f = |file: &mut File, buffer: &[u8]| file.write_all(buffer);
         let mut in_disk_data = false;
         let mut nrows = 0;
         let mut max_frame = 0;
@@ -85,11 +84,12 @@ impl<V: Vfs> MaterializedResult<V> {
             if frame + buffer.len() > MEM_CAP {
                 match self.stream_backup {
                     Some(ref mut file) => {
-                        f(file, &buffer)?;
+                        file.write_all(&buffer)?;
                     }
                     None => {
-                        let mut file = V::open_temp_file(V::create_temp_file(FILE))?;
-                        f(&mut file, &buffer)?;
+                        let mut file = ctx.pager.vfs_mut().open_temp(FILE)?;
+                        file.set_len(0)?;
+                        file.write_all(&buffer)?;
                         self.stream_backup = Some(file);
                     }
                 }
@@ -103,7 +103,6 @@ impl<V: Vfs> MaterializedResult<V> {
                 unreachable!()
             };
             file.write_all(&buffer)?;
-            file.flush()?;
             buffer.clear();
             let source = StreamSource::Disk {
                 f: file,
