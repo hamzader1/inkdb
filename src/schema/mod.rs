@@ -1,17 +1,14 @@
 use crate::InkResult;
-use crate::backend::analyzer::{
-    self, Analyze, IndexMetadata, ResolvedCreateTableQuery, ResolvedQuery,
-};
-use crate::backend::executor::eval::Eval;
+use crate::backend::analyzer::{Analyze, IndexMetadata, ResolvedQuery};
 use crate::errors::CorruptError;
+use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
-use crate::sql::ast::{CreateTableStmt, DefaultValue};
+use crate::sql::ast::CreateTableStmt;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::{ExprArena, Parser};
 use crate::storage::btree::{BTreeCursor, TableLeaf};
 use crate::vfs::Vfs;
-use crate::{errors::InkError, sql::ast::Constraint};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -258,10 +255,10 @@ impl Master {
         match ast {
             CreateTableAst(ast) => {
                 let analyzer = Analyze::new(self).analyze_create_table_stmt(ast)?;
-                let ResolvedQuery::CreateTableQuery(mut q) = analyzer else {
+                let ResolvedQuery::CreateTableQuery(q) = analyzer else {
                     unreachable!()
                 };
-                let mut table = Table {
+                let table = Table {
                     name: q.meta.name,
                     root_page: record[3].cast_int()? as _,
                     columns: q.meta.columns.into(),
@@ -288,6 +285,7 @@ impl Master {
 
 pub(crate) trait TableSchema: std::fmt::Debug + Clone {
     fn column_index(&self, col_name: &str) -> Option<usize>;
+    #[allow(dead_code)]
     fn column_name(&self, col_idx: usize) -> Option<&Column>;
     fn columns_len(&self) -> usize;
 }
