@@ -3,6 +3,9 @@ use crate::errors::InkError;
 
 use super::file::InkFile;
 use super::{InkOptions, Vfs};
+#[cfg(windows)]
+use crate::InkResult;
+use crate::errors::InkError;
 use std::fs::OpenOptions;
 
 #[cfg(unix)]
