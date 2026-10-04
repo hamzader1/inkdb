@@ -64,14 +64,14 @@ fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
 
         // Everything else < TUPLE
         (
-            Value::Null | Value::Integer(_) | Value::Float(_) | Value::Text(_) | Value::Blob(_),
+            Value::Integer(_) | Value::Float(_) | Value::Text(_) | Value::Blob(_),
             Value::Tuple(_),
         ) => Ordering::Less,
 
         // TUPLE > everything else
         (
             Value::Tuple(_),
-            Value::Null | Value::Integer(_) | Value::Float(_) | Value::Text(_) | Value::Blob(_),
+            Value::Integer(_) | Value::Float(_) | Value::Text(_) | Value::Blob(_),
         ) => Ordering::Greater,
 
         // TUPLE <=> TUPLE
