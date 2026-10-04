@@ -142,15 +142,15 @@ impl<V: Vfs> Plan<V> {
                 Plan::CreateTable(CreateTable::new(stmt)),
                 ExprArena::new(),
             )),
-            ResolvedQuery::BeginTransactionQuery => Ok(PreparedPlan::new(
+            ResolvedQuery::BeginTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::BeginTransaction(BeginTransaction),
                 ExprArena::new(),
             )),
-            ResolvedQuery::CommitTransactionQuery => Ok(PreparedPlan::new(
+            ResolvedQuery::CommitTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::CommitTransaction(CommitTransaction),
                 ExprArena::new(),
             )),
-            ResolvedQuery::RollbackTransactionQuery => Ok(PreparedPlan::new(
+            ResolvedQuery::RollbackTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::RollbackTransaction(RollBackTransaction),
                 ExprArena::new(),
             )),
