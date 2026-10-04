@@ -183,18 +183,7 @@ impl<'a> std::fmt::Display for Value<'a> {
             Value::Integer(int) => write!(f, "{}", int),
             &Value::Float(fl) => write!(f, "{}", fl),
             Value::Text(t) => write!(f, "{}", t),
-            Value::Blob(b) => {
-                write!(f, "[")?;
-                for (i, val) in b.iter().enumerate() {
-                    write!(f, "{}", val)?;
-
-                    if i < b.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, "]")?;
-                Ok(())
-            }
+            Value::Blob(b) => write!(f, "{}", String::from_utf8_lossy(b)),
             Value::Tuple(b) => {
                 for (i, val) in b.iter().enumerate() {
                     write!(f, "{}", val)?;

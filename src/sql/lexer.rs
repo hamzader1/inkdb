@@ -136,8 +136,6 @@ impl<'a> Lexer<'a> {
                     self.next_char();
                     self.emit(&mut tokens, TokenKind::Slash, start);
                 }
-                // Leading-dot float (`.5`); a bare `.` is never valid
-                // in this grammar (no qualified names yet).
                 '.' => {
                     let is_float = self.peek_second().is_some_and(|c| c.is_ascii_digit());
                     if is_float {

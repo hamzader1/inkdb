@@ -215,6 +215,8 @@ pub enum SyntaxErrorKind {
     UnexpectedChar(char),
     #[error("unterminated string: expected a closing quote")]
     UnterminatedString,
+    #[error("invalid blob literal: expected an even number of hex digits in X'...'")]
+    InvalidBlobLiteral,
     #[error("unclosed parenthesis: expected ')'")]
     UnclosedParenthesis,
     #[error("unmatched ')': no matching '(' found")]
