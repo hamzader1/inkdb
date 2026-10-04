@@ -7,11 +7,11 @@ pub mod rebalance;
 pub mod tree;
 pub mod typed_mut;
 
+pub(crate) use cursor::RestorePosition;
 pub use cursor::{BTreeCursor, CursorState, SeekResult};
-pub(crate) use cursor::{Path, RestorePosition};
 pub use insert::BTree;
+pub(crate) use kind::IndexLeaf;
 pub use kind::TableLeaf;
-pub(crate) use kind::{IndexInterior, IndexLeaf, TableInterior};
 
 use std::cmp::Ordering;
 
@@ -42,9 +42,9 @@ pub(crate) fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     guard: &'b mut PageGuard,
     pager: &Pager<V>,
 ) -> Result<crate::storage::page::PageMut<'b>, InkError> {
-    let bytes = guard
-        .bytes_as_mut()
-        .ok_or({ InkError::Internal("page_as_mut_with_pager: guard is not a mutable borrow") })?;
+    let bytes = guard.bytes_as_mut().ok_or(InkError::Internal(
+        "page_as_mut_with_pager: guard is not a mutable borrow",
+    ))?;
     crate::storage::page::PageMut::new(
         page_no,
         pager.page_size(),

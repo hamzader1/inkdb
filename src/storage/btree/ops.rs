@@ -39,6 +39,7 @@ impl Divider {
 pub(crate) enum Consumed {
     None,
     LastOfLeft,
+    #[allow(dead_code)]
     FirstOfRight,
 }
 

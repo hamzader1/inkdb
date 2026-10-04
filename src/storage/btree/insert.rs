@@ -3,7 +3,7 @@ use crate::errors::{CorruptError, InkError};
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::btree::CellIndex;
-use crate::storage::page::{BTreePage, InsertionState};
+use crate::storage::page::InsertionState;
 use crate::vfs::Vfs;
 
 use super::cursor::BTreeCursor;

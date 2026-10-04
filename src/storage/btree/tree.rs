@@ -88,6 +88,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         self.cursor.save_position(self.pager)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn restore_position(&mut self) -> InkResult<RestorePosition> {
         self.cursor.restore_position(self.pager)
     }

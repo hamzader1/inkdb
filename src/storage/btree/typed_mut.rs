@@ -32,6 +32,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> AnyPageMut<B> {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn no_of_cells(&self) -> InkResult<u16> {
         match self {
             Self::TableInterior(p) => p.no_of_cells(),

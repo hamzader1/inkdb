@@ -201,7 +201,7 @@ impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K>
 where
     K::Cell: HasChild,
 {
-    pub(crate) fn child(&self, i: u16) -> InkResult<u32> {
+    pub(crate) fn _child(&self, i: u16) -> InkResult<u32> {
         Ok(self.cell(i)?.left_child())
     }
     pub(crate) fn rmp(&self) -> InkResult<u32> {
@@ -224,7 +224,7 @@ impl<B: AsRef<[u8]>, K: PageKind> TypedPage<B, K>
 where
     K::Cell: HasRowId,
 {
-    pub(crate) fn row_id(&self, i: u16) -> InkResult<u64> {
+    pub(crate) fn _row_id(&self, i: u16) -> InkResult<u64> {
         let cell_offset = self.inner.cell_ptr(i)? as usize;
         Ok(K::Cell::parse(&self.inner.bytes()[cell_offset..], self.inner.usable_size())?.row_id())
     }

@@ -47,10 +47,6 @@ impl Path {
             yielded: false,
         }
     }
-
-    pub(crate) fn guard(&self) -> &PageGuard {
-        &self.guard
-    }
 }
 
 pub(crate) enum RestorePosition {
@@ -584,6 +580,7 @@ impl<V: crate::vfs::Vfs> BTreeCursor<V> {
         })
     }
 
+    #[allow(dead_code)]
     fn with_page<T, FN>(pager: &mut Pager<V>, page_no: PageNo, f: FN) -> Result<T, InkError>
     where
         FN: for<'a> FnOnce(&'a PageRef<'a>) -> Result<T, InkError>,
