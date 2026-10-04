@@ -18,21 +18,14 @@ pub struct PrepareRow<V: Vfs> {
     child: Box<Plan<V>>,
     pub(crate) root_page: u32,
     table_name: String,
-    pub(crate) table_constraints: Option<Box<[usize]>>,
 }
 
 impl<V: Vfs> PrepareRow<V> {
-    pub fn new(
-        child: Box<Plan<V>>,
-        root_page: u32,
-        table_name: String,
-        table_constraints: Option<Box<[usize]>>,
-    ) -> Self {
+    pub fn new(child: Box<Plan<V>>, root_page: u32, table_name: String) -> Self {
         Self {
             child,
             root_page,
             table_name,
-            table_constraints,
         }
     }
     pub fn child(&self) -> &Plan<V> {

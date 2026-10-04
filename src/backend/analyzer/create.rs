@@ -1,9 +1,9 @@
+use crate::InkResult;
 use crate::backend::analyzer::ResolvedCreateIndexQuery;
 use crate::backend::executor::eval::Eval;
 use crate::errors::InkError;
 use crate::sql::ast::{Constraint, CreateIndexStmt, CreateTableStmt, DefaultValue};
 use crate::util::assert_with_runtime_err;
-use crate::{InkResult, Master};
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 

@@ -1,6 +1,6 @@
+use crate::InkResult;
 use crate::backend::analyzer::{ResolvedDeleteQuery, ResolvedTruncateTableQuery};
 use crate::sql::ast::DeleteStmt;
-use crate::{InkResult, Master};
 
 use super::{Analyze, ResolvedQuery};
 

@@ -1,5 +1,3 @@
-use crate::Master;
-use crate::backend::analyzer::bind::FastBind;
 use crate::backend::analyzer::{Analyze, ResolvedQuery};
 use crate::errors::InkError;
 use crate::sql::ast::UpdateStmt;

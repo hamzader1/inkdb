@@ -6,13 +6,13 @@ use crate::{
 };
 
 pub trait ScanGuard<V: Vfs>: std::fmt::Debug {
-    fn restore(&mut self, pager: &mut Pager<V>, cursor: &mut BTreeCursor<V>) -> InkResult<()> {
+    fn restore(&mut self, _pager: &mut Pager<V>, _cursor: &mut BTreeCursor<V>) -> InkResult<()> {
         Ok(())
     }
     fn save_or_advance(
         &mut self,
-        pager: &mut Pager<V>,
-        cursor: &mut BTreeCursor<V>,
+        _pager: &mut Pager<V>,
+        _cursor: &mut BTreeCursor<V>,
     ) -> InkResult<()> {
         Ok(())
     }

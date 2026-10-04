@@ -1,16 +1,11 @@
-use std::{
-    fs::{File, OpenOptions},
-    io::Write,
-};
+use std::{fs::File, io::Write};
 
 use crate::{
-    InkResult, MemCursor,
+    InkResult,
     backend::{
-        executor::{Row, context::ExecCtx, decode_frame, encode_frame, frame_len},
+        executor::{Row, context::ExecCtx, encode_frame, frame_len},
         planner::plan::Plan,
     },
-    record::Record,
-    varint::encode_varint,
     vfs::Vfs,
 };
 

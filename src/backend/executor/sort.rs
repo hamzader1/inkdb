@@ -5,9 +5,9 @@ use std::os::unix::fs::FileExt;
 
 use super::super::planner::plan;
 use super::MEM_CAP;
+use crate::backend::executor::Row;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::eval::Eval;
-use crate::backend::executor::{Row, RowView};
 use crate::backend::executor::{StreamSource, decode_frame};
 use crate::backend::planner::plan::Plan;
 use crate::record::{Record, Value};
@@ -180,14 +180,12 @@ impl<V: Vfs> Sort<V> {
                 .open(self.run_path(run_id))?;
             let file_len = file.metadata()?.len();
             let mut nrows_buffer = [0u8; 4];
-            file.read_exact_at(&mut nrows_buffer, file_len - 4);
+            file.read_exact_at(&mut nrows_buffer, file_len - 4)?;
             let nrows = u32::from_be_bytes(nrows_buffer);
             file.read_exact_at(&mut temp_buffer, 0)?;
             let mut children = Vec::new();
-            let mut cursor = MemCursor::new(&temp_buffer);
-            let mut rrows = 0;
             let mut offset = 0;
-            rrows = load_page(
+            let rrows = load_page(
                 &mut file,
                 &mut page_buffer,
                 nrows as _,
@@ -203,7 +201,6 @@ impl<V: Vfs> Sort<V> {
                 std::mem::take(&mut page_buffer),
                 children,
                 offset as _,
-                false,
             );
             sort_buffers.push(sort_buffer);
             // temp_buffer.clear();
@@ -219,7 +216,6 @@ impl<V: Vfs> Sort<V> {
         }
         let mut output_buffer = Vec::with_capacity(page_size);
         let mut output_file = V::open_temp_file(self.out_path())?;
-        let mut write_offset = 0;
         let mut writte_nrows = 0u32;
         let mut sorted_buffer = Vec::new();
         let mut data = Vec::new();
@@ -372,15 +368,7 @@ fn load_children<V: Vfs>(
     }
     Ok(())
 }
-fn new_file(file_name: &str) -> InkResult<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(file_name)?;
-    Ok(file)
-}
+
 struct SortBuffer {
     f: File,      /*Change to Vfs*/
     rid: usize,   /*Run id*/
@@ -389,7 +377,6 @@ struct SortBuffer {
     page_buffer: Vec<u8>,
     children: Vec<InnerSortBuffer>,
     offset: usize,
-    is_done: bool,
 }
 
 impl SortBuffer {
@@ -402,7 +389,6 @@ impl SortBuffer {
         page_buffer: Vec<u8>,
         children: Vec<InnerSortBuffer>,
         offset: usize,
-        is_done: bool,
     ) -> Self {
         Self {
             f,
@@ -412,7 +398,6 @@ impl SortBuffer {
             page_buffer,
             children,
             offset,
-            is_done,
         }
     }
     fn yield_entry<V: Vfs>(
@@ -429,7 +414,7 @@ impl SortBuffer {
             let niter = load_page(
                 &mut self.f,
                 &mut self.page_buffer,
-                (self.nrows - self.rrows),
+                self.nrows - self.rrows,
                 page_size,
                 &mut self.offset,
             )?;

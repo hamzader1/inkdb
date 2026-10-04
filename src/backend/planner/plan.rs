@@ -31,11 +31,10 @@ use crate::backend::executor::transaction::{
 use crate::backend::executor::truncate::TruncateTable;
 use crate::backend::executor::update::Update;
 use crate::backend::optimizer::optimize_index_scan;
-use crate::backend::planner::plan;
 use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::schema::Table;
-use crate::sql::ast::Expr::{self, ColumnRef, Identifier, StringLitteral};
+use crate::sql::ast::Expr::{self, ColumnRef, StringLitteral};
 use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
@@ -246,8 +245,7 @@ impl<V: Vfs> Plan<V> {
         master: &Master,
     ) -> InkResult<PreparedPlan<V>> {
         let mode = ScanMode::Safe;
-        let mode = ScanMode::Safe;
-        let mut child = Self::scan_with_predicate(
+        let child = Self::scan_with_predicate(
             resolved_query.root_page,
             &resolved_query.table_name,
             mode,
@@ -285,12 +283,7 @@ impl<V: Vfs> Plan<V> {
         root_page: u32,
     ) -> InkResult<Plan<V>> {
         let indexes = master.indexes_on(&table_name)?;
-        plan = Plan::PrepareRow(PrepareRow::<V>::new(
-            Box::new(plan),
-            root_page,
-            table_name,
-            None,
-        ));
+        plan = Plan::PrepareRow(PrepareRow::<V>::new(Box::new(plan), root_page, table_name));
         for index in indexes {
             let prepare = PrepareIndex::new(
                 index,
@@ -397,9 +390,7 @@ impl<V: Vfs> Plan<V> {
         let parent = Self::CreateIndex(CreateIndex::new(Box::new(child), resolved_query)?);
         Ok(PreparedPlan::new(parent, arena).with_table(&rl_name))
     }
-    fn init_drop_table_plan(
-        mut resolved_query: ResolvedDropTableQuery,
-    ) -> InkResult<PreparedPlan<V>> {
+    fn init_drop_table_plan(resolved_query: ResolvedDropTableQuery) -> InkResult<PreparedPlan<V>> {
         Self::init_drop_plan(
             2,
             resolved_query.tbl_name.clone(),
@@ -553,9 +544,9 @@ impl<V: Vfs> Plan<V> {
                 "Update [(columns_indexes, arena_indexes) -> {:?}]",
                 u.affected_columns
             ),
-            Self::Materialized(m) => "MaterializedResult".into(),
+            Self::Materialized(_) => "MaterializedResult".into(),
             Halt => "Halt".into(),
-            Self::DropTbl(dt) => "Drop Table".into(),
+            Self::DropTbl(_) => "Drop Table".into(),
         }
     }
 }

@@ -74,17 +74,6 @@ impl<V: Vfs> PreparedPlan<V> {
         self
     }
 
-    pub(crate) fn take_statement_table(&mut self) -> Option<String> {
-        match self {
-            Self::AutoCommit {
-                statement_table, ..
-            }
-            | Self::Direct {
-                statement_table, ..
-            } => statement_table.take(),
-        }
-    }
-
     pub(crate) fn set_statement_table(&mut self, table: Option<String>) {
         match self {
             Self::AutoCommit {

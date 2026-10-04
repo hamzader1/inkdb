@@ -47,7 +47,7 @@ impl<V: Vfs> CreateTable<V> {
             ctx.pager.page_size(),
             ctx.pager.usable_size(),
             ctx.pager.header_len(),
-        );
+        )?;
         let row = [
             ("table").into(),                     // type
             (&**name).into(),                     // name
@@ -63,12 +63,7 @@ impl<V: Vfs> CreateTable<V> {
         let prepare_insert = Plan::PrepareInsert(PrepareInsert::<V>::new(vec![
             row.iter().map(|v| v.to_owned_static()).collect(),
         ]));
-        let mut prepare = PrepareRow::new(
-            Box::new(prepare_insert),
-            1,
-            self.meta.meta.name.clone(),
-            None,
-        );
+        let mut prepare = PrepareRow::new(Box::new(prepare_insert), 1, self.meta.meta.name.clone());
         while prepare.next(ctx)?.is_some() {}
         ctx.master.mark_dirty();
         for (i, column) in self.meta.unique_on.iter().enumerate() {
@@ -181,7 +176,7 @@ impl<V: Vfs> CreateIndex<V> {
             ctx.pager.page_size(),
             ctx.pager.usable_size(),
             ctx.pager.header_len(),
-        );
+        )?;
         let q = match self.meta.query {
             Some(ref q) => q.as_ref().into(),
             None => Value::Null,
@@ -199,12 +194,8 @@ impl<V: Vfs> CreateIndex<V> {
             row.iter().map(|v| v.to_owned_static()).collect(),
         ]));
 
-        let mut prepare_row = PrepareRow::new(
-            Box::new(prepare_insert),
-            1,
-            self.meta.relation_name.clone(),
-            None,
-        );
+        let mut prepare_row =
+            PrepareRow::new(Box::new(prepare_insert), 1, self.meta.relation_name.clone());
         while prepare_row.next(ctx)?.is_some() {}
         ctx.master.mark_dirty();
         self.index = Some(IndexMetadata::new(

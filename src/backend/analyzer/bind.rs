@@ -1,5 +1,5 @@
 use crate::errors::InkError;
-use crate::schema::{Table, TableSchema};
+use crate::schema::TableSchema;
 use crate::sql::ast::Expr;
 use crate::sql::parser::ExprArena;
 

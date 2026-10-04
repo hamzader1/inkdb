@@ -1,6 +1,4 @@
-use crate::Master;
 use crate::errors::InkError;
-use crate::schema::MASTER;
 
 use crate::sql::ast::{Expr, SelectStmt};
 use crate::sql::parser::ExprArena;

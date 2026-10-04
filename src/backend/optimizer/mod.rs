@@ -93,7 +93,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                 _ => {
                     match self.try_index(left, right, op)? {
                         Some(_) => return Ok(()),
-                        None => self.try_index(right, left, flip_comparison(op)),
+                        None => self.try_index(right, left, flip_comparison(op))?,
                     };
                 }
             },
