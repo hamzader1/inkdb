@@ -15,14 +15,12 @@ fn fixture(tag: &str, sql: &str) -> PathBuf {
 
 fn catalog(path: &Path, where_clause: &str) -> i64 {
     let conn = Connection::open(path).expect("reference");
-    let n = conn
-        .query_row(
-            &format!("SELECT COUNT(*) FROM sqlite_master WHERE {where_clause}"),
-            [],
-            |r| r.get(0),
-        )
-        .expect("catalog query");
-    n
+    conn.query_row(
+        &format!("SELECT COUNT(*) FROM sqlite_master WHERE {where_clause}"),
+        [],
+        |r| r.get(0),
+    )
+    .expect("catalog query")
 }
 
 fn page_stats(path: &Path) -> (i64, i64) {

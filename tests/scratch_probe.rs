@@ -64,12 +64,12 @@ fn walk_refcounts(db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>, root:
     }
     // Neighborhood dump of the first dup parent: full slot list with keys
     // plus the dup page key range. Saved into the pager for reading here.
-    if let Some((p, _)) = multi.first() {
-        if let Some(pars) = parents.get(p) {
-            let (pp, _) = pars[0];
-            dump_parent(db, pp);
-            dump_page_keys(db, **p);
-        }
+    if let Some((p, _)) = multi.first()
+        && let Some(pars) = parents.get(p)
+    {
+        let (pp, _) = pars[0];
+        dump_parent(db, pp);
+        dump_page_keys(db, **p);
     }
 }
 

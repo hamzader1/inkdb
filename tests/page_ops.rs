@@ -103,7 +103,6 @@ fn run_seed(seed: u64) {
                     }
                     Err(e) => fail(step, format!("insert err {e:?}"), &log),
                 }
-                drop(p);
             }
             60..=79 => {
                 if before_n == 0 {
@@ -114,7 +113,6 @@ fn run_seed(seed: u64) {
                 if let Err(e) = p.remove_cell(idx as u16) {
                     fail(step, format!("remove err {e:?}"), &log);
                 }
-                drop(p);
                 model.remove(idx);
                 log.push(format!("remove idx={idx}"));
             }
@@ -146,7 +144,6 @@ fn run_seed(seed: u64) {
                 if let Err(e) = p.reset_for_rebuild() {
                     fail(step, format!("reset err {e:?}"), &log);
                 }
-                drop(p);
                 model.clear();
                 log.push("reset".to_string());
             }
@@ -194,7 +191,6 @@ fn full_page_reports_honestly() {
             }
             Err(e) => panic!("insert err {e:?}"),
         }
-        drop(p);
         if inserted > 100 {
             panic!("page never filled");
         }
@@ -203,7 +199,7 @@ fn full_page_reports_honestly() {
     let snapshot = buf.clone();
     let outcome = {
         let mut p = BTreePage::new(7, ps, ps, 0, &mut buf[..]).unwrap();
-        match p.replace_cell(0, &vec![0xBBu8; 400]) {
+        match p.replace_cell(0, vec![0xBBu8; 400]) {
             Ok(state) => format!("{state:?}"),
             Err(e) => panic!("replace err {e:?}"),
         }

@@ -23,10 +23,7 @@ fn record_accessor_agrees_with_the_page_decoder_on_rows() {
     let mut cursor = BTreeCursor::new(root_page);
     cursor.first(db.pager()).expect("first");
     let mut checked = 0usize;
-    loop {
-        let Some(cell) = cursor.current::<TableLeaf>(db.pager()).expect("cell") else {
-            break;
-        };
+    while let Some(cell) = cursor.current::<TableLeaf>(db.pager()).expect("cell") {
         assert!(
             cell.overflow_page().is_none(),
             "fixture rows must be inline for this comparison"
