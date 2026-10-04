@@ -9,6 +9,7 @@ use inkdb::db::header::{
     TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
 };
 use inkdb::record::Value;
+use inkdb::storage::btree::kind::{AnyPage, HasChild};
 use inkdb::storage::page::{
     BTreePage, CELL_CONTENT_AREA_OFFSET, CELL_COUNT_OFFSET, FIRST_FREEBLOCK_OFFSET,
     FRAGMENTED_FREE_BYTES_OFFSET,
@@ -135,6 +136,14 @@ fn audit_page(
         Ok(p) => p,
         Err(e) => {
             ctx.problems.push(format!("page {page_no} bad header: {e}"));
+            return empty;
+        }
+    };
+    let any = match AnyPage::parse(page_no, page_size, usable, header_len, &bytes[..]) {
+        Ok(any) => any,
+        Err(e) => {
+            ctx.problems
+                .push(format!("page {page_no} bad page type: {e}"));
             return empty;
         }
     };
@@ -320,15 +329,7 @@ fn audit_page(
     // Keys must ascend across the slots, otherwise every descent misroutes.
     let mut keys: Vec<Value<'static>> = Vec::with_capacity(n as usize);
     for i in 0..n {
-        let cell = match page.cell(i) {
-            Ok(c) => c,
-            Err(e) => {
-                ctx.problems
-                    .push(format!("page {page_no} slot {i}: unreadable cell: {e}"));
-                continue;
-            }
-        };
-        match page.cell_key(&cell, db.pager()) {
+        match any.cell_key(i, db.pager()) {
             Ok(key) => keys.push(key),
             Err(e) => ctx
                 .problems
@@ -353,8 +354,13 @@ fn audit_page(
     // Interior: recurse into every child and check the routing rules.
     let mut children: Vec<(u16, u32, Option<Value<'static>>)> = Vec::with_capacity(n as usize + 1);
     for i in 0..n {
-        if let Ok(cell) = page.cell(i) {
-            children.push((i, cell.left_child(), keys.get(i as usize).cloned()));
+        let child = match &any {
+            AnyPage::TableInterior(p) => p.cell(i).ok().map(|cell| cell.left_child()),
+            AnyPage::IndexInterior(p) => p.cell(i).ok().map(|cell| cell.left_child()),
+            _ => None,
+        };
+        if let Some(child) = child {
+            children.push((i, child, keys.get(i as usize).cloned()));
         }
     }
     match page.right_most_ptr() {

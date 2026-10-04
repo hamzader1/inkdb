@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 fn walk_table_refs(
     db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>,
 ) -> Vec<(u32, Vec<(u32, u16)>)> {
-    use inkdb::storage::cell::BTreeCell;
+    use inkdb::storage::btree::kind::{AnyPage, HasChild};
     use inkdb::storage::page::BTreePage;
     let ps = db.pager().page_size();
     let us = db.pager().usable_size();
@@ -33,18 +33,24 @@ fn walk_table_refs(
         if t.is_leaf() {
             continue;
         }
-        let Ok(n) = page.no_of_cells() else { continue };
-        for i in 0..n {
-            let Ok(cell) = page.cell(i) else { continue };
-            let lc = match &cell {
-                BTreeCell::IndexInterior(x) => x.left_child,
-                BTreeCell::TableInterior(x) => x.left_child,
-                _ => continue,
-            };
+        let Ok(any) = AnyPage::parse(pn, ps, us, hl, guard.bytes()) else {
+            continue;
+        };
+        let children: Vec<u32> = match &any {
+            AnyPage::TableInterior(p) => (0..p.no_of_cells().unwrap_or(0))
+                .filter_map(|i| p.cell(i).ok().map(|cell| cell.left_child()))
+                .collect(),
+            AnyPage::IndexInterior(p) => (0..p.no_of_cells().unwrap_or(0))
+                .filter_map(|i| p.cell(i).ok().map(|cell| cell.left_child()))
+                .collect(),
+            _ => continue,
+        };
+        for (i, lc) in children.into_iter().enumerate() {
             *counts.entry(lc).or_insert(0) += 1;
-            parents.entry(lc).or_default().push((pn, i));
+            parents.entry(lc).or_default().push((pn, i as u16));
             stack.push(lc);
         }
+        let Ok(n) = page.no_of_cells() else { continue };
         if let Ok(Some(r)) = page.right_most_ptr() {
             *counts.entry(r).or_insert(0) += 1;
             parents.entry(r).or_default().push((pn, n));
@@ -64,7 +70,7 @@ fn walk_index_refs(
     db: &mut inkdb::db::Database<inkdb::vfs::disk::DiskVfs>,
     root: u32,
 ) -> Vec<(u32, Vec<(u32, u16)>)> {
-    use inkdb::storage::cell::BTreeCell;
+    use inkdb::storage::btree::kind::{AnyPage, HasChild};
     use inkdb::storage::page::BTreePage;
     let ps = db.pager().page_size();
     let us = db.pager().usable_size();
@@ -90,18 +96,24 @@ fn walk_index_refs(
         if t.is_leaf() {
             continue;
         }
-        let Ok(n) = page.no_of_cells() else { continue };
-        for i in 0..n {
-            let Ok(cell) = page.cell(i) else { continue };
-            let lc = match &cell {
-                BTreeCell::IndexInterior(x) => x.left_child,
-                BTreeCell::TableInterior(x) => x.left_child,
-                _ => continue,
-            };
+        let Ok(any) = AnyPage::parse(pn, ps, us, hl, guard.bytes()) else {
+            continue;
+        };
+        let children: Vec<u32> = match &any {
+            AnyPage::TableInterior(p) => (0..p.no_of_cells().unwrap_or(0))
+                .filter_map(|i| p.cell(i).ok().map(|cell| cell.left_child()))
+                .collect(),
+            AnyPage::IndexInterior(p) => (0..p.no_of_cells().unwrap_or(0))
+                .filter_map(|i| p.cell(i).ok().map(|cell| cell.left_child()))
+                .collect(),
+            _ => continue,
+        };
+        for (i, lc) in children.into_iter().enumerate() {
             *counts.entry(lc).or_insert(0) += 1;
-            parents.entry(lc).or_default().push((pn, i));
+            parents.entry(lc).or_default().push((pn, i as u16));
             stack.push(lc);
         }
+        let Ok(n) = page.no_of_cells() else { continue };
         if let Ok(Some(r)) = page.right_most_ptr() {
             *counts.entry(r).or_insert(0) += 1;
             parents.entry(r).or_default().push((pn, n));
