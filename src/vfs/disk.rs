@@ -1,4 +1,3 @@
-use crate::DbError;
 #[cfg(unix)]
 use crate::errors::InkError;
 
@@ -36,7 +35,7 @@ impl Vfs for DiskVfs {
         &mut self,
         f: F,
         options: super::InkOptions,
-    ) -> Result<Self::File, crate::DbError> {
+    ) -> Result<Self::File, crate::InkError> {
         let options = OpenOptions::from(options);
         let file = options.open(&f)?;
         Ok(DiskFile {
@@ -44,17 +43,17 @@ impl Vfs for DiskVfs {
             path: f.as_ref().to_path_buf(),
         })
     }
-    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, crate::DbError> {
+    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, crate::InkError> {
         self.open(Self::journal_path(db), super::InkOptions::all())
     }
-    fn delete_journal(&mut self, db: &Self::File) -> Result<(), crate::DbError> {
+    fn delete_journal(&mut self, db: &Self::File) -> Result<(), crate::InkError> {
         match std::fs::remove_file(Self::journal_path(db)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
-    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, crate::DbError> {
+    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, crate::InkError> {
         let path = Self::journal_path(db);
         if !path.exists() {
             return Ok(None);
@@ -81,12 +80,12 @@ impl InkFile for DiskFile {
             .to_str()
             .expect("Error while trying to convert OsStr")
     }
-    fn len(&self) -> Result<u64, DbError> {
+    fn len(&self) -> Result<u64, InkError> {
         let len = self.file.metadata()?.len();
         Ok(len)
     }
 
-    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), DbError> {
+    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), InkError> {
         let file_len = self.file.metadata()?.len();
 
         if (offset as usize) + buff.len() > file_len as usize {
@@ -100,7 +99,7 @@ impl InkFile for DiskFile {
         Ok(())
     }
 
-    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), DbError> {
+    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), InkError> {
         let file_len = self.file.metadata()?.len();
 
         if (offset as usize) + buff.len() > file_len as usize {
@@ -114,12 +113,12 @@ impl InkFile for DiskFile {
         Ok(())
     }
 
-    fn set_len(&self, len: usize) -> Result<(), DbError> {
+    fn set_len(&self, len: usize) -> Result<(), InkError> {
         self.file.set_len(len as u64)?;
         Ok(())
     }
 
-    fn sync(&self) -> Result<(), DbError> {
+    fn sync(&self) -> Result<(), InkError> {
         self.file.sync_all()?;
         Ok(())
     }
@@ -138,12 +137,12 @@ impl InkFile for DiskFile {
             .to_str()
             .expect("Error while trying to convert OsStr")
     }
-    fn len(&self) -> Result<u64, DbError> {
+    fn len(&self) -> Result<u64, InkError> {
         let len = self.file.metadata()?.len();
         Ok(len)
     }
 
-    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), DbError> {
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), InkError> {
         use crate::InkError;
 
         let file_len = self.file.metadata()?.len();
@@ -165,7 +164,7 @@ impl InkFile for DiskFile {
             let n = self.file.seek_read(buf, offset)?;
 
             if n == 0 {
-                return Err(DbError::FileRange(
+                return Err(InkError::FileRange(
                     format!("unexpected EOF reading at offset {offset}").into(),
                 ));
             }
@@ -177,7 +176,7 @@ impl InkFile for DiskFile {
         Ok(())
     }
 
-    fn write_all_at(&self, offset: u64, buf: &[u8]) -> Result<(), DbError> {
+    fn write_all_at(&self, offset: u64, buf: &[u8]) -> Result<(), InkError> {
         use crate::InkError;
 
         let file_len = self.file.metadata()?.len();
@@ -199,7 +198,7 @@ impl InkFile for DiskFile {
             let n = self.file.seek_write(buf, offset)?;
 
             if n == 0 {
-                return Err(DbError::FileRange(
+                return Err(InkError::FileRange(
                     format!("failed to write the whole buffer at offset {offset}").into(),
                 ));
             }
@@ -211,12 +210,12 @@ impl InkFile for DiskFile {
         Ok(())
     }
 
-    fn set_len(&self, len: usize) -> Result<(), DbError> {
+    fn set_len(&self, len: usize) -> Result<(), InkError> {
         self.file.set_len(len as u64)?;
         Ok(())
     }
 
-    fn sync(&self) -> Result<(), DbError> {
+    fn sync(&self) -> Result<(), InkError> {
         self.file.sync_all()?;
         Ok(())
     }

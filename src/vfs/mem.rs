@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -5,8 +6,7 @@ use std::rc::Rc;
 
 use super::file::InkFile;
 use super::temp::create_temp_dir;
-use crate::DbError;
-use crate::errors::InkError;
+use crate::InkError;
 use crate::vfs::Vfs;
 
 const MEM_B: &str = "__INK_MEMORY_BUFFER";
@@ -42,14 +42,14 @@ impl Vfs for MemVfs {
         &mut self,
         f: F,
         _options: super::InkOptions,
-    ) -> Result<Self::File, DbError> {
+    ) -> Result<Self::File, InkError> {
         if let Some(bytes) = self.db_buffers.get(&f.as_ref().to_path_buf()) {
             return Ok(MemFile::new(Rc::clone(bytes)));
         }
 
-        Err(DbError::DatabaseNotExists)
+        Err(InkError::DatabaseNotExists)
     }
-    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, DbError> {
+    fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, InkError> {
         let key = Rc::as_ptr(&db.bytes) as usize;
         let entry = self
             .journals
@@ -57,12 +57,12 @@ impl Vfs for MemVfs {
             .or_insert_with(|| Rc::new(RefCell::new(Vec::new())));
         Ok(MemFile::with_dir(Rc::clone(entry), db.temp_dir.clone()))
     }
-    fn delete_journal(&mut self, db: &Self::File) -> Result<(), DbError> {
+    fn delete_journal(&mut self, db: &Self::File) -> Result<(), InkError> {
         let key = Rc::as_ptr(&db.bytes) as usize;
         self.journals.remove(&key);
         Ok(())
     }
-    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, DbError> {
+    fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, InkError> {
         let key = Rc::as_ptr(&db.bytes) as usize;
         Ok(self.journals.get(&key).map(|b| b.borrow().clone()))
     }
@@ -95,11 +95,11 @@ impl InkFile for MemFile {
     fn path(&self) -> PathBuf {
         self.temp_dir.clone()
     }
-    fn len(&self) -> Result<u64, DbError> {
+    fn len(&self) -> Result<u64, InkError> {
         Ok(self.bytes.borrow().len() as u64)
     }
 
-    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), DbError> {
+    fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), InkError> {
         let bytes = self.bytes.borrow();
 
         let start = offset as usize;
@@ -118,7 +118,7 @@ impl InkFile for MemFile {
         Ok(())
     }
 
-    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), DbError> {
+    fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), InkError> {
         let mut bytes = self.bytes.borrow_mut();
 
         let start = offset as usize;
@@ -137,12 +137,12 @@ impl InkFile for MemFile {
         Ok(())
     }
 
-    fn set_len(&self, len: usize) -> Result<(), DbError> {
+    fn set_len(&self, len: usize) -> Result<(), InkError> {
         self.bytes.borrow_mut().resize(len, 0);
         Ok(())
     }
 
-    fn sync(&self) -> Result<(), DbError> {
+    fn sync(&self) -> Result<(), InkError> {
         // Nothing to do for an in-memory buffer.
         Ok(())
     }
