@@ -1,6 +1,5 @@
 use crate::InkError;
 use crate::errors::CorruptError;
-use crate::pager::pager::PageNo;
 pub fn assert_one(condition: bool, err: InkError) -> Result<(), InkError> {
     if !condition {
         return Err(err);
@@ -34,24 +33,5 @@ where
     if !condition {
         return Err(InkError::InternalFmt(err()));
     }
-    Ok(())
-}
-
-pub fn validate_page(page_no: PageNo, max_pages: usize) -> Result<(), InkError>
-where
-{
-    if page_no == 0 || page_no as usize > max_pages {
-        return Err(InkError::InvalidPageNumber(page_no));
-    }
-
-    Ok(())
-}
-pub fn validate_page_non_one(page_no: PageNo, max_pages: usize) -> Result<(), InkError>
-where
-{
-    if page_no == 0 || page_no == 1 || page_no as usize > max_pages {
-        return Err(InkError::InvalidPageNumber(page_no));
-    }
-
     Ok(())
 }
