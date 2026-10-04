@@ -44,9 +44,11 @@ impl<'a> Analyze<'a> {
             Expr::Identifier(name) => sink.ident(table, arena, idx, &name),
             Expr::Star => sink.star(table, arena, idx),
             node @ Expr::Null => Ok(sink.leaf(arena, node, idx)),
-            node @ (Expr::Number(_) | Expr::Float(_) | Expr::Bool(_) | Expr::StringLitteral(_)) => {
-                Ok(sink.leaf(arena, node, idx))
-            }
+            node @ (Expr::Number(_)
+            | Expr::Float(_)
+            | Expr::Bool(_)
+            | Expr::StringLitteral(_)
+            | Expr::Blob(_)) => Ok(sink.leaf(arena, node, idx)),
             Expr::Add(l, r) | Expr::Substract(l, r) | Expr::Multiply(l, r) | Expr::Devide(l, r) => {
                 let node = arena.nodes[idx].clone();
                 let bound_l = Self::walk(table, l, arena, sink)?;

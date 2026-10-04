@@ -22,8 +22,7 @@ pub struct Analyze<'a> {
 }
 #[derive(Debug)]
 pub struct ResolvedSelectQuery {
-    pub(crate) table_name: String,
-    pub(crate) root_page: u32,
+    pub(crate) table: Option<(String, u32)>,
     pub(crate) arena: ExprArena,
     pub(crate) columns: Box<[usize]>,
     pub(crate) where_clause: Option<usize>,

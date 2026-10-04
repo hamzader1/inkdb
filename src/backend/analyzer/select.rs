@@ -19,6 +19,32 @@ impl<'a> Analyze<'a> {
             mut orderby,
         } = select_stmt.clone();
 
+        let Some(table_name) = table_name else {
+            if arena
+                .nodes
+                .iter()
+                .any(|node| matches!(node, Expr::Star) || matches!(node, Expr::Identifier(_)))
+            {
+                return Err(InkError::runtime(
+                    "SELECTing columns requires a FROM clause",
+                ));
+            }
+            if arena
+                .nodes
+                .iter()
+                .any(|node| matches!(node, Expr::Count { .. }))
+            {
+                return Err(InkError::runtime("count() requires a FROM clause"));
+            }
+            return Ok(ResolvedQuery::SelectQuery(ResolvedSelectQuery {
+                table: None,
+                arena,
+                columns: columns.into(),
+                where_clause,
+                limit,
+                orderby,
+            }));
+        };
         let table = { self.get_table(&table_name)? };
         if columns.len() == 1
             && let Expr::Count { arg } = arena.nodes[columns[0]]
@@ -68,8 +94,7 @@ impl<'a> Analyze<'a> {
                 Analyze::fast_bind(table, orderby.index, &mut arena)?;
             }
             let stmt = ResolvedSelectQuery {
-                table_name,
-                root_page: table.root_page(),
+                table: Some((table_name, table.root_page())),
                 arena,
                 columns: columns.into(),
                 where_clause,
@@ -143,8 +168,7 @@ impl<'a> Analyze<'a> {
             orderby.index = map[orderby.index];
         }
         let stmt = ResolvedSelectQuery {
-            table_name,
-            root_page: table.root_page(),
+            table: Some((table_name, table.root_page())),
             arena: ExprArena { nodes: new_arena },
             columns: new_cols.into(),
             where_clause,
