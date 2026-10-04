@@ -17,8 +17,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
         }
     }
 
-    pub fn insert(&mut self, key: &Value, content: &mut [u8]) -> InkResult<()> {
-        self.insert_value(key, content)
+    pub fn insert(&mut self, key: &Value, content: Vec<u8>) -> InkResult<()> {
+        self.insert_cell(key, content)
     }
 
     pub fn delete(&mut self, key: Value) -> InkResult<bool> {

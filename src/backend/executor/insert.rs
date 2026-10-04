@@ -26,7 +26,7 @@ impl<'a, V: Vfs> Insert<'a, V> {
 
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         let mut btree = BTree::new(self.root_page, ctx.pager);
-        btree.insert(&self.key, &mut self.data)?;
+        btree.insert(&self.key, std::mem::take(&mut self.data))?;
         Ok(None)
     }
 }

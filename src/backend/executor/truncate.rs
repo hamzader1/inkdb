@@ -3,7 +3,7 @@ use crate::{
     errors::InkError,
     pager::pager::Pager,
     storage::{
-        btree::page_as_mut_with_pager,
+        btree::kind::{AnyPage, HasChild},
         page::{BTreePageType, PageMut as BTreePageMut},
     },
     vfs::Vfs,
@@ -116,16 +116,31 @@ impl<V: Vfs> TruncateTable<V> {
      * */
     fn dfs(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), InkError> {
         let (is_leaf, children, rmp) = {
-            let mut guard = pager.get_mut(page_no)?;
-            let page = page_as_mut_with_pager(page_no, &mut guard, pager)?;
-            let is_leaf = page.is_leaf()?;
+            let guard = pager.get_mut(page_no)?;
             let mut children = Vec::new();
-            if !is_leaf {
-                for i in 0..page.no_of_cells()? {
-                    children.push(page.cell(i)?.left_child());
+            let page = AnyPage::parse(
+                page_no,
+                pager.page_size(),
+                pager.usable_size(),
+                pager.header_len(),
+                guard.bytes(),
+            )?;
+            match page {
+                AnyPage::TableInterior(ti) => {
+                    for i in 0..ti.no_of_cells()? {
+                        children.push(ti.cell(i)?.left_child())
+                    }
+                    (false, children, Some(ti.rmp()?))
                 }
+                AnyPage::IndexInterior(ii) => {
+                    for i in 0..ii.no_of_cells()? {
+                        children.push(ii.cell(i)?.left_child())
+                    }
+                    (false, children, Some(ii.rmp()?))
+                }
+                AnyPage::TableLeaf(_) => (true, children, None),
+                AnyPage::IndexLeaf(_) => (true, children, None),
             }
-            (is_leaf, children, page.right_most_ptr()?)
         };
         if is_leaf {
             if page_no != root_page {

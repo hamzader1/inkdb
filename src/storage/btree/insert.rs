@@ -1,10 +1,12 @@
-use crate::InkResult;
 use crate::errors::{CorruptError, InkError};
 use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::btree::CellIndex;
-use crate::storage::page::InsertionState;
+use crate::storage::page::{
+    BTreePage, InsertionState, compute_index_local_payload_size, compute_table_local_payload_size,
+};
 use crate::vfs::Vfs;
+use crate::{InkResult, MemCursor};
 
 use super::cursor::BTreeCursor;
 use super::kind::{AnyPage, IndexLeaf, TableLeaf, TypedPage};
@@ -29,7 +31,12 @@ impl<'a, V: Vfs> BTree<'a, V> {
 
 impl<'a, V: Vfs> BTree<'a, V> {
     pub fn insert_value(&mut self, key: &Value, cell_bytes: &[u8]) -> InkResult<()> {
+        self.insert_cell(key, cell_bytes.to_vec())
+    }
+
+    pub fn insert_cell(&mut self, key: &Value, mut cell_bytes: Vec<u8>) -> InkResult<()> {
         self.cursor.seek(self.pager, key)?;
+        self.fix_overlow(&mut cell_bytes)?;
         let (page_no, cell_idx) = self.cursor.last_visited_entry_unchecked();
 
         let fits = {
@@ -58,79 +65,11 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let header_len = self.pager.header_len();
         let guard = self.pager.get(page_no)?;
         match AnyPage::parse(page_no, page_size, usable, header_len, guard.bytes())? {
-            AnyPage::TableLeaf(_) => self.split_then_place::<TableLeaf>(page_no, key, cell_bytes),
-            AnyPage::IndexLeaf(_) => self.split_then_place::<IndexLeaf>(page_no, key, cell_bytes),
+            AnyPage::TableLeaf(_) => self.split_then_place::<TableLeaf>(page_no, key, &cell_bytes),
+            AnyPage::IndexLeaf(_) => self.split_then_place::<IndexLeaf>(page_no, key, &cell_bytes),
             _ => Err(not_a_leaf(page_no)),
         }
     }
-
-    /* Debug aid: the root's children must all be the same kind. Prints the layout and stops at
-     * the first insert that breaks it.
-     * todo: remove this
-
-    fn debug_check_root_children(&mut self, touched: PageNo, when: &str) {
-        if std::env::var("INKDB_CHECK_ROOT").is_err() {
-            return;
-        }
-        let page_size = self.pager.page_size();
-        let usable = self.pager.usable_size();
-        let header_len = self.pager.header_len();
-        let root = self.root_page;
-        let Ok(guard) = self.pager.get(root) else {
-            return;
-        };
-        let Ok(page) = BTreePage::<&[u8]>::new(root, page_size, usable, guard.bytes()) else {
-            return;
-        };
-        let Ok(t) = page.page_type() else { return };
-        if t.is_leaf() {
-            return;
-        }
-        let n = page.no_of_cells().unwrap_or(0);
-        let mut kinds: Vec<(u16, PageNo, u8)> = Vec::new();
-        for i in 0..n {
-            let Ok(cell) = page.cell(i) else { continue };
-            let child = match &cell {
-                crate::storage::cell::BTreeCell::IndexInterior(c) => c.left_child,
-                crate::storage::cell::BTreeCell::TableInterior(c) => c.left_child,
-                _ => continue,
-            };
-            let k = {
-                let g = self.pager.get(child).ok();
-                let t = g.as_ref().and_then(|g| {
-                    BTreePage::<&[u8]>::new(child, page_size, usable, g.bytes())
-                        .ok()
-                        .and_then(|p| p.page_type().ok())
-                });
-                t.map(|t| t as u8).unwrap_or(0)
-            };
-            kinds.push((i, child, k));
-        }
-        if let Ok(Some(r)) = page.right_most_ptr() {
-            let k = {
-                let g = self.pager.get(r).ok();
-                let t = g.as_ref().and_then(|g| {
-                    BTreePage::<&[u8]>::new(r, page_size, usable, g.bytes())
-                        .ok()
-                        .and_then(|p| p.page_type().ok())
-                });
-                t.map(|t| t as u8).unwrap_or(0)
-            };
-            kinds.push((n, r, k));
-        }
-        let first_kind = kinds.first().map(|x| x.2).unwrap_or(0);
-        if kinds.iter().any(|x| x.2 != first_kind) {
-            eprintln!(
-                "ROOT MIX after insert into {touched} ({when}), root {root} type {:?}",
-                t
-            );
-            for (slot, child, k) in kinds.iter() {
-                eprintln!("   slot {slot} -> page {child} kind {k:#x}");
-            }
-            panic!("root children mixed after {when}");
-        }
-    }
-    */
 
     fn split_then_place<K: LeafKind>(
         &mut self,
@@ -297,11 +236,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 split_at + 1,
             ),
         };
-        // let right_start = match promo.consumed {
-        //     Consumed::None => split_at,
-        //     Consumed::LastOfLeft => split_at,
-        //     Consumed::FirstOfRight => split_at + 1,
-        // };
 
         /*
          write: the right half goes to a fresh page, the left half stays where it was
@@ -322,13 +256,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 }
                 start += len;
             }
-            // for (i, cell) in right_cells.iter().enumerate() {
-            //     if page.insert_cell(cell, i as u16)? == InsertionState::None {
-            //         return Err(InkError::InternalFmt(format!(
-            //             "split: right half of page {page_no} does not fit in page {right_page}"
-            //         )));
-            //     }
-            // }
             if let Some(rmp) = old_rmp {
                 page.set_right_most_ptr(rmp)?;
             }
@@ -375,23 +302,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let usable = self.pager.usable_size();
         let header_len = self.pager.header_len();
         let old_root = split.left_page;
-
-        /*
-         * This hurts performance
-         * read: whatever the left half currently holds
-         *
-        let (cells, rmp) = {
-            let guard = self.pager.get(old_root)?;
-            let page = parse_ref::<K, V>(old_root, &guard, self.pager)?;
-            let n = page.no_of_cells()?;
-            let mut cells: Vec<Vec<u8>> = Vec::with_capacity(n as usize);
-            for i in 0..n {
-                cells.push(page.cell_bytes_as_ref(i)?.to_vec());
-            }
-            (cells, page.right_most_ptr()?)
-        };
-
-        */
 
         let new_left = self.pager.allocate_new_page()?;
         {

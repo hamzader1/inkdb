@@ -195,8 +195,8 @@ impl<V: Vfs> IndexMutation<V> for IndexInsert {
             }
         }
 
-        let mut bytes = Encode::encode_index_leaf_cell(Tuple::serialize(entry));
-        btree.insert(&Value::Tuple(entry.into()), &mut bytes)?;
+        let bytes = Encode::encode_index_leaf_cell(Tuple::serialize(entry));
+        btree.insert(&Value::Tuple(entry.into()), bytes)?;
         Ok(())
     }
 }
