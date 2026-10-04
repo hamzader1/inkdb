@@ -24,19 +24,22 @@ impl Statistics {
     pub fn inc_evictions(&self) {
         self.evictions.set(self.evictions.get() + 1);
     }
-
+    #[allow(dead_code)]
     pub fn cache_hit(&self) -> usize {
         self.cache_hit.get()
     }
 
+    #[allow(dead_code)]
     pub fn cache_miss(&self) -> usize {
         self.cache_miss.get()
     }
 
+    #[allow(dead_code)]
     pub fn disk_write(&self) -> usize {
         self.disk_write.get()
     }
 
+    #[allow(dead_code)]
     pub fn evictions(&self) -> usize {
         self.evictions.get()
     }

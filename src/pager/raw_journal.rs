@@ -1,18 +1,20 @@
 use crate::errors::InkError;
 use crate::vfs::file::InkFile;
-use crate::{InkResult, MemCursor, size_of};
+use crate::{InkResult, MemCursor};
 
 use super::pager::PageNo;
 
 const JOURNAL_CAP: usize = 8;
 // 1: 0..8
 const JOURNAL_MAGIC: u64 = 0x4A4F55524E414C31;
+#[allow(dead_code)]
 const JOURNAL_MAGIC_OFFSET: usize = 0;
 // 2: 8..12
 pub const PAGE_COUNT_OFFSET: usize = 8;
 // 3: 12..16
 const DATABASE_SIZE_OFFSET: usize = 12;
 
+#[allow(dead_code)]
 // 4: 16..20
 const PAGE_SIZE_OFFSET: usize = 16;
 
@@ -96,7 +98,7 @@ impl RawJournal {
 
     pub fn parse_recovery(bytes: Vec<u8>) -> Result<Option<RecoverMetadata>, InkError> {
         let mut cursor = MemCursor::new(&bytes);
-        let magic = cursor.read_to(size_of!(u64) as _)?;
+        let magic = cursor.read_to(size_of::<u64>() as _)?;
         let page_count = cursor.read_next_u32()?;
         if page_count == 0 || magic != u64::to_be_bytes(JOURNAL_MAGIC) {
             return Ok(None);

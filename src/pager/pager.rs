@@ -16,7 +16,7 @@ use super::raw_journal::{JournalMeta, RawJournal, RecoverMetadata};
 use super::statistics::Statistics;
 use crate::vfs::Vfs;
 use crate::vfs::file::InkFile;
-use crate::{DbError, InkResult, MemCursor};
+use crate::{InkResult, MemCursor};
 
 pub type PageNo = u32;
 
@@ -179,7 +179,7 @@ impl<V: Vfs> Pager<V> {
         self.in_transaction = true;
         true
     }
-    pub fn validate_page(page_no: PageNo, max_pages: u32) -> Result<(), DbError> {
+    pub fn validate_page(page_no: PageNo, max_pages: u32) -> Result<(), InkError> {
         if page_no == 0 || page_no > max_pages {
             return Err(InkError::InvalidPageNumber(page_no));
         }
@@ -302,7 +302,7 @@ impl<V: Vfs> Pager<V> {
         self.buffer_pool.mark_dirty(frameid);
         Ok(self.guard(frameid, BorrowState::RefMut))
     }
-    fn flush_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), DbError> {
+    fn flush_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), InkError> {
         let offset = self.get_page_offset(page_no);
         self.source
             .write_all_at(offset as _, self.buffer_pool.frame_bytes(frameid))?;

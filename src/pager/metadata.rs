@@ -1,5 +1,3 @@
-use crate::assert_all;
-
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy)]
 pub struct InkMetadata {
@@ -18,7 +16,7 @@ impl InkMetadata {
         first_freelist_truck_page: u32,
         total_freelist_pages: u32,
     ) -> Self {
-        assert_all!(page_size >= usable_size, max_allocated_pages > 0);
+        assert!(page_size >= usable_size && max_allocated_pages > 0);
         Self {
             page_size,
             usable_size,

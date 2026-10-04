@@ -1,5 +1,4 @@
 use crate::pager::pager::PageNo;
-use crate::size_of;
 use std::cell::Cell;
 
 pub const FREE: u8 = 1 << 0;
@@ -7,7 +6,7 @@ pub const CLEAN: u8 = 1 << 1;
 pub const DIRTY: u8 = 1 << 2;
 pub const REFERENCED: u8 = 1 << 3;
 
-pub const FRAME_SIZE: usize = size_of!(Frame);
+pub const FRAME_SIZE: usize = size_of::<Frame>();
 pub type FrameId = usize;
 pub type FrameIndex = usize;
 #[derive(Clone, Debug)]

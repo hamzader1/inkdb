@@ -62,6 +62,7 @@ impl<J: InkFile> Journal<J> {
             *self = Self::Idle(raw);
         }
     }
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         match self {
             Self::Idle(raw) => raw.reset(),
