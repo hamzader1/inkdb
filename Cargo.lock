@@ -201,20 +201,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ink-debug"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "inkdb"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "ink-debug",
  "rusqlite",
  "rustyline",
  "thiserror",
