@@ -27,6 +27,12 @@ fn render_expr_at(arena: &ExprArena, index: usize, table: Option<&Table>, depth:
         Expr::Float(float) => float.to_string(),
         Expr::Null => Expr::Null.to_string(),
         Expr::StringLitteral(text) => format!("'{text}'"),
+        Expr::Blob(bytes) => {
+            format!(
+                "X'{}'",
+                bytes.iter().map(|b| format!("{b:02X}")).collect::<String>()
+            )
+        }
         Expr::Bool(flag) => if *flag { "true" } else { "false" }.to_string(),
         Expr::Identifier(name) => name.clone(),
         Expr::ColumnRef(column) => match table.and_then(|table| table.get_col_name(*column)) {
@@ -101,6 +107,7 @@ impl Eval {
             Expr::Number(n) => Ok(Value::Integer(n)),
             Expr::Float(f) => Ok(Value::Float(f)),
             Expr::StringLitteral(ref str) => Ok(Value::Text(Cow::Owned(str.to_string()))),
+            Expr::Blob(ref bytes) => Ok(Value::Blob(Cow::Owned(bytes.clone()))),
             Expr::Null => Ok(Value::Null),
             Expr::Bool(b) => Ok(Value::Integer(b as u8 as i64)),
             Expr::ColumnRef(col_idx) => match row {

@@ -21,6 +21,7 @@ pub mod prepare;
 pub mod project;
 pub mod rowid;
 pub mod scan_guard;
+pub mod singlerow;
 pub mod sort;
 pub mod tablescan;
 pub mod transaction;
