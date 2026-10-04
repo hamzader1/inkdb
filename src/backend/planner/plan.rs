@@ -42,59 +42,55 @@ use crate::{InkResult, Master};
 
 #[derive(Debug, Default)]
 pub enum Plan<V: Vfs> {
-    TableScan(TableScan<V>),
-    Filter(Filter<V>),
+    BeginTransaction(BeginTransaction),
+    CommitTransaction(CommitTransaction),
     Count(Count<V>),
-    Limit(Limit<V>),
-    Project(Project<V>),
-    Insert(Insert<'static, V>),
-    Update(Update<V>),
-    PrepareRow(PrepareRow<V>),
-    Delete(Delete<V>),
-    CreateTable(CreateTable<V>),
-    DropTbl(DropTblExec<V>),
     CreateIndex(CreateIndex<V>),
+    CreateTable(CreateTable<V>),
+    Delete(Delete<V>),
+    DropTbl(DropTblExec<V>),
+    Explain(Explain<V>),
+    Filter(Filter<V>),
+    IndexExactMatch(IndexExactMatch<V>),
+    IndexRangeScan(IndexRangeScan<V>),
+    Insert(Insert<'static, V>),
+    Limit(Limit<V>),
+    Materialized(MaterializedResult<V>),
     PrepareIndex(PrepareIndex<V>),
     PrepareInsert(PrepareInsert<V>),
-    IndexExactMatch(IndexExactMatch<V>),
-    RowRangeScan(RowRangeScan<V>),
-    IndexRangeScan(IndexRangeScan<V>),
-    TruncateTable(TruncateTable<V>),
-    BeginTransaction(BeginTransaction),
-    Materialized(MaterializedResult<V>),
-    CommitTransaction(CommitTransaction),
+    PrepareRow(PrepareRow<V>),
+    Project(Project<V>),
     RollbackTransaction(RollBackTransaction),
+    RowRangeScan(RowRangeScan<V>),
     Sort(Sort<V>),
-    Explain(Explain<V>),
+    TableScan(TableScan<V>),
     Terminate(Terminate<V>),
+    TruncateTable(TruncateTable<V>),
+    Update(Update<V>),
     #[default]
     Halt,
 }
-
 impl<V: Vfs> Plan<V> {
     pub fn children(&self) -> Vec<&Plan<V>> {
         match self {
-            Plan::Filter(f) => vec![f.child()],
-            Plan::Count(c) => vec![c.child()],
-            Plan::Limit(l) => vec![l.child()],
-            Plan::Project(p) => vec![p.child()],
-            Plan::Delete(d) => vec![d.child()],
-            Plan::PrepareIndex(pi) => vec![pi.child()],
             Plan::CreateIndex(ci) => ci.child().into_iter().collect(),
-            Plan::Terminate(t) => vec![t.child()],
-            Plan::Explain(e) => vec![e.child()],
-            Plan::Sort(s) => vec![s.child()],
-            Plan::PrepareRow(pr) => vec![pr.child()],
-            Plan::Materialized(m) => vec![m.child()],
             Plan::Delete(d) => vec![d.child()],
-            Plan::Update(u) => vec![u.child()],
             Plan::DropTbl(dt) => vec![dt.child()],
+            Plan::Explain(e) => vec![e.child()],
+            Plan::Filter(f) => vec![f.child()],
+            Plan::Limit(l) => vec![l.child()],
+            Plan::Materialized(m) => vec![m.child()],
+            Plan::PrepareIndex(pi) => vec![pi.child()],
+            Plan::PrepareRow(pr) => vec![pr.child()],
+            Plan::Project(p) => vec![p.child()],
+            Plan::Sort(s) => vec![s.child()],
+            Plan::Terminate(t) => vec![t.child()],
             Plan::TruncateTable(tt) => vec![tt.child()],
+            Plan::Update(u) => vec![u.child()],
             _ => Vec::new(),
         }
     }
 }
-
 pub struct PlanTree<'a, V: Vfs> {
     plan: &'a Plan<V>,
     arena: &'a ExprArena,
@@ -134,14 +130,6 @@ impl<V: Vfs> Plan<V> {
         master: &Master,
     ) -> Result<PreparedPlan<V>, InkError> {
         match resolved_query {
-            ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, master),
-            ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, master),
-            ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, master),
-            ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, master),
-            ResolvedQuery::CreateTableQuery(stmt) => Ok(PreparedPlan::new(
-                Plan::CreateTable(CreateTable::new(stmt)),
-                ExprArena::new(),
-            )),
             ResolvedQuery::BeginTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::BeginTransaction(BeginTransaction),
                 ExprArena::new(),
@@ -150,10 +138,29 @@ impl<V: Vfs> Plan<V> {
                 Plan::CommitTransaction(CommitTransaction),
                 ExprArena::new(),
             )),
+            ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, master),
+            ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
+            ResolvedQuery::CreateTableQuery(stmt) => Ok(PreparedPlan::new(
+                Plan::CreateTable(CreateTable::new(stmt)),
+                ExprArena::new(),
+            )),
+            ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, master),
+            ResolvedQuery::DropIndexQuery(stmt) => Self::init_drop_index_plan(stmt),
+            ResolvedQuery::DropTblQuery(stmt) => Self::init_drop_table_plan(stmt),
+            ResolvedQuery::ExplainQuery(stmt) => {
+                let inner = Self::create_plan(*stmt.query, pager, master)?;
+                let (parent, arena, table) = inner.into_parts();
+                let mut prepared =
+                    PreparedPlan::new(Plan::Explain(Explain::new(Box::new(parent))), arena);
+                prepared.set_statement_table(table);
+                Ok(prepared)
+            }
+            ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, master),
             ResolvedQuery::RollbackTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::RollbackTransaction(RollBackTransaction),
                 ExprArena::new(),
             )),
+            ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, master),
             ResolvedQuery::TruncateTable(stmt) => {
                 let indexes = index_roots(master, &stmt.table_name)?;
                 Ok(PreparedPlan::new(
@@ -165,18 +172,7 @@ impl<V: Vfs> Plan<V> {
                     ExprArena::new(),
                 ))
             }
-            ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
-            ResolvedQuery::ExplainQuery(stmt) => {
-                let inner = Self::create_plan(*stmt.query, pager, master)?;
-                let (parent, arena, table) = inner.into_parts();
-                let mut prepared =
-                    PreparedPlan::new(Plan::Explain(Explain::new(Box::new(parent))), arena);
-                prepared.set_statement_table(table);
-                Ok(prepared)
-            }
             ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
-            ResolvedQuery::DropTblQuery(stmt) => Self::init_drop_table_plan(stmt),
-            ResolvedQuery::DropIndexQuery(stmt) => Self::init_drop_index_plan(stmt),
         }
     }
 
@@ -455,31 +451,31 @@ impl<V: Vfs> Plan<V> {
 impl<V: Vfs> Plan<V> {
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         match self {
-            Self::TableScan(t) => t.next(ctx),
-            Self::Filter(f) => f.next(ctx),
-            Self::Count(c) => c.next(ctx),
-            Self::Limit(l) => l.next(ctx),
-            Self::Project(p) => p.next(ctx),
-            Self::Insert(i) => i.next(ctx),
-            Self::Delete(d) => d.next(ctx),
-            Self::CreateTable(c) => c.next(ctx),
             Self::BeginTransaction(bt) => bt.next(ctx),
             Self::CommitTransaction(ct) => ct.next(ctx),
-            Self::RollbackTransaction(rbt) => rbt.next(ctx),
-            Self::TruncateTable(tb) => tb.next(ctx),
-            Self::IndexExactMatch(iem) => iem.next(ctx),
-            Self::RowRangeScan(rrs) => rrs.next(ctx),
-            Self::IndexRangeScan(irc) => irc.next(ctx),
+            Self::Count(c) => c.next(ctx),
             Self::CreateIndex(ci) => ci.next(ctx),
-            Self::Terminate(t) => t.next(ctx),
-            Self::PrepareIndex(pi) => pi.next(ctx),
-            Self::PrepareRow(pr) => pr.next(ctx),
-            Self::Explain(e) => e.next(ctx),
-            Self::Sort(s) => s.next(ctx),
-            Self::Update(u) => u.next(ctx),
-            Self::PrepareInsert(pi) => pi.next(ctx),
-            Self::Materialized(m) => m.next(ctx),
+            Self::CreateTable(c) => c.next(ctx),
+            Self::Delete(d) => d.next(ctx),
             Self::DropTbl(dt) => dt.next(ctx),
+            Self::Explain(e) => e.next(ctx),
+            Self::Filter(f) => f.next(ctx),
+            Self::IndexExactMatch(iem) => iem.next(ctx),
+            Self::IndexRangeScan(irc) => irc.next(ctx),
+            Self::Insert(i) => i.next(ctx),
+            Self::Limit(l) => l.next(ctx),
+            Self::Materialized(m) => m.next(ctx),
+            Self::PrepareIndex(pi) => pi.next(ctx),
+            Self::PrepareInsert(pi) => pi.next(ctx),
+            Self::PrepareRow(pr) => pr.next(ctx),
+            Self::Project(p) => p.next(ctx),
+            Self::RollbackTransaction(rbt) => rbt.next(ctx),
+            Self::RowRangeScan(rrs) => rrs.next(ctx),
+            Self::Sort(s) => s.next(ctx),
+            Self::TableScan(t) => t.next(ctx),
+            Self::Terminate(t) => t.next(ctx),
+            Self::TruncateTable(tb) => tb.next(ctx),
+            Self::Update(u) => u.next(ctx),
             Halt => Ok(None),
         }
     }
