@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::ptr::NonNull;
 
 use crate::db::header::{
-    DATABASE_SIZE_IN_PAGES_SIZE, FIRST_FREELIST_TRUNK_PAGE_SIZE, DatabaseHeader, DbFormat,
+    DATABASE_SIZE_IN_PAGES_SIZE, DatabaseHeader, DbFormat, FIRST_FREELIST_TRUNK_PAGE_SIZE,
     InkDatabaseHeader, InkFileHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
 use crate::errors::{CorruptError, InkError};

@@ -45,7 +45,10 @@ impl<'a> Analyze<'a> {
         }))
     }
 
-    pub(crate) fn analyze_create_index_stmt(&self, stmt: CreateIndexStmt) -> InkResult<ResolvedQuery> {
+    pub(crate) fn analyze_create_index_stmt(
+        &self,
+        stmt: CreateIndexStmt,
+    ) -> InkResult<ResolvedQuery> {
         let relation = self.get_non_master_table(&stmt.table)?;
         if self.master.indexes().contains_key(&stmt.name) {
             return Err(InkError::runtime(format!(

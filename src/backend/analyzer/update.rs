@@ -7,7 +7,10 @@ use crate::sql::ast::UpdateStmt;
 use super::ResolvedUpdateQuery;
 
 impl<'a> Analyze<'a> {
-    pub(crate) fn analyze_update_stmt(&self, update_stmt: UpdateStmt) -> Result<ResolvedQuery, InkError> {
+    pub(crate) fn analyze_update_stmt(
+        &self,
+        update_stmt: UpdateStmt,
+    ) -> Result<ResolvedQuery, InkError> {
         let UpdateStmt {
             table_name,
             columns,

@@ -29,7 +29,6 @@ impl InkShell {
             if cmd.is_empty() {
                 continue;
             }
-            let start = Instant::now();
             match Self::exec(database, cmd) {
                 Ok(()) => {}
                 Err(e) => match crate::errors::render_syntax_error(cmd, &e) {

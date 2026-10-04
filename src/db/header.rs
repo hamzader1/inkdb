@@ -618,7 +618,8 @@ impl InkDatabaseHeader {
         raw[LEAF_PAYLOAD_FRACTION_OFFSET] = self.leaf_payload_fraction;
         raw[FILE_CHANGE_COUNTER_OFFSET..FILE_CHANGE_COUNTER_OFFSET + FILE_CHANGE_COUNTER_SIZE]
             .copy_from_slice(&self.file_change_counter.to_be_bytes());
-        raw[DATABASE_SIZE_IN_PAGES_OFFSET..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
+        raw[DATABASE_SIZE_IN_PAGES_OFFSET
+            ..DATABASE_SIZE_IN_PAGES_OFFSET + DATABASE_SIZE_IN_PAGES_SIZE]
             .copy_from_slice(&self.database_size_in_pages.to_be_bytes());
         raw[FIRST_FREELIST_TRUNK_PAGE_OFFSET
             ..FIRST_FREELIST_TRUNK_PAGE_OFFSET + FIRST_FREELIST_TRUNK_PAGE_SIZE]
@@ -636,7 +637,8 @@ impl InkDatabaseHeader {
         raw[LARGEST_ROOT_BTREE_PAGE_OFFSET
             ..LARGEST_ROOT_BTREE_PAGE_OFFSET + LARGEST_ROOT_BTREE_PAGE_SIZE]
             .copy_from_slice(&self.largest_root_btree_page.to_be_bytes());
-        raw[DATABASE_TEXT_ENCODING_OFFSET..DATABASE_TEXT_ENCODING_OFFSET + DATABASE_TEXT_ENCODING_SIZE]
+        raw[DATABASE_TEXT_ENCODING_OFFSET
+            ..DATABASE_TEXT_ENCODING_OFFSET + DATABASE_TEXT_ENCODING_SIZE]
             .copy_from_slice(&self.database_text_encoding.to_be_bytes());
         raw[USER_VERSION_OFFSET..USER_VERSION_OFFSET + USER_VERSION_SIZE]
             .copy_from_slice(&self.user_version.to_be_bytes());

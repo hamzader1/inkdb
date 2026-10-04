@@ -68,7 +68,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let divider_left_child = {
             let guard = self.pager.get(page_no)?;
             let at = {
-                let page = BTreePage::<&[u8]>::new(page_no, page_size, usable, header_len, guard.bytes())?;
+                let page =
+                    BTreePage::<&[u8]>::new(page_no, page_size, usable, header_len, guard.bytes())?;
                 page.cell_ptr(cell_idx)? as usize
             };
             let bytes = guard.bytes();
@@ -103,7 +104,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
         let (pred_page, pred_idx) = self.cursor.last_visited_entry_unchecked();
         let pred_bytes = {
             let guard = self.pager.get(pred_page)?;
-            let page = BTreePage::<&[u8]>::new(pred_page, page_size, usable, header_len, guard.bytes())?;
+            let page =
+                BTreePage::<&[u8]>::new(pred_page, page_size, usable, header_len, guard.bytes())?;
             page.cell_bytes_as_ref(pred_idx)?.to_vec()
         };
         let new_divider = crate::storage::cell::Encode::encode_index_interior_cell(

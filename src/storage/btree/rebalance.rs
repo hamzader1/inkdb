@@ -40,8 +40,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
         };
         let sep_cell = {
             let guard = self.pager.get(parent_no)?;
-            let parent =
-                PageRef::new(parent_no, page_size, usable, header_len, guard.bytes())?;
+            let parent = PageRef::new(parent_no, page_size, usable, header_len, guard.bytes())?;
             parent.cell_bytes_as_ref(divider_idx)?.to_vec()
         };
 
@@ -92,14 +91,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page =
-                TypedPage::<&mut [u8], K>::parse_mut(
-                    right_page,
-                    page_size,
-                    usable,
-                    header_len,
-                    bytes,
-                )?;
+            let mut page = TypedPage::<&mut [u8], K>::parse_mut(
+                right_page, page_size, usable, header_len, bytes,
+            )?;
             page.reset_for_rebuild()?;
             for (i, cell) in pool.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
@@ -177,14 +171,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page =
-                TypedPage::<&mut [u8], K>::parse_mut(
-                    right_page,
-                    page_size,
-                    usable,
-                    header_len,
-                    bytes,
-                )?;
+            let mut page = TypedPage::<&mut [u8], K>::parse_mut(
+                right_page, page_size, usable, header_len, bytes,
+            )?;
             page.reset_for_rebuild()?;
             for (i, cell) in right_share.iter().enumerate() {
                 if page.insert_cell(cell, i as CellIndex)? == InsertionState::None {
@@ -200,14 +189,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(left_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page =
-                TypedPage::<&mut [u8], K>::parse_mut(
-                    left_page,
-                    page_size,
-                    usable,
-                    header_len,
-                    bytes,
-                )?;
+            let mut page = TypedPage::<&mut [u8], K>::parse_mut(
+                left_page, page_size, usable, header_len, bytes,
+            )?;
             page.reset_for_rebuild()?;
             let keep = if plan.drop_left_last {
                 &left_share[..left_share.len() - 1]
@@ -263,8 +247,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
 
         let (left_page, right_page, divider_idx) = {
             let guard = self.pager.get(parent_no)?;
-            let parent =
-                PageRef::new(parent_no, page_size, usable, header_len, guard.bytes())?;
+            let parent = PageRef::new(parent_no, page_size, usable, header_len, guard.bytes())?;
             let n = parent.no_of_cells()?;
             if n == 0 {
                 return self.collapse_root(parent_no);

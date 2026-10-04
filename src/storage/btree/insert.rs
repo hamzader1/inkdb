@@ -261,7 +261,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page = TypedPage::<&mut [u8], K>::fresh(right_page, page_size, usable, header_len, bytes)?;
+            let mut page =
+                TypedPage::<&mut [u8], K>::fresh(right_page, page_size, usable, header_len, bytes)?;
             let mut start: usize = cells_len[..right_start].iter().sum();
             for (i, len) in right_cells.iter().enumerate() {
                 let bytes = &cells[start..len + start];
@@ -286,7 +287,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(page_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page = TypedPage::<&mut [u8], K>::parse_mut(page_no, page_size, usable, header_len, bytes)?;
+            let mut page = TypedPage::<&mut [u8], K>::parse_mut(
+                page_no, page_size, usable, header_len, bytes,
+            )?;
             let mut start = 0;
             page.reset_for_rebuild()?;
             for (i, len) in left_cells.iter().enumerate() {
@@ -345,7 +348,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(new_left)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page = TypedPage::<&mut [u8], K>::fresh(new_left, page_size, usable, header_len, bytes)?;
+            let mut page =
+                TypedPage::<&mut [u8], K>::fresh(new_left, page_size, usable, header_len, bytes)?;
             let old_left_guard = self.pager.get(old_root)?;
             let old_left_page = parse_ref::<K, V>(old_root, &old_left_guard, self.pager)?;
             for i in 0..old_left_page.no_of_cells()? {
@@ -365,7 +369,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
             let divider_cell = split.divider.cell_for(new_left);
             let mut guard = self.pager.get_mut(old_root)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page = TypedPage::<&mut [u8], R>::fresh(old_root, page_size, usable, header_len, bytes)?;
+            let mut page =
+                TypedPage::<&mut [u8], R>::fresh(old_root, page_size, usable, header_len, bytes)?;
             if page.insert_cell(&divider_cell, 0)? == InsertionState::None {
                 return Err(InkError::Internal(
                     "grow_root: divider does not fit in a fresh root",
@@ -420,8 +425,9 @@ impl<'a, V: Vfs> BTree<'a, V> {
         {
             let mut guard = self.pager.get_mut(parent_no)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-            let mut page =
-                TypedPage::<&mut [u8], P>::parse_mut(parent_no, page_size, usable, header_len, bytes)?;
+            let mut page = TypedPage::<&mut [u8], P>::parse_mut(
+                parent_no, page_size, usable, header_len, bytes,
+            )?;
             match &plan {
                 Plan::MoveHeader => {
                     if page.insert_cell(&left_cell, idx)? == InsertionState::Inserted {
@@ -500,7 +506,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
 
         let mut guard = self.pager.get_mut(target)?;
         let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
-        let mut page = TypedPage::<&mut [u8], K>::parse_mut(target, page_size, usable, header_len, bytes)?;
+        let mut page =
+            TypedPage::<&mut [u8], K>::parse_mut(target, page_size, usable, header_len, bytes)?;
         let idx = K::slot_for(&page, self.pager, key)?;
         if page.insert_cell(&cell_bytes, idx)? == InsertionState::None {
             return Err(InkError::InternalFmt(format!(
