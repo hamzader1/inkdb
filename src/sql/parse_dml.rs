@@ -1,12 +1,8 @@
-use std::borrow::Cow;
-use std::cmp::Ordering::Equal;
-
 use super::ast::{Ast, OrderBy, SelectStmt, UpdateStmt};
 use super::parser::Parser;
 use super::tokens::TokenKind::*;
 use crate::InkResult;
 use crate::errors::InkError;
-use crate::record::Value;
 use crate::sql::ast::{DeleteStmt, Expr, InsertStmt};
 
 impl Parser {
@@ -34,7 +30,7 @@ impl Parser {
         }
         let mut orderby: Option<OrderBy> = None;
         if self.eat(Order) {
-            self.expect(By);
+            self.expect(By)?;
             let index = self.parse_expression()?;
             let desc = if self.eat(Desc) {
                 true

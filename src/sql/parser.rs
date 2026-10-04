@@ -8,7 +8,6 @@ use super::{
 use crate::{
     InkResult,
     errors::{InkError, SyntaxErrorKind},
-    util::assert_with_internal_err,
 };
 
 use super::tokens::{
