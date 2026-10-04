@@ -1,4 +1,4 @@
-use crate::InkError;
+use crate::{InkError, InkResult};
 use std::path::PathBuf;
 
 #[allow(clippy::len_without_is_empty)]
@@ -12,6 +12,8 @@ pub trait InkFile: std::fmt::Debug {
     fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), InkError>;
 
     fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), InkError>;
+
+    fn write_all(&mut self, buff: &[u8]) -> InkResult<()>;
 
     fn set_len(&self, len: usize) -> Result<(), InkError>;
 

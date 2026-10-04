@@ -6,6 +6,8 @@ use super::{InkOptions, Vfs};
 use std::fs::OpenOptions;
 
 #[cfg(unix)]
+use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
 
 #[cfg(windows)]
@@ -65,6 +67,21 @@ impl Vfs for DiskVfs {
         file.read_exact_at(0, &mut bytes)?;
         Ok(Some(bytes))
     }
+    fn open_temp<T: AsRef<std::path::Path>>(&mut self, name: T) -> crate::InkResult<Self::File> {
+        let p = std::env::temp_dir()
+            .join(name)
+            .to_string_lossy()
+            .into_owned();
+        self.open(p, InkOptions::all())
+    }
+    fn remove_temp<T: AsRef<std::path::Path>>(&mut self, name: T) -> crate::InkResult<()> {
+        let p = std::env::temp_dir().join(name);
+        match std::fs::remove_file(p) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -110,6 +127,10 @@ impl InkFile for DiskFile {
         }
 
         self.file.write_all_at(buff, offset)?;
+        Ok(())
+    }
+    fn write_all(&mut self, buff: &[u8]) -> crate::InkResult<()> {
+        self.file.write_all(buff)?;
         Ok(())
     }
 

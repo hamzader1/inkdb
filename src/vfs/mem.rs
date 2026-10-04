@@ -66,6 +66,17 @@ impl Vfs for MemVfs {
         let key = Rc::as_ptr(&db.bytes) as usize;
         Ok(self.journals.get(&key).map(|b| b.borrow().clone()))
     }
+    fn open_temp<T: AsRef<Path>>(&mut self, name: T) -> crate::InkResult<Self::File> {
+        let entry = self
+            .db_buffers
+            .entry(name.as_ref().to_path_buf())
+            .or_insert_with(|| Rc::new(RefCell::new(Vec::new())));
+        Ok(MemFile::new(Rc::clone(entry)))
+    }
+    fn remove_temp<T: AsRef<Path>>(&mut self, name: T) -> crate::InkResult<()> {
+        self.db_buffers.remove(&name.as_ref().to_path_buf());
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -134,6 +145,11 @@ impl InkFile for MemFile {
 
         bytes[start..end].copy_from_slice(buff);
 
+        Ok(())
+    }
+    fn write_all(&mut self, buff: &[u8]) -> crate::InkResult<()> {
+        let mut bytes = self.bytes.borrow_mut();
+        bytes.extend_from_slice(buff);
         Ok(())
     }
 

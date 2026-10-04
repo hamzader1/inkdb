@@ -1,4 +1,3 @@
-use std::fs::{File, OpenOptions};
 use std::path::Path;
 
 use self::file::InkFile;
@@ -25,29 +24,8 @@ pub trait Vfs: std::fmt::Debug {
     fn open_journal(&mut self, db: &Self::File) -> Result<Self::File, InkError>;
     fn delete_journal(&mut self, db: &Self::File) -> Result<(), InkError>;
     fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, InkError>;
-    fn create_temp_file<T: AsRef<Path>>(name: T) -> String {
-        std::env::temp_dir()
-            .join(name)
-            .to_string_lossy()
-            .into_owned()
-    }
-    fn open_temp_file<T: AsRef<Path>>(name: T) -> InkResult<File> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(name)?;
-        Ok(file)
-    }
-    fn remove_temp_file<T: AsRef<Path>>(name: T) -> InkResult<()> {
-        /*
-         * Results are not usually ignored here.
-         * Ignoring or returning the result is a caller decision
-         */
-        std::fs::remove_file(name)?;
-        Ok(())
-    }
+    fn open_temp<T: AsRef<Path>>(&mut self, name: T) -> InkResult<Self::File>;
+    fn remove_temp<T: AsRef<Path>>(&mut self, name: T) -> InkResult<()>;
 }
 impl InkOptions {
     pub fn new() -> Self {
