@@ -216,50 +216,50 @@ fn index_build_across_divider_width_growth() {
 // entries that live as interior dividers, so the predecessor swap and
 // the parent-split-while-repainting path in delete run often. 500
 // rows per group in this fixture.
-// #[test]
-// fn indexed_delete_many_groups_small_pages() {
-//     let path = db_path("manydel");
+#[test]
+fn indexed_delete_many_groups_small_pages() {
+    let path = db_path("manydel");
 
-//     build_users(&path, 512, 20_000);
+    build_users(&path, 512, 20_000);
 
-//     let mut db = open_engine(&path);
+    let mut db = open_engine(&path);
 
-//     run_ok(&mut db, "create index age_index on users(age)");
+    run_ok(&mut db, "create index age_index on users(age)");
 
-//     let deleted: Vec<u32> = (20..60).step_by(3).collect();
+    let deleted: Vec<u32> = (20..60).step_by(3).collect();
 
-//     for age in &deleted {
-//         run_ok(&mut db, &format!("delete from users where age = {age}"));
-//     }
+    for age in &deleted {
+        run_ok(&mut db, &format!("delete from users where age = {age}"));
+    }
 
-//     for age in &deleted {
-//         assert_eq!(
-//             run_count(&mut db, &format!("select * from users where age = {age}")),
-//             0,
-//             "survivors for age {age}"
-//         );
-//     }
+    for age in &deleted {
+        assert_eq!(
+            run_count(&mut db, &format!("select * from users where age = {age}")),
+            0,
+            "survivors for age {age}"
+        );
+    }
 
-//     for age in [21, 22, 40, 58] {
-//         assert_eq!(
-//             run_count(&mut db, &format!("select * from users where age = {age}")),
-//             500,
-//             "age {age}"
-//         );
-//     }
+    for age in [21, 22, 40, 58] {
+        assert_eq!(
+            run_count(&mut db, &format!("select * from users where age = {age}")),
+            500,
+            "age {age}"
+        );
+    }
 
-//     commit_and_close(db);
+    commit_and_close(db);
 
-//     for age in &deleted {
-//         assert_eq!(db_count(&path, &format!("age = {age}")), 0);
-//     }
+    for age in &deleted {
+        assert_eq!(db_count(&path, &format!("age = {age}")), 0);
+    }
 
-//     assert_eq!(db_count(&path, "age = 21"), 500);
+    assert_eq!(db_count(&path, "age = 21"), 500);
 
-//     assert_integrity_ok(&path);
+    assert_integrity_ok(&path);
 
-//     cleanup(&path);
-// }
+    cleanup(&path);
+}
 
 #[test]
 fn mixed_case_table_names_keep_indexes_in_step() {

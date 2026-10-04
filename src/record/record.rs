@@ -257,7 +257,7 @@ mod tests {
     fn long_values_keep_their_serial_type() {
         for len in [121usize, 122, 125, 200, 255, 256, 1000] {
             let value = text(&"x".repeat(len));
-            let bytes = Tuple::serialize(&[value.clone()]);
+            let bytes = Tuple::serialize(std::slice::from_ref(&value));
             let record = Record::new(&bytes).expect("parse");
             assert_eq!(
                 record.serial_type(0).expect("serial"),

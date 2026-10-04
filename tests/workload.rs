@@ -54,9 +54,7 @@ fn random_inserts_then_indexed_deletes_match_model() {
     let mut total = 0usize;
     for age in 20..30 {
         let mine = run_count(&mut db, &format!("select * from users where age = {age}"));
-        dbg!(mine);
         let want = model.get(&age).copied().unwrap_or(0);
-        dbg!(want);
         assert_eq!(mine as i64, want, "post-delete drift on age {age}");
         total += mine;
     }

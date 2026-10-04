@@ -88,7 +88,6 @@ pub fn run_count(db: &mut Database<DiskVfs>, q: &str) -> usize {
         .unwrap_or_else(|e| panic!("plan {q:?}: {e}"));
     let mut n = 0;
     loop {
-        println!("query: {}", query);
         match plan.next(db.pager(), &mut master) {
             Ok(Some(_)) => n += 1,
             Ok(None) => break,

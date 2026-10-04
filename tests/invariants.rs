@@ -442,12 +442,7 @@ pub fn audit_database(db: &mut Database<DiskVfs>, tag: &str) -> Vec<String> {
 fn checkpoint(db: &mut Database<DiskVfs>, tag: &str, assert_clean: bool) {
     let problems = audit_database(db, tag);
     if problems.is_empty() {
-        eprintln!("AUDIT {tag}: ok");
         return;
-    }
-    eprintln!("AUDIT {tag}: {} problem(s)", problems.len());
-    for problem in problems.iter().take(15) {
-        eprintln!("    {problem}");
     }
     if assert_clean {
         panic!(
