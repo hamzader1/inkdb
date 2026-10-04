@@ -1,9 +1,9 @@
+use crate::Master;
 use crate::backend::analyzer::Analyze;
-use crate::backend::executor::{Row, RowWrapper};
+use crate::backend::executor::Row;
 use crate::backend::planner::plan::Plan;
 use crate::backend::planner::prepared_plan::PreparedPlan;
 use crate::errors::InkError;
-use crate::{InkResult, Master};
 
 pub mod header;
 use crate::sql::lexer::Lexer;

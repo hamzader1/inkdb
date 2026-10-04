@@ -4,14 +4,15 @@ use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
 
-use crate::assert_all;
-use crate::bytes::*;
+use crate::InkResult;
 use crate::errors::InkError;
-use crate::seek_c;
-use crate::seek_s;
 use crate::util::assert_one;
 use crate::vfs::cursor::FileCursor;
 use crate::vfs::file::InkFile;
+
+use self::DbFormat::Ink;
+
+use super::MemCursor;
 
 pub const HEADER_SIZE: u8 = 100;
 
@@ -348,8 +349,9 @@ impl DatabaseHeader {
         }
     }
 
-    pub fn detect<R: InkFile>(source: &'_ R) -> Result<DbFormat, InkError> {
+    pub fn detect<R: InkFile>(source: &'_ R) -> InkResult<DbFormat> {
         let mut magic = [0u8; HEADER_STRING_SIZE];
+        // InkError::InvalidDatabaseHeader
         source
             .read_exact_at(0, &mut magic)
             .map_err(|_| InkError::InvalidDatabaseHeader)?;
@@ -437,6 +439,7 @@ impl InkDatabaseHeader {
     pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
         // default cursor to 0, no manually offset needed
         let mut cursor = FileCursor::<'_, R>::new(source);
+        // let mu cursor = MemCursor::new(source.);
 
         let header_string = cursor.read_next_array::<HEADER_STRING_SIZE>()?;
         let database_page_size = cursor.read_next_u16()?;
