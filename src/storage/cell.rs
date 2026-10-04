@@ -8,22 +8,6 @@ use crate::varint::encode_varint;
 use std::ops::Range;
 
 #[derive(Debug)]
-pub enum BTreeCell {
-    TableInterior(TableInteriorCell),
-    TableLeaf(TableLeafCell),
-    IndexInterior(IndexInteriorCell),
-    IndexLeaf(IndexLeafCell),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum BTreeCellType {
-    TableInterior,
-    TableLeaf,
-    IndexInterior,
-    IndexLeaf,
-}
-
-#[derive(Debug)]
 pub struct TableInteriorCell {
     pub left_child: PageNo,
     pub rowid_boundary: u64,
@@ -48,47 +32,6 @@ pub struct IndexLeafCell {
     pub payload_len: u64,
     pub payload_range: Range<usize>,
     pub first_overflow_page: Option<PageNo>,
-}
-impl BTreeCell {
-    pub fn with_index_leaf_cell<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&IndexLeafCell) -> R,
-    {
-        match self {
-            Self::IndexLeaf(x) => f(x),
-            _ => unreachable!("expected BTreeCell::IndexLeaf, but found {}", self),
-        }
-    }
-
-    pub fn with_table_leaf_cell<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&TableLeafCell) -> R,
-    {
-        match self {
-            Self::TableLeaf(x) => f(x),
-            _ => unreachable!("expected BTreeCell::TableLeaf, but found {}", self),
-        }
-    }
-
-    pub fn with_table_interior_cell<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&TableInteriorCell) -> R,
-    {
-        match self {
-            Self::TableInterior(x) => f(x),
-            _ => unreachable!("expected BTreeCell::TableInterior, but found {}", self),
-        }
-    }
-
-    pub fn with_index_interior_cell<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&IndexInteriorCell) -> R,
-    {
-        match self {
-            Self::IndexInterior(x) => f(x),
-            _ => unreachable!("expected BTreeCell::IndexInterior, but found {}", self),
-        }
-    }
 }
 impl TableInteriorCell {
     pub fn parse(bytes: &[u8], _: usize) -> Result<Self, InkError> {
@@ -207,49 +150,6 @@ impl IndexLeafCell {
     }
 }
 
-impl BTreeCell {
-    pub fn row_id(&self) -> u64 {
-        match self {
-            BTreeCell::TableInterior(x) => x.rowid_boundary,
-            BTreeCell::TableLeaf(x) => x.row_id,
-            _ => unreachable!(),
-        }
-    }
-    pub fn payload_range(&self) -> Range<usize> {
-        match self {
-            BTreeCell::IndexInterior(x) => x.payload_range().clone(),
-            BTreeCell::IndexLeaf(x) => x.payload_range().clone(),
-            BTreeCell::TableLeaf(x) => x.payload_range().clone(),
-            _ => unreachable!(), // we never reach here, we check before calling
-        }
-    }
-
-    pub fn overflow_page(&self) -> Option<PageNo> {
-        match self {
-            BTreeCell::IndexInterior(x) => x.first_overflow_page,
-            BTreeCell::IndexLeaf(x) => x.first_overflow_page,
-            BTreeCell::TableLeaf(x) => x.first_overflow_page,
-            _ => unreachable!(),
-        }
-    }
-    pub fn cell_payload_len(&self) -> u64 {
-        match self {
-            BTreeCell::IndexInterior(x) => x.payload_len,
-            BTreeCell::IndexLeaf(x) => x.payload_len,
-            BTreeCell::TableLeaf(x) => x.payload_len,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn left_child(&self) -> PageNo {
-        match self {
-            BTreeCell::IndexInterior(x) => x.left_child,
-            BTreeCell::TableInterior(x) => x.left_child,
-            _ => unreachable!(),
-        }
-    }
-}
-
 #[repr(transparent)]
 pub struct Encode;
 impl Encode {
@@ -287,29 +187,5 @@ impl Encode {
         v.extend_from_slice(&u32::to_be_bytes(page_no));
         v.extend_from_slice(bytes);
         v
-    }
-}
-
-impl From<&BTreeCell> for Vec<u8> {
-    fn from(value: &BTreeCell) -> Self {
-        match value {
-            BTreeCell::TableInterior(c) => {
-                Encode::encode_table_interior_cell(c.left_child, c.rowid_boundary)
-            }
-            _ => todo!("Auto encode is not implemented for other cells yet"),
-        }
-    }
-}
-
-impl std::fmt::Display for BTreeCell {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            BTreeCell::TableInterior(_) => "TableInterior",
-            BTreeCell::TableLeaf(_) => "TableLeaf",
-            BTreeCell::IndexInterior(_) => "IndexInterior",
-            BTreeCell::IndexLeaf(_) => "IndexLeaf",
-        };
-
-        write!(f, "{}", name)
     }
 }

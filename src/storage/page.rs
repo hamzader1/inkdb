@@ -1,6 +1,6 @@
 use super::btree::CellIndex;
 use super::btree::kind::HasPayload;
-use super::cell::{BTreeCell, IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
+use super::cell::{IndexInteriorCell, IndexLeafCell, TableInteriorCell, TableLeafCell};
 use super::cursor::MemCursor;
 use crate::InkResult;
 use crate::errors::{CorruptError, InkError};
@@ -15,7 +15,6 @@ use crate::util::{
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
 
-// use super::cell::BTreeCell;
 pub const LEAF_BTREE_PAGE_HEADER_SIZE: u8 = 8;
 pub const INTERIOR_BTREE_PAGE_HEADER_SIZE: u8 = 12;
 
@@ -197,24 +196,6 @@ impl<'a> OverflowPageRef<'a> {
     }
 }
 
-pub struct PageIterator<'r, 'p, V: crate::vfs::Vfs> {
-    page: &'r PageRef<'p>,
-    pager: &'r mut Pager<V>,
-    index: CellIndex,
-}
-
-impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
-    type Item = InkResult<Vec<Value<'r>>>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.page.no_of_cells().unwrap_or(0) {
-            return None;
-        }
-        let record = self.page.record_of_cell(self.index, self.pager);
-        self.index += 1;
-        Some(record)
-    }
-}
-
 /*
    ** X is U-35 for table btree leaf pages or ((U-12)*64/255)-23 for index pages.
    ** M is always ((U-12)*32/255)-23.
@@ -230,6 +211,14 @@ impl<'r, 'p, V: crate::vfs::Vfs> Iterator for PageIterator<'r, 'p, V> {
        the btree page and the remaining P-M bytes are stored on
        overflow pages.
 */
+fn overflow_pointer_len(first_overflow_page: Option<PageNo>) -> usize {
+    if first_overflow_page.is_some() {
+        OVERFLOW_POINTER_SIZE
+    } else {
+        0
+    }
+}
+
 pub fn compute_table_local_payload_size(usable_size: usize, payload_len: usize) -> usize {
     let u = usable_size;
     let p = payload_len;
@@ -396,15 +385,6 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
             .map(|c| u16::from_be_bytes([c[0], c[1]])))
     }
 
-    pub fn cell(&self, i: u16) -> InkResult<BTreeCell> {
-        let cell_offset = self.cell_ptr(i)?;
-        self.parse_cell_at(cell_offset)
-    }
-    pub fn is_index(&self) -> InkResult<bool> {
-        Ok(self.page_type()? == BTreePageType::InteriorIndex
-            || self.page_type()? == BTreePageType::LeafIndex)
-    }
-
     pub fn freespace(&self) -> InkResult<usize> {
         let freeblocks_size = self.total_freeblocks_size()?;
         let total_free_bytes =
@@ -433,47 +413,6 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     pub fn is_underflow(&self) -> InkResult<bool> {
         Ok(self.freespace()? > self.usable_size * 2 / 3)
     }
-    pub fn record_of_cell<V: crate::vfs::Vfs>(
-        &self,
-        cell_idx: u16,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'_>>, InkError> {
-        let mut records = Vec::new();
-        let cell = self.cell(cell_idx)?;
-        self.get_cell_record(pager, &cell, &mut records)?;
-        Ok(records)
-    }
-
-    // pub fn record_of_cell_v2<V:Vfs, C>(&self,
-    pub fn record_of<V: crate::vfs::Vfs>(
-        &self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-    ) -> Result<Vec<Value<'_>>, InkError> {
-        let mut records = Vec::new();
-        self.get_cell_record(pager, cell, &mut records)?;
-        Ok(records)
-    }
-
-    pub fn record_of_cell_into<'a, V: crate::vfs::Vfs>(
-        &'a self,
-        cell_idx: u16,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'a>>,
-    ) -> Result<(), InkError> {
-        let cell = self.cell(cell_idx)?;
-        self.get_cell_record(pager, &cell, records)
-    }
-
-    pub fn record_of_into<'a, V: crate::vfs::Vfs>(
-        &'a self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-        records: &mut Vec<Value<'a>>,
-    ) -> Result<(), InkError> {
-        self.get_cell_record(pager, cell, records)
-    }
-
     pub fn get_cell_record_v2<V: Vfs, C>(
         &self,
         cell: &C,
@@ -500,25 +439,6 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         Ok(collector)
     }
 
-    fn get_cell_record<'a, V: crate::vfs::Vfs>(
-        &'a self,
-        pager: &mut Pager<V>,
-        cell: &BTreeCell,
-        collector: &mut Vec<Value<'a>>,
-    ) -> Result<(), InkError> {
-        if let Some(overflow_page) = cell.overflow_page() {
-            let vec = OverflowPageRef::get_total_payload(
-                pager,
-                &self.bytes()[cell.payload_range()],
-                cell.cell_payload_len() as usize,
-                self.usable_size,
-                overflow_page,
-            )?;
-            self.decode_loop_owned(vec, collector)
-        } else {
-            self.decode_loop_borrowed(&self.bytes()[cell.payload_range()], collector)
-        }
-    }
     pub fn get_cell_record_bytes<V: Vfs, C>(
         &self,
         cell: &C,
@@ -577,103 +497,38 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         }
         Ok(())
     }
-    pub fn cell_key<V: Vfs>(
-        &self,
-        cell: &BTreeCell,
-        pager: &mut Pager<V>,
-    ) -> InkResult<Value<'static>> {
-        match cell {
-            BTreeCell::TableLeaf(table_leaf) => Ok(table_leaf.row_id.into()),
-            BTreeCell::TableInterior(table_interior) => Ok(table_interior.rowid_boundary.into()),
-            BTreeCell::IndexInterior(_) => {
-                let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record.into()).to_owned_static())
-            }
-            BTreeCell::IndexLeaf(_) => {
-                let record = self.record_of(cell, pager)?;
-                Ok(Value::Tuple(record.into()).to_owned_static())
-            }
-        }
+    pub fn is_index(&self) -> InkResult<bool> {
+        let page_type = self.page_type()?;
+        Ok(matches!(
+            page_type,
+            BTreePageType::LeafIndex | BTreePageType::InteriorIndex
+        ))
     }
-    pub fn parse_cell_at(&self, cell_ptr: u16) -> Result<BTreeCell, InkError> {
+
+    pub fn cell_span(&self, cell_ptr: u16) -> InkResult<std::ops::Range<usize>> {
         let start = cell_ptr as usize;
         assert_with_corrupt_err(
             start >= self.header_size()? as usize && start < self.usable_size,
             || format!("cell pointer {start} outside content area"),
         )?;
-        // let limit = self.usable_size - start; // bytes available to this cell
         let bytes = &self.bytes()[start..self.usable_size];
-        let mut cell = match self.page_type()? {
-            BTreePageType::InteriorTable => {
-                TableInteriorCell::parse(bytes, self.usable_size).map(BTreeCell::TableInterior)
-            }
+        let end = match self.page_type()? {
             BTreePageType::LeafTable => {
-                TableLeafCell::parse(bytes, self.usable_size).map(BTreeCell::TableLeaf)
-            }
-            BTreePageType::InteriorIndex => {
-                IndexInteriorCell::parse(bytes, self.usable_size).map(BTreeCell::IndexInterior)
+                let cell = TableLeafCell::parse(bytes, self.usable_size)?;
+                start + cell.payload_range.end + overflow_pointer_len(cell.first_overflow_page)
             }
             BTreePageType::LeafIndex => {
-                IndexLeafCell::parse(bytes, self.usable_size).map(BTreeCell::IndexLeaf)
+                let cell = IndexLeafCell::parse(bytes, self.usable_size)?;
+                start + cell.payload_range.end + overflow_pointer_len(cell.first_overflow_page)
             }
-        }?;
-        let base = cell_ptr as usize;
-        match &mut cell {
-            BTreeCell::TableLeaf(c) => {
-                c.payload_range.start += base;
-                c.payload_range.end += base;
+            BTreePageType::InteriorTable => {
+                let cell = TableInteriorCell::parse(bytes, self.usable_size)?;
+                start + LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], cell.rowid_boundary)
             }
-            BTreeCell::IndexLeaf(c) => {
-                c.payload_range.start += base;
-                c.payload_range.end += base;
+            BTreePageType::InteriorIndex => {
+                let cell = IndexInteriorCell::parse(bytes, self.usable_size)?;
+                start + cell.payload_range.end + overflow_pointer_len(cell.first_overflow_page)
             }
-            BTreeCell::IndexInterior(c) => {
-                c.payload_range.start += base;
-                c.payload_range.end += base;
-            }
-            BTreeCell::TableInterior(_) => {}
-        }
-        Ok(cell)
-    }
-    pub fn cell_span(&self, cell_ptr: u16) -> InkResult<std::ops::Range<usize>> {
-        let start = cell_ptr as usize;
-        let cell = self.parse_cell_at(cell_ptr)?;
-        let end = match self.page_type()? {
-            BTreePageType::LeafTable => cell.with_table_leaf_cell(|c| {
-                c.payload_range.end
-                    + if cell.overflow_page().is_some() {
-                        OVERFLOW_POINTER_SIZE
-                    } else {
-                        0
-                    }
-            }),
-            BTreePageType::LeafIndex => cell.with_index_leaf_cell(|c| {
-                c.payload_range.end
-                    + if c.first_overflow_page.is_some() {
-                        OVERFLOW_POINTER_SIZE
-                    } else {
-                        0
-                    }
-            }),
-
-            BTreePageType::InteriorTable => cell.with_table_interior_cell(|c| {
-                start + LEFT_CHILD_POINTER_SIZE + encode_varint(&mut [0u8; 9], c.rowid_boundary)
-            }),
-
-            BTreePageType::InteriorIndex => cell.with_index_interior_cell(|c| {
-                /* Start to cell.payload.start covers
-                 *
-                 * LEFT_CHILD_POINTER_SIZE
-                 * encode_varint(&mut [0u8; 9], c.payload_len)
-                 *
-                 */
-                c.payload_range.end
-                    + if c.first_overflow_page.is_some() {
-                        OVERFLOW_POINTER_SIZE
-                    } else {
-                        0
-                    }
-            }),
         };
         Ok(start..end)
     }
@@ -886,9 +741,6 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             && let Some(offset) = self.get_freeblock(content.as_ref().len() as _)?
         {
             self.insert_cell_at(content, offset as usize, cell_idx, false)?;
-            // if matches!(result, Ok(InsertionState::Inserted)) {
-            //     // self.debug_check_child_pointers();
-            // }
             return Ok(InsertionState::Inserted);
         }
         let page = self.downgrade()?;
@@ -907,9 +759,6 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         }
         let offset = self.downgrade()?.cell_content_area()? as usize - content.len();
         self.insert_cell_at(content, offset, cell_idx, true)?;
-        // if matches!(result, Ok(InsertionState::Inserted)) {
-        //     // self.debug_check_child_pointers();
-        // }
         Ok(InsertionState::Inserted)
     }
     fn defragment(&mut self) -> InkResult<()> {
@@ -935,41 +784,6 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
         Ok(())
     }
 
-    // fn debug_check_child_pointers(&self) {
-    //     let Ok(n) = self.no_of_cells() else {
-    //         return;
-    //     };
-    //     let Ok(page_type) = self.page_type() else {
-    //         return;
-    //     };
-    //     if !page_type.is_interior() {
-    //         return;
-    //     }
-    //     let mut children = Vec::with_capacity(n as usize + 1);
-    //     for i in 0..n {
-    //         if let Ok(cell) = self.cell(i) {
-    //             children.push((i, cell.left_child()));
-    //         }
-    //     }
-    //     if let Ok(Some(rmp)) = self.right_most_ptr() {
-    //         if rmp != 0 {
-    //             children.push((n, rmp));
-    //         }
-    //     }
-    //     for i in 0..children.len() {
-    //         for j in i + 1..children.len() {
-    //             if children[i].1 == children[j].1 {
-    //                 eprintln!(
-    //                     "DUP_CHILD page={} slots={},{} child={}",
-    //                     self.page_no(),
-    //                     children[i].0,
-    //                     children[j].0,
-    //                     children[i].1
-    //                 );
-    //             }
-    //         }
-    //     }
-    // }
     fn insert_cell_at(
         &mut self,
         content: &[u8],

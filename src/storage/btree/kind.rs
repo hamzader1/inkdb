@@ -7,10 +7,10 @@ use crate::storage::page::{BTreePage, LEFT_CHILD_POINTER_SIZE, OVERFLOW_POINTER_
 use crate::varint::encode_varint;
 use crate::vfs::Vfs;
 
-pub(crate) struct TableInterior;
+pub struct TableInterior;
 pub struct TableLeaf;
-pub(crate) struct IndexInterior;
-pub(crate) struct IndexLeaf;
+pub struct IndexInterior;
+pub struct IndexLeaf;
 
 pub trait PageKind {
     type Cell: Cell;
@@ -192,7 +192,7 @@ impl HasPayload for TableLeafCell {
         self.payload_len
     }
 }
-pub(crate) struct TypedPage<B, K: PageKind> {
+pub struct TypedPage<B, K: PageKind> {
     inner: BTreePage<B>,
     _kind: std::marker::PhantomData<fn() -> K>,
 }
@@ -257,7 +257,7 @@ impl<B, K: PageKind> TypedPage<B, K> {
     }
 }
 
-pub(crate) enum AnyPage<B> {
+pub enum AnyPage<B> {
     TableInterior(TypedPage<B, TableInterior>),
     TableLeaf(TypedPage<B, TableLeaf>),
     IndexInterior(TypedPage<B, IndexInterior>),
@@ -265,7 +265,7 @@ pub(crate) enum AnyPage<B> {
 }
 
 impl<B: AsRef<[u8]>> AnyPage<B> {
-    pub(crate) fn parse(
+    pub fn parse(
         page_no: PageNo,
         page_size: usize,
         usable_size: usize,
@@ -281,11 +281,7 @@ impl<B: AsRef<[u8]>> AnyPage<B> {
             other => Err(InkError::InvalidPageType(other)),
         }
     }
-    pub(crate) fn cell_key<V: Vfs>(
-        &self,
-        i: u16,
-        pager: &mut Pager<V>,
-    ) -> InkResult<Value<'static>> {
+    pub fn cell_key<V: Vfs>(&self, i: u16, pager: &mut Pager<V>) -> InkResult<Value<'static>> {
         let key = {
             match self {
                 AnyPage::TableInterior(p) => p.row_id_key(i)?,
