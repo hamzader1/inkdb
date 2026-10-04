@@ -10,9 +10,10 @@ pub struct InkShell;
 impl InkShell {
     pub fn run(database: &mut Database<DiskVfs>) {
         let mut rl = DefaultEditor::new().expect("failed to initialize line editor");
+        let mut pending = String::new();
         loop {
-            let cmd = match Self::read_statement(&mut rl) {
-                Ok(cmd) => cmd,
+            let cmds = match Self::read_statements(&mut rl, &mut pending) {
+                Ok(cmds) => cmds,
                 Err(ReadlineError::Interrupted) => {
                     println!("^C");
                     break;
@@ -24,16 +25,18 @@ impl InkShell {
                 }
             };
 
-            let cmd = cmd.trim();
-            if cmd.is_empty() {
-                continue;
-            }
-            match Self::exec(database, cmd) {
-                Ok(()) => {}
-                Err(e) => match crate::errors::render_syntax_error(cmd, &e) {
-                    Some(rendered) => println!("{rendered}"),
-                    None => println!("Error: {e}"),
-                },
+            for cmd in cmds {
+                let cmd = cmd.trim();
+                if cmd.is_empty() {
+                    continue;
+                }
+                match Self::exec(database, cmd) {
+                    Ok(()) => {}
+                    Err(e) => match crate::errors::render_syntax_error(cmd, &e) {
+                        Some(rendered) => println!("{rendered}"),
+                        None => println!("Error: {e}"),
+                    },
+                }
             }
         }
     }
@@ -53,23 +56,62 @@ impl InkShell {
         Ok(())
     }
 
-    fn read_statement(rl: &mut DefaultEditor) -> Result<String, ReadlineError> {
-        let mut buf = String::new();
-        loop {
-            let prompt = if buf.is_empty() { "ink> " } else { " ... " };
-            let line = rl.readline(prompt)?;
-            if !buf.is_empty() {
-                buf.push(' ');
+    fn split_statements(input: &str) -> (Vec<String>, String) {
+        let mut complete = Vec::new();
+        let mut start = 0;
+        let mut quote: Option<char> = None;
+        for (i, ch) in input.char_indices() {
+            if let Some(q) = quote {
+                if ch == q {
+                    quote = None;
+                }
+            } else if ch == '\'' || ch == '"' {
+                quote = Some(ch);
+            } else if ch == ';' {
+                let stmt = input[start..i].trim();
+                if !stmt.is_empty() {
+                    complete.push(stmt.to_string());
+                }
+                start = i + ch.len_utf8();
             }
-            buf.push_str(line.trim());
+        }
+        (complete, input[start..].to_string())
+    }
 
-            if buf.trim_end().ends_with(';') {
-                break;
+    fn read_statements(
+        rl: &mut DefaultEditor,
+        pending: &mut String,
+    ) -> Result<Vec<String>, ReadlineError> {
+        loop {
+            let (complete, rest) = Self::split_statements(pending);
+            if !complete.is_empty() {
+                *pending = rest;
+                for cmd in &complete {
+                    rl.add_history_entry(cmd)?;
+                }
+                return Ok(complete);
+            }
+            let prompt = if pending.trim().is_empty() {
+                "ink> "
+            } else {
+                " ... "
+            };
+            match rl.readline(prompt) {
+                Ok(line) => {
+                    if !pending.is_empty() {
+                        pending.push(' ');
+                    }
+                    pending.push_str(line.trim());
+                }
+                Err(ReadlineError::Eof) => {
+                    if pending.trim().is_empty() {
+                        return Err(ReadlineError::Eof);
+                    }
+                    let cmd = std::mem::take(pending);
+                    return Ok(vec![cmd]);
+                }
+                Err(e) => return Err(e),
             }
         }
-        if !buf.trim().is_empty() {
-            rl.add_history_entry(buf.trim())?;
-        }
-        Ok(buf.trim().trim_end_matches(';').trim().to_string())
     }
 }

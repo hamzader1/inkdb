@@ -1,6 +1,3 @@
-#[cfg(unix)]
-use crate::errors::InkError;
-
 use super::file::InkFile;
 use super::{InkOptions, Vfs};
 #[cfg(windows)]
