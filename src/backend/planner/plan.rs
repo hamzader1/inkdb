@@ -22,6 +22,7 @@ use crate::backend::executor::materialized::MaterializedResult;
 use crate::backend::executor::prepare::{PrepareInsert, PrepareRow};
 use crate::backend::executor::rowid::{RowRangeScan, render_rowid_range};
 use crate::backend::executor::scan_guard::ScanMode;
+use crate::backend::executor::singlerow::SingleRow;
 use crate::backend::executor::sort::Sort;
 use crate::backend::executor::transaction::{
     BeginTransaction, CommitTransaction, RollBackTransaction,
@@ -59,6 +60,7 @@ pub enum Plan<V: Vfs> {
     Project(Project<V>),
     RollbackTransaction(RollBackTransaction),
     RowRangeScan(RowRangeScan<V>),
+    SingleRow(SingleRow),
     Sort(Sort<V>),
     TableScan(TableScan<V>),
     Terminate(Terminate<V>),
@@ -201,10 +203,18 @@ impl<V: Vfs> Plan<V> {
         resolved_query: ResolvedSelectQuery,
         master: &Master,
     ) -> Result<PreparedPlan<V>, InkError> {
+        let Some((table_name, root_page)) = resolved_query.table.clone() else {
+            let columns = resolved_query.columns.clone();
+            let parent = Self::Project(Project::new(
+                Box::new(Self::SingleRow(SingleRow::new())),
+                columns,
+            ));
+            return Ok(PreparedPlan::new(parent, resolved_query.arena));
+        };
         let mode = ScanMode::Safe;
         let mut child = Self::scan_with_predicate(
-            resolved_query.root_page,
-            &resolved_query.table_name,
+            root_page,
+            &table_name,
             mode,
             resolved_query.where_clause,
             master,
@@ -224,7 +234,7 @@ impl<V: Vfs> Plan<V> {
          * Query on R: (Ci..Ck+i where k <= i<= Rmax)
          */
         let columns = resolved_query.columns.clone();
-        let identity = master.table(&resolved_query.table_name).is_some_and(|table| {
+        let identity = master.table(&table_name).is_some_and(|table| {
             columns.len() == table.get_cols_len()
                 && columns.iter().enumerate().all(|(position, node)| {
                     matches!(resolved_query.arena.nodes[*node], Expr::ColumnRef(column) if column == position)
@@ -236,7 +246,7 @@ impl<V: Vfs> Plan<V> {
             Self::Project(Project::new(Box::new(child), columns))
         };
 
-        Ok(PreparedPlan::new(parent, resolved_query.arena).with_table(&resolved_query.table_name))
+        Ok(PreparedPlan::new(parent, resolved_query.arena).with_table(&table_name))
     }
 
     fn init_count_plan(
@@ -461,6 +471,7 @@ impl<V: Vfs> Plan<V> {
             Self::Project(p) => p.next(ctx),
             Self::RollbackTransaction(rbt) => rbt.next(ctx),
             Self::RowRangeScan(rrs) => rrs.next(ctx),
+            Self::SingleRow(s) => s.next(ctx),
             Self::Sort(s) => s.next(ctx),
             Self::TableScan(t) => t.next(ctx),
             Self::Terminate(t) => t.next(ctx),
@@ -539,6 +550,7 @@ impl<V: Vfs> Plan<V> {
             Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
             Self::Sort(s) => format!("Sort [i: {}]", s.id()),
+            Self::SingleRow(_) => "SingleRow".into(),
             Self::Update(u) => format!(
                 "Update [(columns_indexes, arena_indexes) -> {:?}]",
                 u.affected_columns
