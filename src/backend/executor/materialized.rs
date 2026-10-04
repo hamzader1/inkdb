@@ -12,18 +12,7 @@ use crate::vfs::file::InkFile;
 use super::StreamSource;
 
 use super::MEM_CAP;
-// const MEM_CAP: usize = 4096 * 5;
 const FILE: &str = "ink_update";
-
-#[derive(Debug)]
-pub struct MaterializedResult<V: Vfs> {
-    child: Box<Plan<V>>,
-    stream_source: StreamSource<V>,
-    stream_backup: Option<V::File>,
-    nread: usize,
-    rowid_column: Option<usize>,
-    rowid_captured: bool,
-}
 
 /*
 
@@ -41,6 +30,16 @@ pub struct MaterializedResult<V: Vfs> {
 * So later we start yielding rows safely since we have a copy of them stored in a
 * StreamSouce
     */
+#[derive(Debug)]
+pub struct MaterializedResult<V: Vfs> {
+    child: Box<Plan<V>>,
+    stream_source: StreamSource<V>,
+    stream_backup: Option<V::File>,
+    nread: usize,
+    rowid_column: Option<usize>,
+    rowid_captured: bool,
+}
+
 impl<V: Vfs> MaterializedResult<V> {
     pub fn new(child: Box<Plan<V>>) -> Self {
         Self {
