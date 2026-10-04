@@ -9,14 +9,12 @@ pub mod errors;
 
 pub mod pager;
 pub mod storage;
-mod util;
+pub(crate) mod util;
 
-mod varint;
+pub(crate) mod varint;
 pub mod vfs;
 use errors::InkError;
 
 pub(crate) use storage::cursor::MemCursor;
 
-pub type Result<T, E = InkError> = std::result::Result<T, E>;
-
-pub type InkResult<T> = Result<T, InkError>;
+pub(crate) type InkResult<T> = Result<T, InkError>;
