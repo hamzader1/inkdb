@@ -36,7 +36,20 @@ impl Parser {
             || self.at(Gt)
             || self.at(Le)
             || self.at(Lt)
+            || self.at(Is)
         {
+            if self.eat(Is) {
+                let not = self.eat(Not);
+                self.expect(Null)?;
+                let right = self.arena.push(Expr::Null);
+                let op = if not {
+                    BinaryOperator::IsNot
+                } else {
+                    BinaryOperator::Is
+                };
+                left = self.arena.push(Expr::BinaryOp { left, op, right });
+                continue;
+            }
             let op = if self.eat(Equals) {
                 BinaryOperator::Eq
             } else if self.eat(NotEquals) {

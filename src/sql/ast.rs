@@ -64,7 +64,7 @@ pub(crate) enum Expr {
     StringLitteral(String),
     Blob(Vec<u8>),
     Bool(bool),
-    ColumnRef(usize), // used only by select_v2
+    ColumnRef(usize),
     Identifier(String),
     Add(usize, usize),
     Substract(usize, usize),
@@ -121,6 +121,8 @@ pub(crate) enum BinaryOperator {
     Le,
     Gt,
     Lt,
+    Is,
+    IsNot,
 }
 
 #[derive(Debug, Clone)]
@@ -128,9 +130,9 @@ pub struct SelectStmt {
     pub(crate) table_name: Option<String>,
     pub(crate) arena: ExprArena,
     pub(crate) columns: Vec<usize>,
-    pub(crate) where_clause: Option<usize>, // same arena used twice
+    pub(crate) where_clause: Option<usize>,
     pub(crate) limit: Option<usize>,
-    pub(crate) orderby: Option<OrderBy>, /*The order ignored for now*/
+    pub(crate) orderby: Option<OrderBy>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -163,10 +165,6 @@ pub struct DeleteStmt {
 pub struct ExplainStmt {
     pub(crate) query: Box<Ast>,
 }
-// pub enum QueryStmt {
-//     Select(SelectStmt),
-//     Insert(InsertStmt),
-// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Affinity {
@@ -288,7 +286,11 @@ impl fmt::Display for Expr {
             Expr::Null => write!(f, "Null"),
             Expr::StringLitteral(s) => write!(f, "'{s}'"),
             Expr::Blob(bytes) => {
-                write!(f, "X'{}'", bytes.iter().map(|b| format!("{b:02X}")).collect::<String>())
+                write!(
+                    f,
+                    "X'{}'",
+                    bytes.iter().map(|b| format!("{b:02X}")).collect::<String>()
+                )
             }
             Expr::Bool(b) => write!(f, "{b}"),
             Expr::ColumnRef(idx) => write!(f, "column[{idx}]"),
@@ -329,6 +331,8 @@ impl fmt::Display for BinaryOperator {
             BinaryOperator::Le => "<=",
             BinaryOperator::Gt => ">",
             BinaryOperator::Lt => "<",
+            BinaryOperator::Is => "IS",
+            BinaryOperator::IsNot => "IS NOT",
         };
 
         write!(f, "{op}")

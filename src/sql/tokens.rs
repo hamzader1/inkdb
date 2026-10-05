@@ -40,6 +40,7 @@ pub enum TokenKind {
     Limit,
 
     Not,
+    Is,
     Exists,
     NotNull,
 
@@ -116,6 +117,7 @@ impl fmt::Display for TokenKind {
 
             // Expressions
             TokenKind::Not => write!(f, "NOT"),
+            TokenKind::Is => write!(f, "IS"),
             TokenKind::Exists => write!(f, "EXISTS"),
             TokenKind::NotNull => write!(f, "NOT NULL"),
 

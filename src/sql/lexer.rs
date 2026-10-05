@@ -357,6 +357,7 @@ fn keyword(word: &str) -> Option<TokenKind> {
         "LIMIT" => TokenKind::Limit,
         "ROLLBACK" => TokenKind::RollBack,
         "NOT" => TokenKind::Not,
+        "IS" => TokenKind::Is,
         "EXISTS" => TokenKind::Exists,
         "EXPLAIN" => TokenKind::Explain,
         "BEGIN" => TokenKind::Begin,
