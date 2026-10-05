@@ -93,6 +93,8 @@ pub(crate) fn render_operator(op: BinaryOperator) -> &'static str {
         BinaryOperator::Le => "<=",
         BinaryOperator::Gt => ">",
         BinaryOperator::Lt => "<",
+        BinaryOperator::Is => "IS",
+        BinaryOperator::IsNot => "IS NOT",
     }
 }
 
@@ -205,6 +207,20 @@ impl Eval {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
+                }
+
+                BinaryOperator::Is => {
+                    if matches!(Self::eval(arena, left, row)?, Value::Null) {
+                        return Ok(Value::Integer(1));
+                    }
+                    Ok(Value::Integer(0))
+                }
+
+                BinaryOperator::IsNot => {
+                    if matches!(Self::eval(arena, left, row)?, Value::Null) {
+                        return Ok(Value::Integer(0));
+                    }
+                    Ok(Value::Integer(1))
                 }
             },
             _ => Err(InkError::runtime(format!(

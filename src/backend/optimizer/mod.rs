@@ -89,7 +89,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         }
         match self.arena.nodes[predicate] {
             Expr::BinaryOp { left, op, right } => match op {
-                BinaryOperator::NotEq => return Ok(()),
+                BinaryOperator::NotEq | BinaryOperator::Is | BinaryOperator::IsNot => return Ok(()),
                 _ => {
                     match self.try_index(left, right, op)? {
                         Some(_) => return Ok(()),
@@ -349,6 +349,8 @@ fn flip_comparison(op: BinaryOperator) -> BinaryOperator {
         BinaryOperator::Ge => BinaryOperator::Le,
         BinaryOperator::Le => BinaryOperator::Ge,
         BinaryOperator::NotEq => BinaryOperator::NotEq,
+        BinaryOperator::Is => BinaryOperator::Is,
+        BinaryOperator::IsNot => BinaryOperator::IsNot,
     }
 }
 
