@@ -3,28 +3,54 @@ use crate::errors::InkError;
 
 use super::Value;
 
+/// The two shapes an operator works on.
+///
+/// Text and blobs are turned into one of these before the operation, which is
+/// how a string that reads like a number can still be added to one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Numeric {
+    /// A whole number, which stays whole unless the arithmetic overflows.
     Int(i64),
+    /// A number with a fractional part.
     Real(f64),
 }
 
 pub(crate) trait TryAdd {
+    /// Add the two values.
+    ///
+    /// # Errors
+    /// When the other side is a tuple, which has no numeric value.
     fn try_add(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub(crate) trait TrySub {
+    /// Subtract the other value from this one.
+    ///
+    /// # Errors
+    /// When the other side is a tuple, which has no numeric value.
     fn try_sub(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub(crate) trait TryMul {
+    /// Multiply the two values.
+    ///
+    /// # Errors
+    /// When the other side is a tuple, which has no numeric value.
     fn try_mul(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub(crate) trait TryDiv {
+    /// Dividing by zero gives NULL rather than failing.
+    ///
+    /// # Errors
+    /// When the other side is a tuple, which has no numeric value.
     fn try_div(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
+/// How many bytes at the front of this text make up a number.
+///
+/// The number may carry a sign, a whole part, a fraction and an exponent, and
+/// anything after it is ignored. Text with no number at the front measures zero.
 fn numeric_prefix_len(text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut i = 0;
@@ -63,6 +89,7 @@ fn numeric_prefix_len(text: &str) -> usize {
     i
 }
 
+/// Read a number from the front of some text.
 fn numeric_from_text(text: &str) -> Numeric {
     let trimmed = text.trim_start();
     let len = numeric_prefix_len(trimmed);
@@ -88,6 +115,12 @@ fn numeric_from_text(text: &str) -> Numeric {
     }
 }
 
+/// Turn a value into a number, or into nothing at all when it is NULL.
+///
+/// A blob is read as text first, and text that is not UTF-8 counts as zero.
+///
+/// # Errors
+/// When the value is a tuple, which cannot be a number.
 fn to_numeric(value: &Value<'_>) -> InkResult<Option<Numeric>> {
     Ok(match value {
         Value::Null => None,
@@ -104,6 +137,10 @@ fn to_numeric(value: &Value<'_>) -> InkResult<Option<Numeric>> {
     })
 }
 
+/// Turn both sides into numbers, or into nothing when either is NULL.
+///
+/// # Errors
+/// When either side is a tuple.
 fn operands(lhs: &Value<'_>, rhs: &Value<'_>) -> InkResult<Option<(Numeric, Numeric)>> {
     let (Some(lhs), Some(rhs)) = (to_numeric(lhs)?, to_numeric(rhs)?) else {
         return Ok(None);
@@ -111,6 +148,8 @@ fn operands(lhs: &Value<'_>, rhs: &Value<'_>) -> InkResult<Option<(Numeric, Nume
     Ok(Some((lhs, rhs)))
 }
 
+/// Work on two whole numbers, falling back to a float when the result does not
+/// fit in an [`i64`].
 fn int_op(
     a: i64,
     b: i64,

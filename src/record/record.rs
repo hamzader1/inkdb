@@ -7,6 +7,12 @@ use crate::varint::decode_varint;
 use super::tuple::{Tuple, decode_sqltype, into_borrowed};
 use super::{SERIAL_BLOB_MIN, SERIAL_TEXT_MIN, Value};
 
+/// A record as it is stored in a B-tree: a row of values backed by raw bytes.
+///
+/// A record doesn’t own the bytes it reads from. Instead, it keeps just enough
+/// information to locate each field, such as where the header ends, where the
+/// serial types start, and how many fields the record contains. The fields are
+/// decoded only when they are actually needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Record<'a> {
     bytes: &'a [u8],
@@ -16,6 +22,18 @@ pub struct Record<'a> {
 }
 
 impl<'a> Record<'a> {
+    /// Read the record’s bytes and make sure they are valid.
+    ///
+    /// This goes through the header once and checks that the serial types don’t
+    /// require more data than the record actually contains. It also rejects serial
+    /// types reserved by SQLite, so invalid records are caught here instead of
+    /// causing problems when a field is read later.
+    ///
+    /// # Errors
+    /// [`CorruptError::RecordHeader`] when the header does not fit the bytes,
+    /// [`CorruptError::ReservedSerialType`] for a serial type of 10 or 11, and
+    /// [`CorruptError::TruncatedRecord`] when the payload is shorter than the
+    /// header promises.
     pub fn new(bytes: &'a [u8]) -> InkResult<Self> {
         let (header_len, consumed) = decode_varint(bytes).ok_or(CorruptError::RecordHeader {
             claimed: 0,
@@ -73,31 +91,54 @@ impl<'a> Record<'a> {
         })
     }
 
+    /// How many fields the record holds.
     pub fn len(&self) -> usize {
         self.fields
     }
 
+    /// Whether the record holds no fields at all.
     pub fn is_empty(&self) -> bool {
         self.fields == 0
     }
 
+    /// How many bytes the header takes, with the payload starting right after
+    /// it.
     pub fn header_len(&self) -> usize {
         self.header_len
     }
 
+    /// The bytes the record.
     pub fn bytes(&self) -> &'a [u8] {
         self.bytes
     }
 
+    /// The serial type of one field, which says what it holds and how long it
+    /// is.
+    ///
+    /// # Errors
+    /// [`CorruptError::NoSuchField`] when there is no such field.
     pub fn serial_type(&self, field: usize) -> InkResult<u64> {
         Ok(self.field_span(field)?.0)
     }
 
+    /// The stored bytes of one field, left undecoded.
+    ///
+    /// # Errors
+    /// [`CorruptError::NoSuchField`] when there is no such field.
     pub fn field_bytes(&self, field: usize) -> InkResult<&'a [u8]> {
         let (_, start, size) = self.field_span(field)?;
         Ok(&self.bytes[start..start + size])
     }
 
+    /// Read a field and return it as a value.
+    ///
+    /// Text and blobs borrow their data from the record’s bytes, so they are only
+    /// valid for as long as the record itself is alive.
+    ///
+    /// # Errors
+    /// [`CorruptError::NoSuchField`] when there is no such field, and
+    /// [`CorruptError::InvalidUtf8`] when a text field does not hold valid
+    /// UTF-8.
     pub fn value(&self, field: usize) -> InkResult<Value<'a>> {
         let (serial_type, start, size) = self.field_span(field)?;
         let meta = Tuple::content_meta(serial_type);
@@ -116,18 +157,31 @@ impl<'a> Record<'a> {
         }
     }
 
+    /// Read one field as a value that owns its text and blob, so it can outlive
+    /// the record.
     pub fn value_owned(&self, field: usize) -> InkResult<Value<'static>> {
         Ok(self.value(field)?.into_static())
     }
 
-    pub fn values(&self) -> impl Iterator<Item = InkResult<Value<'a>>> + '_ {
+    /// Read the fields in order, one result per field.
+    ///
+    /// A field that cannot be decoded shows up as an error in its own place.
+    pub fn values<'b>(&'b self) -> impl Iterator<Item = InkResult<Value<'a>>> + 'b {
         (0..self.fields).map(|field| self.value(field))
     }
 
+    /// Read every field into a list.
+    ///
+    /// # Errors
+    /// The first field that cannot be decoded.
     pub fn to_values(&self) -> InkResult<Vec<Value<'a>>> {
         self.values().collect()
     }
 
+    /// Read every field into a list, copying the text and blobs on the way.
+    ///
+    /// # Errors
+    /// The first field that cannot be decoded.
     pub fn to_values_owned(&self) -> InkResult<Vec<Value<'static>>> {
         Ok(self
             .to_values()?
@@ -136,6 +190,7 @@ impl<'a> Record<'a> {
             .collect())
     }
 
+    /// The last field, or nothing at all when the record is empty.
     pub fn last(&self) -> Option<InkResult<Value<'a>>> {
         match self.fields {
             0 => None,
@@ -143,6 +198,15 @@ impl<'a> Record<'a> {
         }
     }
 
+    /// Get the serial type, payload offset, and payload length for a field.
+    ///
+    /// The header is walked from the beginning each time because a field’s
+    /// position can only be found by adding up the lengths of the fields before it.
+    /// The offset is relative to the start of the record, not the payload.
+    ///
+    /// # Errors
+    /// [`CorruptError::NoSuchField`] when the field is past the last one, and
+    /// [`CorruptError::RecordHeader`] when the header runs out early.
     fn field_span(&self, field: usize) -> InkResult<(u64, usize, usize)> {
         if field >= self.fields {
             return Err(CorruptError::NoSuchField {
