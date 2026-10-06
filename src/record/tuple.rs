@@ -173,21 +173,26 @@ pub(crate) fn into_owned(value: DecodedValue<'_>) -> Value<'static> {
 
 impl Tuple {
     pub fn serialize(values: &[Value]) -> Vec<u8> {
-        let mut header = Vec::<u8>::new();
-        let mut payload = Vec::<u8>::new();
+        let mut payload = Vec::new();
+        let mut header = vec![0u8; 9];
         let mut buffer = [0u8; 9];
-        for value in values.iter() {
+
+        for value in values {
             let data_type = Tuple::encode_sqltype(value, &mut payload);
             let vint = encode_varint(&mut buffer, data_type as _);
             header.extend_from_slice(&buffer[..vint]);
         }
-        let len = encode_varint(&mut buffer, header.len() as _); // 1byte
-        let with_len = encode_varint(&mut buffer, len as u64 + header.len() as u64);
-        let v_b = &buffer[..with_len];
-        for byte in v_b.iter().rev() {
-            header.insert(0, *byte);
-        }
+
+        let header_len = header.len() - 9;
+
+        let len = encode_varint(&mut buffer, header_len as _);
+        let with_len = encode_varint(&mut buffer, len as u64 + header_len as u64);
+
+        header[0..with_len].copy_from_slice(&buffer[..with_len]);
+        header.copy_within(9.., with_len);
+        header.truncate(with_len + header_len);
         header.extend_from_slice(&payload);
+
         header
     }
 }
