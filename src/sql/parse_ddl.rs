@@ -56,12 +56,12 @@ impl Parser {
         let mut tbl_constraints = Vec::new();
         while !self.at(RightParen) {
             columns.push(self.parse_create_column()?);
-            if !self.eat(Comma) {
-                break;
-            }
             if self.eat(Check) {
                 let tbl_cst = self.parse_expression()?;
                 tbl_constraints.push(tbl_cst);
+            }
+            if !self.eat(Comma) {
+                break;
             }
         }
         self.expect(RightParen)?;
