@@ -239,13 +239,57 @@ pub fn render_syntax_error(sql: &str, err: &InkError) -> Option<String> {
         return None;
     };
     let Span(start, end) = syntax.span;
+    let start = start.min(sql.len());
+    let end = end.max(start).min(sql.len());
+    let line_start = sql[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = sql[line_start..]
+        .find('\n')
+        .map(|i| line_start + i)
+        .unwrap_or(sql.len());
+    let line = &sql[line_start..line_end];
+    let end = end.min(line_end);
     let caret_len = end.saturating_sub(start).max(1);
-    let pointer = format!("{}{}", " ".repeat(start + 1), "^".repeat(caret_len));
+    let pointer = format!(
+        "{}{}",
+        " ".repeat(start - line_start + 1),
+        "^".repeat(caret_len)
+    );
     Some(format!(
         "{}
 	 {}
 	{}
 ",
-        syntax.kind, sql, pointer
+        syntax.kind, line, pointer
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn caret_points_at_the_offending_token() {
+        let sql = "SELECT  *  FRM t";
+        let err = InkError::syntax(
+            SyntaxErrorKind::ExpectedEoi(TokenKind::Identifier("FRM".into())),
+            Span(11, 14),
+        );
+        let rendered = render_syntax_error(sql, &err).expect("render");
+        let lines: Vec<&str> = rendered.lines().collect();
+        assert_eq!(lines[1], "\t SELECT  *  FRM t");
+        assert_eq!(lines[2], "\t            ^^^");
+    }
+
+    #[test]
+    fn caret_follows_newlines_to_the_failing_line() {
+        let sql = "SELECT *\nFRM t";
+        let err = InkError::syntax(
+            SyntaxErrorKind::ExpectedEoi(TokenKind::Identifier("FRM".into())),
+            Span(9, 12),
+        );
+        let rendered = render_syntax_error(sql, &err).expect("render");
+        let lines: Vec<&str> = rendered.lines().collect();
+        assert_eq!(lines[1], "\t FRM t");
+        assert_eq!(lines[2], "\t ^^^");
+    }
 }
