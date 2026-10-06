@@ -5,11 +5,19 @@ use crate::InkResult;
 use crate::errors::InkError;
 use crate::sql::ast::{DeleteStmt, Expr, InsertStmt};
 
+/// The statements that read and change rows.
 impl Parser {
+    /// Read a `SELECT`.
+    ///
+    /// The parts are optional from the table onwards: `SELECT 1 + 1` is a valid
+    /// statement with no table at all, so a missing `FROM` is not treated as an
+    /// error. After that, `WHERE`, `ORDER BY` and `LIMIT` are each read if
+    /// present and left out if not.
     pub(crate) fn parse_select(&mut self) -> Result<Ast, InkError> {
         self.expect(Select)?;
         let mut columns = Vec::new();
         loop {
+            // Special case since star is not part of the expression tree.
             if self.eat(Star) {
                 let idx = self.arena.nodes.len();
                 self.arena.nodes.push(Expr::Star);
@@ -18,7 +26,6 @@ impl Parser {
                 columns.push(self.parse_expression()?);
             }
             if !self.eat(Comma) {
-                // anything, BUT COMMA
                 break;
             }
         }
@@ -47,7 +54,7 @@ impl Parser {
             } else {
                 /*
                  * Both are valid.
-                 * Either we consume Asc token if its exist, otherwise
+                 * Either we consume Asc token (if exist), otherwise
                  * asc is the default
                  */
                 self.eat(Asc);
@@ -71,6 +78,11 @@ impl Parser {
         }))
     }
 
+    /// Read an `INSERT`.
+    ///
+    /// The list of column names is optional, so `INSERT INTO t VALUES (...)`
+    /// fills the columns in the order the table declares them. Several rows may
+    /// follow the `VALUES` keyword, one set of brackets each.
     pub(crate) fn parse_insert(&mut self) -> Result<Ast, InkError> {
         self.expect(Insert)?;
         self.expect(Into)?;
@@ -112,6 +124,8 @@ impl Parser {
             arena: self.arena.take(),
         }))
     }
+    /// Read a `DELETE`. The `WHERE` clause is optional: without one the whole
+    /// table is emptied.
     pub(crate) fn parse_delete(&mut self) -> InkResult<Ast> {
         self.expect(Delete)?;
         self.expect(From)?;
@@ -129,6 +143,11 @@ impl Parser {
             where_clause,
         }))
     }
+    /// Read an `UPDATE`: the assignments after `SET`, then an optional `WHERE`.
+    ///
+    /// Each assignment is kept as the column name and the expression to store
+    /// in it. The name is checked against the table later, once the schema is
+    /// available.
     pub(crate) fn parse_update(&mut self) -> InkResult<Ast> {
         self.expect(Update)?;
         let table_name = self.expect_ident()?;

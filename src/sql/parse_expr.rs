@@ -3,11 +3,59 @@ use super::parser::Parser;
 use super::tokens::TokenKind::*;
 use crate::errors::InkError;
 
+/// Expressions, from the loosest operator down to the tightest.
+///
+/// Each function here handles one level of precedence and leans on the one below
+/// it, so the order the functions are written in is the order the operators bind.
+/// `OR` is read first and so binds loosest, then `AND`, then comparisons, then
+/// `+` and `-`, then `*` and `/`, and finally a single value or a bracketed
+/// expression. Everything built along the way goes into the arena, and what
+/// comes back is the index of the finished expression.
+///
+/// # Example
+/// We try to parse the following expression:
+/// WHERE
+/// (a + b * c > 10 AND d / e < 5) OR f - g = 2
+/// The tree would be expressed as
+/**
+               OR
+              /  \
+            AND   =
+           /   \ / \
+          >    < -  2
+         / \  / \ / \
+        +  10 /  5 f  g
+       / \   / \
+      a   * d   e
+         / \
+        b   c
+*/
+/// For simpler one:
+/// a + b * c > 10 AND d = 5
+/// the arena should look like:
+/**
+ [
+     a,                 // 0
+     b,                 // 1
+     c,                 // 2
+     Mul(1, 2),         // 3  => b * c
+     Add(0, 3),         // 4  => a + (b * c)
+     10,                // 5
+     GreaterThan(4, 5), // 6  => a + b*c > 10
+     d,                 // 7
+     5,                 // 8
+     Equal(7, 8),       // 9  => d = 5
+     And(6, 9),         // 10 => (a+b*c > 10) AND (d=5)
+ ]
+*/
 impl Parser {
+    /// Read a whole expression, which is the way in for callers.
     pub(crate) fn parse_expression(&mut self) -> Result<usize, InkError> {
         self.parse_logical_or()
     }
 
+    /// Read an `OR` chain. The left side is read first and every following `OR`
+    /// adds another level, which keeps `a OR b OR c` grouping to the left.
     pub(crate) fn parse_logical_or(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_logical_and()?;
 
@@ -19,6 +67,7 @@ impl Parser {
         Ok(left)
     }
 
+    /// Read an `AND` chain, one level tighter than `OR`.
     pub(crate) fn parse_logical_and(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_condition()?;
         while self.eat(And) {
@@ -28,6 +77,8 @@ impl Parser {
         Ok(left)
     }
 
+    /// Read a comparison. Any of `=`, `!=`, `>=`, `>`, `<=` and `<` are handled
+    /// here, and so is `IS NULL` and `IS NOT NULL`.
     pub(crate) fn parse_condition(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_addition()?;
         while self.at(Equals)
@@ -69,6 +120,7 @@ impl Parser {
         }
         Ok(left)
     }
+    /// Read a `+` or `-` chain, which binds tighter than a comparison.
     pub(crate) fn parse_addition(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_multiplication()?;
         while self.at(Plus) || self.at(Minus) {
@@ -83,6 +135,7 @@ impl Parser {
         }
         Ok(left)
     }
+    /// Read a `*` or `/` chain, the tightest of the binary operators.
     pub(crate) fn parse_multiplication(&mut self) -> Result<usize, InkError> {
         let mut left = self.parse_unary()?;
         while self.at(Star) || self.at(Slash) {
@@ -97,6 +150,11 @@ impl Parser {
         }
         Ok(left)
     }
+    /// Read a leading `-` or `NOT`.
+    ///
+    /// A minus in front of a plain number is folded into the number itself, so
+    /// `-5` is one value rather than a negation of another. Anything else keeps
+    /// the negation as its own expression.
     fn parse_unary(&mut self) -> Result<usize, InkError> {
         if self.eat(Minus) {
             let idx = self.parse_factor()?;
@@ -115,6 +173,12 @@ impl Parser {
             self.parse_factor()
         }
     }
+    /// Read a single value: a bracketed expression, a name, a function call, or
+    /// one of the literals such as a string, number, blob, boolean or `NULL`.
+    ///
+    /// # Errors
+    /// An error naming the token when it is none of those, which is what a
+    /// statement with a stray operator in the middle of an expression gets.
     pub(crate) fn parse_factor(&mut self) -> Result<usize, InkError> {
         if self.eat(LeftParen) {
             let expr = self.parse_expression()?;
@@ -154,6 +218,11 @@ impl Parser {
         Ok(expr)
     }
 
+    /// Read a function call. Only `count` exists so far, and it takes either a
+    /// single expression or a star.
+    ///
+    /// # Errors
+    /// An error naming the function when it is not one the engine implements.
     fn parse_function(&mut self, name: &str) -> Result<usize, InkError> {
         self.expect(LeftParen)?;
         if name.eq_ignore_ascii_case("count") {

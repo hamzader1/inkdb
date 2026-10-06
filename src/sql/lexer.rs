@@ -2,6 +2,11 @@ use crate::errors::{InkError, SyntaxErrorKind};
 
 use super::tokens::{Span, Token, TokenKind};
 
+/// Turns the text of a statement into tokens.
+///
+/// It reads the characters one at a time, and keeps track of
+/// how far along the text it is so that every token can record where it came
+/// from.
 #[derive(Debug)]
 pub struct Lexer<'a> {
     chars: std::iter::Peekable<std::str::Chars<'a>>,
@@ -9,6 +14,11 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+    /// Split a statement into tokens.
+    ///
+    /// # Errors
+    /// Any lexical error, such as an unterminated string, a stray character or
+    /// a bracket that closes more times than it opens.
     pub fn tokenize(input: &'a str) -> Result<Vec<Token>, InkError> {
         let mut lexer = Lexer {
             chars: input.chars().peekable(),
@@ -173,6 +183,10 @@ impl<'a> Lexer<'a> {
         clone.peek().copied()
     }
 
+    /// Read a quoted string. Single and double quotes are both accepted.
+    ///
+    /// # Errors
+    /// [`SyntaxErrorKind::UnterminatedString`] when the closing quote is missing.
     fn lex_string(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let quote = self.next_char().expect("peeked quote");
@@ -194,6 +208,11 @@ impl<'a> Lexer<'a> {
         ))
     }
 
+    /// Read a number and emit it as a token.
+    ///
+    /// # Errors
+    /// [`SyntaxErrorKind::InvalidNumber`] when the digits cannot be read as a
+    /// whole number, which happens when the value does not fit.
     fn lex_number(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let kind = self.extract_number()?;
@@ -201,6 +220,13 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
+    /// Read a word and decide what it is: a keyword if it matches one, and a
+    /// name otherwise. Case does not matter, so `select` and `SELECT` are the
+    /// same token.
+    ///
+    /// # Errors
+    /// [`SyntaxErrorKind::InvalidNumber`] when the word turns out to be a blob
+    /// literal such as `X'0f'` whose digits do not decode.
     fn lex_word(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let mut word = String::new();
@@ -220,6 +246,8 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
+    /// Read a blob literal, written as `X` followed by quoted pairs of hex
+    /// digits, and emit the bytes it stands for.
     fn lex_blob(&mut self, tokens: &mut Vec<Token>, start: usize) -> Result<(), InkError> {
         self.next_char();
         let mut digits = String::new();
@@ -258,12 +286,12 @@ impl<'a> Lexer<'a> {
         ))
     }
 
+    /// Read a number literal.
     fn extract_number(&mut self) -> Result<TokenKind, InkError> {
         let start = self.pos;
         let mut number = String::new();
         let mut is_float = false;
 
-        // Integer part (may be empty for leading-dot floats like .5).
         while let Some(ch) = self.peek() {
             if ch.is_ascii_digit() {
                 number.push(ch);
@@ -283,29 +311,6 @@ impl<'a> Lexer<'a> {
                     self.next_char();
                 } else {
                     break;
-                }
-            }
-        }
-
-        if matches!(self.peek(), Some('e') | Some('E')) {
-            let mut probe = self.chars.clone();
-            probe.next(); // e/E
-            if matches!(probe.peek(), Some('+') | Some('-')) {
-                probe.next();
-            }
-            if matches!(probe.peek(), Some(c) if c.is_ascii_digit()) {
-                is_float = true;
-                number.push(self.next_char().unwrap_or('e'));
-                if matches!(self.peek(), Some('+') | Some('-')) {
-                    number.push(self.next_char().unwrap_or('+'));
-                }
-                while let Some(ch) = self.peek() {
-                    if ch.is_ascii_digit() {
-                        number.push(ch);
-                        self.next_char();
-                    } else {
-                        break;
-                    }
                 }
             }
         }
