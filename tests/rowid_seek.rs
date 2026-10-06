@@ -1,7 +1,3 @@
-//! An INTEGER PRIMARY KEY is the table b-tree key, so a comparison on it is a
-//! seek or a range walk on the table itself, not a scan. Results must match
-//! the reference.
-
 #[path = "common.rs"]
 mod common;
 

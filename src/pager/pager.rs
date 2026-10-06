@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::ptr::NonNull;
 
 use crate::db::header::{
-    DATABASE_SIZE_IN_PAGES_SIZE, DatabaseHeader, DbFormat, FIRST_FREELIST_TRUNK_PAGE_SIZE,
-    InkDatabaseHeader, InkFileHeader, TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
+    DatabaseHeader, DbFormat, SqliteDatabaseHeader, InkFileHeader, SQLITE_DATABASE_SIZE_IN_PAGES_SIZE,
+    SQLITE_FIRST_FREELIST_TRUNK_PAGE_SIZE, SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE,
 };
 use crate::errors::{CorruptError, InkError};
 use crate::util::assert_with_runtime_err;
@@ -75,8 +75,8 @@ impl HeaderCache {
     }
 }
 
-impl From<InkDatabaseHeader> for HeaderCache {
-    fn from(value: InkDatabaseHeader) -> Self {
+impl From<SqliteDatabaseHeader> for HeaderCache {
+    fn from(value: SqliteDatabaseHeader) -> Self {
         HeaderCache::new(
             value.database_page_size(),
             value.database_page_size() - value.reserved_space() as u32,
@@ -503,7 +503,7 @@ impl<V: Vfs> Pager<V> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
         let off = self.header.format().size_in_pages_offset();
-        bytes[off..off + DATABASE_SIZE_IN_PAGES_SIZE]
+        bytes[off..off + SQLITE_DATABASE_SIZE_IN_PAGES_SIZE]
             .copy_from_slice(&(self.header.max_allocated_pages).to_be_bytes());
         Ok(())
     }
@@ -511,7 +511,7 @@ impl<V: Vfs> Pager<V> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
         let off = self.header.format().freelist_trunk_offset();
-        bytes[off..off + FIRST_FREELIST_TRUNK_PAGE_SIZE]
+        bytes[off..off + SQLITE_FIRST_FREELIST_TRUNK_PAGE_SIZE]
             .copy_from_slice(&(self.header.first_freelist_truck_page).to_be_bytes());
         Ok(())
     }
@@ -519,7 +519,7 @@ impl<V: Vfs> Pager<V> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
         let off = self.header.format().freelist_total_offset();
-        bytes[off..off + TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE]
+        bytes[off..off + SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_SIZE]
             .copy_from_slice(&(self.header.total_freelist_pages).to_be_bytes());
         Ok(())
     }
