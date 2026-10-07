@@ -19,20 +19,34 @@ use crate::InkResult;
 use crate::vfs::Vfs;
 use crate::vfs::file::InkFile;
 
-pub type PageNo = u32;
+/// How many pages the cache holds when no other size is asked for.
+const DEFAULT_CACHE_SIZE: usize = 4096;
 
+/// The number of a page. Page one is the database header, so page numbers start
+/// at one and zero is never a real page.
+pub type PageNo = u32; /* Replace this with a `PageNo(usize)` new type */
+
+/// Reads and writes the pages of one database file.
+///
+/// Everything that touches a page goes through the pager. It keeps the pages it
+/// has read in the buffer pool, so a page that is used twice is only read once,
+/// and it keeps a journal of the pages a write changes, so a crash partway
+/// through can be put right. A caller does not see any of this: it asks for a
+/// page and gets a guard, changes the bytes through the guard, and the pager
+/// works out when those bytes reach the file.
+#[rustfmt::skip]
 #[derive(Debug)]
 pub struct Pager<V: Vfs> {
-    vfs: V,
-    source: V::File,
-    buffer_pool: BufferPool,
-    journal: Journal<V::File>,
-    journal_pages: HashSet<PageNo>,
+    vfs:               V,
+    source:            V::File,
+    buffer_pool:       BufferPool,
+    journal:           Journal<V::File>,
+    journal_pages:     HashSet<PageNo>,
     pub(crate) header: HeaderCache,
-    flushed: HashSet<PageNo>,
-    statistics: Statistics,
-    in_transaction: bool,
-    txn_snapshot: Option<HeaderCache>,
+    flushed:           HashSet<PageNo>,
+    statistics:        Statistics,
+    in_transaction:    bool,
+    txn_snapshot:      Option<HeaderCache>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,15 +81,19 @@ impl HeaderCache {
         }
     }
 
+    /// How many bytes the header takes on the first page, which is where the
+    /// first page's content begins.
     pub fn header_len(&self) -> usize {
         self.header_len
     }
 
+    /// Which layout the file uses, SQLite's or this database's own.
     pub fn format(&self) -> DbFormat {
         self.format
     }
 }
 
+/// Work the header values out from a SQLite file's header.
 impl From<SqliteDatabaseHeader> for HeaderCache {
     fn from(value: SqliteDatabaseHeader) -> Self {
         HeaderCache::new(
@@ -90,6 +108,9 @@ impl From<SqliteDatabaseHeader> for HeaderCache {
     }
 }
 
+/// Work the header values out from this database's own file header. A page size
+/// written as one means the largest page a SQLite file allows, which is 65536
+/// bytes, so it is turned back into that number here.
 impl From<InkFileHeader> for HeaderCache {
     fn from(value: InkFileHeader) -> Self {
         let page_size = if value.database_page_size() == 1 {
@@ -109,6 +130,7 @@ impl From<InkFileHeader> for HeaderCache {
     }
 }
 
+/// Work the header values out from whichever kind of header the file has.
 impl From<DatabaseHeader> for HeaderCache {
     fn from(value: DatabaseHeader) -> Self {
         match value {
@@ -119,27 +141,21 @@ impl From<DatabaseHeader> for HeaderCache {
 }
 
 impl<V: Vfs> Pager<V> {
+    /// Open a pager over a database file, with the default cache size.
+    ///
+    /// Any journal left behind by a crash is replayed first, because the file
+    /// may be part way through a write, and the journal is enabled after that so
+    /// the next write has somewhere to record what it is about to change.
+    ///
+    /// # Errors
+    /// Whatever recovering from a crash or reading the file's length reports.
     pub fn new(vfs: V, source: V::File, header: HeaderCache) -> Result<Self, InkError> {
-        let journal_meta = JournalMeta {
-            db_size: source.len().expect("len") as _,
-            p_size: header.page_size as _,
-        };
-        let mut pager = Pager {
-            vfs,
-            source,
-            buffer_pool: BufferPool::new(header.page_size as _),
-            journal: Journal::Disabled,
-            flushed: HashSet::new(),
-            journal_pages: HashSet::new(),
-            header,
-            statistics: Statistics::default(),
-            in_transaction: false,
-            txn_snapshot: None,
-        };
-        pager.recover_from_crash()?;
-        pager.journal.enable(journal_meta);
-        Ok(pager)
+        Self::with_cache(vfs, source, header, DEFAULT_CACHE_SIZE)
     }
+    /// Open a pager with room for this many pages in its cache.
+    ///
+    /// # Errors
+    /// Whatever recovering from a crash or reading the file's length reports.
     pub fn with_cache(
         vfs: V,
         source: V::File,
@@ -166,11 +182,20 @@ impl<V: Vfs> Pager<V> {
         pager.journal.enable(journal_meta);
         Ok(pager)
     }
+    /// Whether a write is under way.
     pub fn in_transaction(&self) -> bool {
         self.in_transaction
     }
+
+    /// Begin a write.
+    ///
+    /// The size the file has now is noted in the journal, since a rollback has
+    /// to bring the file back to it, and a snapshot of the header is taken for
+    /// the same reason. Answers whether a write actually began: one that is
+    /// already running is left alone.
     pub fn start_transaction(&mut self) -> bool {
         if self.in_transaction {
+            // Txn already started somewhere before
             return false;
         }
         if let Ok(len) = self.source.len() {
@@ -178,38 +203,57 @@ impl<V: Vfs> Pager<V> {
         }
         self.txn_snapshot = Some(self.header);
         self.in_transaction = true;
+        // Txn just started
         true
     }
+    /// Check that a page number is one the file could actually have.
+    ///
+    /// # Errors
+    /// [`InkError::InvalidPageNumber`] when the number is zero or past the last
+    /// page, either of which would mean a bug rather than a bad file.
     pub fn validate_page(page_no: PageNo, max_pages: u32) -> Result<(), InkError> {
         if page_no == 0 || page_no > max_pages {
             return Err(InkError::InvalidPageNumber(page_no));
         }
         Ok(())
     }
+    /// How many pages are in the cache right now.
     pub fn cached_page_count(&self) -> usize {
         self.buffer_pool.cached_count()
     }
+    /// How many bytes one page takes.
     pub fn page_size(&self) -> usize {
         self.header.page_size as _
     }
+    /// How much of a page can hold data, with the reserved space left out.
     pub fn usable_size(&self) -> usize {
         self.header.usable_size as _
     }
+    /// The virtual file system the database uses.
     pub(crate) fn vfs_mut(&mut self) -> &mut V {
         &mut self.vfs
     }
+    /// How many bytes the header takes on the first page.
     pub fn header_len(&self) -> usize {
         self.header.header_len()
     }
+
+    /// Which layout the file uses.
     pub fn format(&self) -> DbFormat {
         self.header.format()
     }
+
+    /// How many pages the file holds.
     pub fn max_allocation_pages(&self) -> usize {
         self.header.max_allocated_pages as _
     }
+
+    /// Where a page begins in the file. Page numbers start at one, so the first
+    /// page begins at the start of the file.
     fn get_page_offset(&self, page_no: PageNo) -> usize {
         ((page_no as usize) - 1) * self.header.page_size as usize
     }
+    /// Wrap a frame in a guard, pointing it at the frame's bytes.
     fn guard(&mut self, id: FrameId, state: BorrowState) -> PageGuard {
         let pool = self.buffer_pool.as_ptr_mut();
         let len = self.header.page_size as usize;
@@ -219,19 +263,31 @@ impl<V: Vfs> Pager<V> {
         PageGuard::new(pool, id, slice, state)
     }
 
-    // Todo: temporary turn off for the borrow guard
+    /// Read a page, without the right to change it.
+    ///
+    /// The page comes from the cache when it is already there and from the file
+    /// when it is not. A frame that has to be handed back for the new page is
+    /// written first if it had changes in it, so nothing is lost by taking its
+    /// place.
+    ///
+    /// # Errors
+    /// [`InkError::InvalidPageNumber`] for a page the file does not have,
+    /// [`InkError::BufferPoolExhausted`] when every frame is pinned, and
+    /// whatever reading the page from the file reports.
     pub fn get(&mut self, page_no: PageNo) -> InkResult<PageGuard> {
         Self::validate_page(page_no, self.header.max_allocated_pages)?;
         match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
-                // self.buffer_pool.borrow(frameid, page_no)?;
                 self.statistics.inc_cache_hit();
                 Ok(self.guard(frameid, BorrowState::Ref))
             }
             Acquire::Miss { frameid, evicted } => {
-                // self.buffer_pool.borrow(frameid, page_no)?;
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
+                    // If the frame was dirty, the journal must reach disk before the
+                    // database page. Otherwise, the new page could reach disk without
+                    // its old version being safely stored in the journal, making rollback
+                    // impossible after a crash.
                     if ev.was_dirty {
                         assert_with_runtime_err(
                             matches!(self.journal, Journal::Open { .. }),
@@ -242,6 +298,7 @@ impl<V: Vfs> Pager<V> {
                                 )
                             },
                         )?;
+                        // Safely save pages to disk first.
                         self.journal.persist_tail()?;
                         self.flush_page(ev.page_no, frameid)?;
                         self.flushed.insert(ev.page_no);
@@ -255,21 +312,37 @@ impl<V: Vfs> Pager<V> {
             }
         }
     }
-    // Todo: temporary turn off for the borrow guard
+    /// Read a page, with the right to change it.
+    ///
+    /// The page is recorded in the journal before it is handed out, since the
+    /// caller is about to change it and the journal has to hold the bytes it had
+    /// before. A page is only recorded once, no matter how many times it is
+    /// gotten this way.
+    ///
+    /// # Errors
+    /// The same errors as [`Pager::get`], plus whatever opening the journal or
+    /// writing the journal header reports.
     pub fn get_mut(&mut self, page_no: PageNo) -> InkResult<PageGuard> {
         Self::validate_page(page_no, self.header.max_allocated_pages)?;
         debug_assert!(self.in_transaction, "get mut forbidden outside of txn");
         let frameid = match self.buffer_pool.acquire(page_no)? {
             Acquire::Hit(frameid) => {
-                // self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+                /*
+                 *  Enable this once the borrowing conflict is fixed.
+                 *  self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+                 */
 
                 self.statistics.inc_cache_hit();
                 frameid
             }
             Acquire::Miss { frameid, evicted } => {
-                // self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+                /*
+                 *  Enable this once the borrowing conflict is fixed.
+                 *  self.buffer_pool.exclusive_borrow(frameid, page_no)?;
+                 */
                 if let Some(ev) = evicted {
                     self.statistics.inc_evictions();
+                    // Read the same block above in Pager::get.
                     if ev.was_dirty {
                         assert_with_runtime_err(
                             matches!(self.journal, Journal::Open { .. }),
@@ -306,6 +379,10 @@ impl<V: Vfs> Pager<V> {
         self.buffer_pool.mark_dirty(frameid);
         Ok(self.guard(frameid, BorrowState::RefMut))
     }
+    /// Write one page's bytes to the file and mark its frame as clean.
+    ///
+    /// # Errors
+    /// Whatever the write reports.
     fn flush_page(&mut self, page_no: PageNo, frameid: FrameId) -> Result<(), InkError> {
         let offset = self.get_page_offset(page_no);
         self.source
@@ -314,12 +391,27 @@ impl<V: Vfs> Pager<V> {
         self.statistics.inc_disk_write();
         Ok(())
     }
+    /// Write every page that has changes, oldest first, until none are left.
+    ///
+    /// # Errors
+    /// Whatever writing a page reports.
     pub fn flush_all(&mut self) -> InkResult<()> {
         while let Some((page_no, frameid)) = self.buffer_pool.pop_dirty() {
             self.flush_page(page_no, frameid)?;
         }
         Ok(())
     }
+    /// Finish a write: commit the journal, write every changed page to the
+    /// file, sync it, and remove the journal.
+    ///
+    /// Committing the journal first is what makes this safe. If a crash happens
+    /// partway through writing the pages, the journal still holds every change
+    /// and recovery can finish the job. When there is no open journal there is
+    /// nothing to write, and this only resets the state that tracks the write.
+    ///
+    /// # Errors
+    /// Whatever committing the journal, writing a page, syncing the file or
+    /// removing the journal reports.
     pub fn commit(&mut self) -> Result<(), InkError> {
         if let Journal::Open { raw, file, .. } = &mut self.journal {
             raw.commit(file)?;
@@ -335,6 +427,18 @@ impl<V: Vfs> Pager<V> {
         self.in_transaction = false;
         Ok(())
     }
+    /// Undo a write: put every page the journal recorded back the way it was,
+    /// bring the file back to the size it had, and remove the journal.
+    ///
+    /// A page is put right in whichever place it lives. If it is still in the
+    /// cache its bytes are restored there, and if it was already written to the
+    /// file the old bytes are written as well. If it is not in the cache at all,
+    /// the old bytes go straight to the file. Finally the header is put back to
+    /// the snapshot taken when the write began.
+    ///
+    /// # Errors
+    /// Whatever reading the journal, writing a page, syncing the file or
+    /// removing the journal reports.
     pub fn rollback(&mut self) -> Result<(), InkError> {
         if let Journal::Open { raw, .. } = &mut self.journal {
             let db_size = raw.db_size;
@@ -374,6 +478,16 @@ impl<V: Vfs> Pager<V> {
         self.in_transaction = false;
         Ok(())
     }
+    /// Replay a journal that a crash left behind.
+    ///
+    /// When there is no journal, or the one there is was never committed, there
+    /// is nothing to do and the journal is removed. Otherwise every page it
+    /// holds is written back over the database, the file is trimmed to the size
+    /// the journal says it should have, and the journal is removed.
+    ///
+    /// # Errors
+    /// Whatever reading the journal, writing a page, syncing the file or
+    /// removing the journal reports.
     pub fn recover_from_crash(&mut self) -> Result<(), InkError> {
         let Some(bytes) = self.vfs.read_journal(&self.source)? else {
             return Ok(());
@@ -400,6 +514,14 @@ impl<V: Vfs> Pager<V> {
         self.flushed.clear();
         Ok(())
     }
+    /// Get a page for something new to be written into.
+    ///
+    /// A page off the freelist is used when there is one. Otherwise the file is
+    /// grown by a page and the new page at the end is handed back.
+    ///
+    /// # Errors
+    /// Whatever taking a page off the freelist, growing the file or writing the
+    /// new size into the header reports.
     pub fn allocate_new_page(&mut self) -> Result<PageNo, InkError> {
         let first = self.header.first_freelist_truck_page;
         let total = self.header.total_freelist_pages;
@@ -418,6 +540,10 @@ impl<V: Vfs> Pager<V> {
         self.update_max_allocated_pages()?;
         Ok(new_page_no as _)
     }
+    /// Write the number of pages the file holds into the header on page one.
+    ///
+    /// # Errors
+    /// Whatever reading or writing the first page reports.
     pub fn update_max_allocated_pages(&mut self) -> Result<(), InkError> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
@@ -426,6 +552,10 @@ impl<V: Vfs> Pager<V> {
             .copy_from_slice(&(self.header.max_allocated_pages).to_be_bytes());
         Ok(())
     }
+    /// Write the first freelist trunk page into the header on page one.
+    ///
+    /// # Errors
+    /// Whatever reading or writing the first page reports.
     pub fn update_first_freelist_truck_page(&mut self) -> Result<(), InkError> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
@@ -434,6 +564,10 @@ impl<V: Vfs> Pager<V> {
             .copy_from_slice(&(self.header.first_freelist_truck_page).to_be_bytes());
         Ok(())
     }
+    /// Write the number of pages on the freelist into the header on page one.
+    ///
+    /// # Errors
+    /// Whatever reading or writing the first page reports.
     pub fn update_total_free_pages(&mut self) -> InkResult<()> {
         let mut guard = self.get_mut(1)?;
         let bytes = guard.bytes_as_mut_unchecked();
