@@ -5,6 +5,33 @@ use crate::{InkResult, MemCursor};
 use super::pager::{PageNo, Pager};
 
 impl<V: Vfs> Pager<V> {
+    /// Take one page off the freelist.
+    ///
+    /// A freelist page is a trunk. The first trunk holds up to a page's worth of
+    /// spare page numbers and points on to the next trunk. This hands back the
+    /// page at the end of the first trunk's list, or the trunk page itself when
+    /// its list is empty, and answers with that page, the first trunk the caller
+    /// should record next, and how many pages are left on the freelist.
+    ///
+    /// +----------+                +-------Trunk pages-------+
+    /// |          |                |                         |
+    /// +----------+        +---------------+         +---------------+       +----+
+    /// | Freelist |------->|Trunck Pointer |-------> |Trunck Pointer |------>|NULL|
+    /// +----------+        +---------------+         +---------------+       +----+
+    /// |          |        | No of leaves  |         | No of leaves  |
+    /// |          |        +---------------+         +---------------+
+    /// +----------+        |               |         |               |
+    ///                     |               |         |               |
+    ///  File header        |   Leaf page   |         |   Leaf page   |
+    ///                     |    numbers    |         |    numbers    |
+    ///                     |               |         |               |
+    ///                     |               |         |               |
+    ///                     |               |         |               |
+    ///                     +---------------+         +---------------+
+    /// # Errors
+    /// [`CorruptError::FreelistTrunkMissing`] when there are pages on the
+    /// freelist but no trunk to find them, and its several companions when the
+    /// trunk, its count or a leaf page number cannot be right.
     pub fn freelist_alloc(
         &mut self,
         first: u32,
@@ -39,6 +66,12 @@ impl<V: Vfs> Pager<V> {
         bytes[4..8].copy_from_slice(&u32::to_be_bytes(leaf_count - 1));
         Ok(Some((last_leaf, first, total - 1)))
     }
+
+    /// Put a page back on the freelist and write the new head and count into the
+    /// database header.
+    ///
+    /// # Errors
+    /// Whatever walking the freelist or writing the header reports.
     pub fn dealloc(&mut self, page_no: PageNo) -> InkResult<()> {
         let first = self.header.first_freelist_truck_page;
         let total = self.header.total_freelist_pages;
@@ -55,6 +88,14 @@ impl<V: Vfs> Pager<V> {
         }
         Ok(())
     }
+    /// Add a page to the freelist.
+    ///
+    /// The trunks are walked from the first one until one has room for the page.
+    /// If none has room, the page becomes a new trunk pointing to the old first
+    /// trunk. Returns the first trunk and the new freelist page count.
+    ///
+    /// # Errors
+    /// Whatever reading a trunk page reports.
     pub fn freelist_push(
         &mut self,
         page_no: PageNo,
@@ -73,6 +114,7 @@ impl<V: Vfs> Pager<V> {
                 next_page_no = cursor.read_next_u32()?;
                 leaf_count = cursor.read_next_u32()?;
                 let leaf_offset = 8usize + 4usize * leaf_count as usize;
+                // Simlpe push to the freelist since there is enough space for new one to fit.
                 if leaf_offset + 4 <= usable_size {
                     cursor.move_forward_by(u64::from(leaf_count * 4))?;
                     let curr_pos = cursor.stream_pos() as usize;
@@ -84,6 +126,8 @@ impl<V: Vfs> Pager<V> {
             current = next_page_no;
         }
         {
+            // Replace the null pointer with the new page, and make
+            // the new page point to nothing.
             let mut guard = self.get_mut(page_no)?;
             let bytes = guard.bytes_as_mut_unchecked();
             bytes[0..4].copy_from_slice(&u32::to_be_bytes(first));
