@@ -4,6 +4,7 @@ pub mod guard;
 pub mod journal;
 pub mod metadata;
 // TEMP FOR NOW
+pub mod freelist;
 #[allow(clippy::module_inception)]
 pub mod pager;
 pub mod raw_journal;
