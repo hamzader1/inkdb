@@ -5,12 +5,10 @@ use std::path::PathBuf;
 
 /// An open file inside a VFS, produced by [`Vfs::open`].
 ///
-/// Where the VFS is the factory, an `InkFile` is the handle: the thing the
-/// pager reads and writes through. Implementations are free to back it however
-/// they like, so the same engine code works against a real disk file
-/// ([`DiskFile`](crate::vfs::disk::DiskFile))
-/// or an in-memory buffer
-/// ([`MemFile`](crate::vfs::mem::MemFile))).
+/// Where the VFS is the factory, an `InkFile` is the handle: the thing the pager
+/// reads and writes through. Implementations are free to back it however they
+/// like, so the same engine code works against a real disk file
+/// ([`DiskFile`](crate::vfs::disk::DiskFile)) or against bytes held in memory.
 #[allow(clippy::len_without_is_empty)]
 pub trait InkFile: std::fmt::Debug {
     /// The name of the file, without any directory part.
