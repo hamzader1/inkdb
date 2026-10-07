@@ -60,7 +60,7 @@ impl ExprArena {
 /// them by index. The original text is kept as well, because errors quote it.
 ///
 /// The grammar is written as a chain of small functions, each one handling a
-/// level of precedence and calling the next level down, see [`Parser::parse_expression`].
+/// level of precedence and calling the next level down.
 pub struct Parser {
     pub query: Rc<str>,
     pub tokens: Vec<Token>,
