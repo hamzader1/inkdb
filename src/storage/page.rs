@@ -435,11 +435,9 @@ pub(crate) type PageMut<'a> = BTreePage<&'a mut [u8]>;
 ///                └───────────────┘
 /// ```
 ///
-/// Our [`BTreePage`] wraps the page's bytes and knows how to read and change the header, the
-/// cell pointer array and the cells themselves. The byte type is generic, so one
-/// piece of code serves a shared view, an exclusive one and an owned buffer:
-/// reading is all most of it needs, and only the methods that change the page ask
-/// for a mutable view.
+/// [`BTreePage`] wraps the page bytes and handles the header, cell pointer array,
+/// and cells. Reading only needs a shared view, while changes
+/// require a mutable one.
 #[derive(Debug)]
 pub struct BTreePage<B> {
     page_no: PageNo,
@@ -967,17 +965,6 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
             &*self.bytes_mut(),
         )
     }
-    /*
-
-     * Claim `size` bytes from the freelist (first-fit).
-     * - leftover == 0: unlink the whole block.
-     * - 0 < leftover < 4: unlink the block, crumbs go to frag_cnt (too small
-     * to form a freeblock).
-     * - leftover >= 4: carve `size` bytes off the front, the remainder stays
-     * a freeblock at [offset + size] with the old next pointer; prev (or
-     * the header when taking from the head) is relinked to it.
-
-    */
     /// Take the first freeblock with room for `size` bytes, answering with where
     /// it is, or nothing when no freeblock is big enough.
     ///
