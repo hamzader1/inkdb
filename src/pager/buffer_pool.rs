@@ -47,8 +47,9 @@ impl BufferPool {
     }
     fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), InkError> {
         assert_one(
-            self.page_table.contains_key(&page_no)
-                && *self.page_table.get(&page_no).unwrap() == frame_id,
+            self.page_table
+                .get(&page_no)
+                .is_some_and(|tableframe_id| *tableframe_id == frame_id),
             InkError::InternalFmt(format!(
                 "buffer pool evict: frame {frame_id} does not map page {page_no}"
             )),
