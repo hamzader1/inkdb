@@ -22,18 +22,6 @@ pub struct Record<'a> {
 }
 
 impl<'a> Record<'a> {
-    /// Read the record’s bytes and make sure they are valid.
-    ///
-    /// This goes through the header once and checks that the serial types don’t
-    /// require more data than the record actually contains. It also rejects serial
-    /// types reserved by SQLite, so invalid records are caught here instead of
-    /// causing problems when a field is read later.
-    ///
-    /// # Errors
-    /// [`CorruptError::RecordHeader`] when the header does not fit the bytes,
-    /// [`CorruptError::ReservedSerialType`] for a serial type of 10 or 11, and
-    /// [`CorruptError::TruncatedRecord`] when the payload is shorter than the
-    /// header promises.
     pub fn new(bytes: &'a [u8]) -> InkResult<Self> {
         let (header_len, consumed) = decode_varint(bytes).ok_or(CorruptError::RecordHeader {
             claimed: 0,
