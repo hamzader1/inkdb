@@ -168,42 +168,54 @@ impl Eval {
                 right,
             } => match op {
                 BinaryOperator::Eq => {
-                    if Self::eval(arena, left, row)? == Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left == right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::NotEq => {
-                    if Self::eval(arena, left, row)? != Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left != right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Gt => {
-                    if Self::eval(arena, left, row)? > Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left > right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Ge => {
-                    if Self::eval(arena, left, row)? >= Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left >= right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Lt => {
-                    if Self::eval(arena, left, row)? < Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left < right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Le => {
-                    if Self::eval(arena, left, row)? <= Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left <= right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
