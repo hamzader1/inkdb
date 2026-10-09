@@ -15,12 +15,6 @@ pub struct InkMetadata {
 }
 
 impl InkMetadata {
-    /// Put the five values together.
-    ///
-    /// # Panics
-    /// When the page size is smaller than the usable size, or when the file is
-    /// said to hold no pages, either of which means the header was not read
-    /// correctly.
     pub fn new(
         page_size: usize,
         usable_size: usize,
