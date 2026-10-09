@@ -80,12 +80,10 @@ impl<'a> Analyze<'a> {
         Ok(())
     }
 
-    // General purpose
     /// Bind every name in an expression in place.
     ///
-    /// Each identifier becomes a column reference and nothing else moves, so the
-    /// arena keeps its shape and the expression index stays valid. This is what a
-    /// WHERE clause, a LIMIT or an UPDATE target uses.
+    /// Identifiers become column references without changing the arena indices.
+    /// This is used for expressions that do not expand `*`, such as `WHERE`.
     pub(super) fn fast_bind(
         table: &impl TableSchema,
         idx: usize,

@@ -60,8 +60,7 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
-    /// The table the statement is about, when there is one, which is what a
-    /// CHECK constraint error names.
+    /// The statement's table, used in CHECK constraint errors.
     pub fn table_name(&self) -> Option<&str> {
         match self {
             Self::AutoCommit {
@@ -86,7 +85,7 @@ impl<V: Vfs> PreparedPlan<V> {
         self
     }
 
-    /// Set the table from outside, which is what an EXPLAIN does with the table of the query it wraps.
+    /// Set the table name for a wrapped statement such as `EXPLAIN`.
     pub(crate) fn set_statement_table(&mut self, table: Option<String>) {
         match self {
             Self::AutoCommit {

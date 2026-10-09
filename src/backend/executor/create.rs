@@ -194,8 +194,7 @@ impl<V: Vfs> CreateIndex<V> {
     }
     /// Create the index page and write its catalog row, without filling it.
     ///
-    /// Doing this on its own is what lets a table create its automatic indexes
-    /// and then fill them as its own rows go in.
+    /// Table creation uses this to create automatic indexes before inserting rows.
     pub fn initialize(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         if self.is_init {
             return Ok(());
