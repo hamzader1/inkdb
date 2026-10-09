@@ -15,6 +15,6 @@ pub(crate) mod varint;
 pub mod vfs;
 use errors::InkError;
 
-pub(crate) use storage::cursor::MemCursor;
+pub(crate) use storage::mem_cursor::MemCursor;
 
 pub(crate) type InkResult<T> = Result<T, InkError>;
