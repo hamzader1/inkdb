@@ -5,6 +5,7 @@ use crate::vfs::Vfs;
 use super::Row;
 use super::context::ExecCtx;
 
+/// Hands on at most a fixed number of rows.
 #[derive(Debug)]
 pub struct Limit<V: Vfs> {
     child: Box<Plan<V>>,
@@ -20,9 +21,11 @@ impl<V: Vfs> Limit<V> {
             is_done: false,
         }
     }
+    /// The operator this one pulls from.
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
+    /// Count down over the rows from below, stopping once the limit is reached.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if self.is_done {
             return Ok(None);
