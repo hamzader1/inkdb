@@ -2,24 +2,36 @@ use super::*;
 
 impl<'a> Eq for Value<'a> {}
 
+/// Two values are equal exactly when the ordering finds nothing between them.
 impl<'a, 'b> PartialEq<Value<'b>> for Value<'a> {
     fn eq(&self, other: &Value<'b>) -> bool {
         compare_values(self, other) == Ordering::Equal
     }
 }
 
+/// Every pair of values is comparable, so this never answers `None`.
 impl<'a, 'b> PartialOrd<Value<'b>> for Value<'a> {
     fn partial_cmp(&self, other: &Value<'b>) -> Option<Ordering> {
         Some(compare_values(self, other))
     }
 }
 
+/// The order that sorting and index seeks use. It is decided in one place, so
+/// `==`, `<` and a sort can never disagree.
 impl<'a> Ord for Value<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         compare_values(self, other)
     }
 }
 
+/// Order two values the way SQLite does.
+///
+/// The kinds of value are ranked NULL first, then numbers, then text, then
+/// blobs, then tuples, and inside a kind the natural order takes over. Numbers
+/// compare exactly, without the rounding a cast to a float would bring, which is
+/// why integer against float is handled by [`compare_num`]. A tuple compares
+/// element by element and, when one is a prefix of the other, the shorter one
+/// comes first.
 fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
     match (a, b) {
         // NULL
@@ -87,6 +99,16 @@ fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
         }
     }
 }
+/// Compare an integer with a float without losing the integer's precision.
+///
+/// Casting an `i64` to an `f64` is safe only up to 2^53, past which the float
+/// can no longer hold every whole number. Inside that window the cast is used,
+/// since a float that survives it is the same float. Outside it, the float is
+/// first checked against the ends of an `i64`, and if it lies inside, its whole
+/// part is compared with the integer and its fraction settles the tie.
+// I could ignore this and cast directly to i64, since no one is likely to use
+// a number that large. But why not learn something new?
+// [`Source`](https://stackoverflow.com/questions/58734034/how-to-properly-compare-an-integer-and-a-floating-point-value)
 pub(crate) fn compare_num(i: i64, f: f64) -> Ordering {
     // Safe Window Optimization: If the integer safely fits in 53 bits,
     // casting to f64 is mathematically lossless.
@@ -112,7 +134,7 @@ pub(crate) fn compare_num(i: i64, f: f64) -> Ordering {
 
     match i.cmp(&f_as_i64) {
         Ordering::Equal => {
-            // Tie breaker: The integer matches the truncated float whole number part.
+            // The integer matches the truncated float whole number part.
             // We calculate the remaining decimal fraction on the float side.
             let fraction = f - (f_as_i64 as f64);
             if fraction > 0.0 {

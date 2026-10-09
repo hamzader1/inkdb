@@ -145,6 +145,23 @@ fn order_by_keeps_the_rowid_of_an_integer_primary_key_table() {
         "select v from t order by v",
         1,
     );
+    // Sorting by the primary key column is sorting by the row id, which is not
+    // stored in the row. The key of a row has to be read as if the column were
+    // there, or the sort sees nothing to order by.
+    check(
+        &mut db,
+        &path,
+        "select * from t order by id",
+        "select id from t order by id",
+        0,
+    );
+    check(
+        &mut db,
+        &path,
+        "select * from t order by id desc",
+        "select id from t order by id desc",
+        0,
+    );
     commit_and_close(db);
     cleanup(&path);
 }

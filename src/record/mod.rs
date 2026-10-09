@@ -1,6 +1,6 @@
 pub mod arith;
 pub mod cmp;
-/*Temporary*/
+/*Temporary for now*/
 #[allow(clippy::module_inception)]
 pub mod record;
 pub mod tuple;
@@ -12,46 +12,70 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use crate::errors::InkError;
+/// A mask over the bits an `i8` can hold.
+///
+/// An integer this mask leaves untouched has no bits above the eighth, so the
+/// encoder can spend a single byte on it.
 #[rustfmt::skip]
 pub const I8_MASK:  i64 = 0x0000_0000_0000_007F;
+/// A mask over the bits an `i16` can hold. See [`I8_MASK`].
 pub const I16_MASK: i64 = 0x0000_0000_0000_7FFF;
+/// A mask over the bits an `i32` can hold. See [`I8_MASK`].
 pub const I32_MASK: i64 = 0x0000_0000_7FFF_FFFF;
+/// A mask over the bits an `i64` can hold. See [`I8_MASK`].
 pub const I64_MASK: i64 = 0x7FFF_FFFF_FFFF_FFFF;
 
+/// Serial type codes, as SQLite defines them.
+///
+/// Every field of a record is tagged with one of these numbers, and the tag says
+/// both what the field holds and how much room it takes. Numbers are written big
+/// endian. Zero is NULL, and one through six are signed integers of 8, 16, 24,
+/// 32, 48 and 64 bits. Seven is a 64 bit float. Eight and nine are the integers
+/// 0 and 1, which take no bytes at all. Ten and eleven are reserved by SQLite.
+/// From twelve on the tag carries a length too: an even tag of 12 or more is a
+/// blob of (tag - 12) / 2 bytes, and an odd tag of 13 or more is text of
+/// (tag - 13) / 2 bytes.
+/// More about this: [`source`](https://sqlite.org/fileformat.html#schema_layer)
 pub const SERIAL_NULL: u8 = 0;
+/// A signed integer in one byte.
 pub const SERIAL_INT8: u8 = 1;
+/// A signed integer in two bytes.
 pub const SERIAL_INT16: u8 = 2;
+/// A signed integer in three bytes.
 pub const SERIAL_INT24: u8 = 3;
+/// A signed integer in four bytes.
 pub const SERIAL_INT32: u8 = 4;
+/// A signed integer in six bytes.
 pub const SERIAL_INT48: u8 = 5;
+/// A signed integer in eight bytes.
 pub const SERIAL_INT64: u8 = 6;
+/// A float in eight bytes.
 pub const SERIAL_FLOAT64: u8 = 7;
+/// The integer 0, which is written without any bytes.
 pub const SERIAL_INT0: u8 = 8;
+/// The integer 1, which is written without any bytes.
 pub const SERIAL_INT1: u8 = 9;
-// Reserved by Sqlite
-/*
-   const SERIAL_RESERVED_10: u8 = 10;
-   const SERIAL_RESERVED_11: u8 = 11;
-*/
+/// The lowest tag that means a blob. Every even tag from here up does, and the
+/// length of the blob follows from the tag.
 pub const SERIAL_BLOB_MIN: u8 = 12;
+/// The lowest tag that means text. Every odd tag from here up does, and the
+/// length of the text follows from the tag.
 pub const SERIAL_TEXT_MIN: u8 = 13;
 
-// pub const SIZE_NULL: usize = 0;
-// pub const SIZE_INT8: usize = 1;
-// pub const SIZE_INT16: usize = 2;
-// pub const SIZE_INT24: usize = 3;
-// pub const SIZE_INT32: usize = 4;
-// pub const SIZE_INT48: usize = 6;
-// pub const SIZE_INT64: usize = 8;
-// pub const SIZE_FLOAT64: usize = 8;
-// pub const SIZE_INT0: usize = 0;
-
-const MAX_SAFE_INT: i64 = 9_007_199_254_740_992; //  2^53
+/// The largest whole number a float still holds exactly, so an integer inside
+/// this window can be compared with a float by casting and losing nothing.
+const MAX_SAFE_INT: i64 = 9_007_199_254_740_992; // 2^53
+/// The smallest whole number a float still holds exactly, the other end of the
+/// same window.
 const MIN_SAFE_INT: i64 = -9_007_199_254_740_992; // -2^53
 
+/// What one field's serial type says about it: which kind of value it is and how
+/// many bytes it takes.
 #[derive(Debug)]
 pub(crate) struct RecordMetadata {
+    /// The decoded serial type, one of the `SERIAL_*` codes above.
     pub serial_type: u8,
+    /// The length of the field's bytes.
     pub size: usize,
 }
 
@@ -61,17 +85,29 @@ impl RecordMetadata {
     }
 }
 
+/// One value, the smallest thing a record is made of.
+///
+/// Text and blobs borrow from the bytes of the record they were read from, and
+/// are copied only when the value has to outlive them. A tuple is several values
+/// under one key, which is what an index entry is.
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
+    /// A missing or unknown value.
     Null,
+    /// A whole number.
     Integer(i64),
+    /// A number with a fractional part.
     Float(f64),
+    /// A string of characters.
     Text(Cow<'a, str>),
+    /// A run of bytes, with no meaning of its own.
     Blob(Cow<'a, [u8]>),
+    /// Several values together, in a fixed order.
     Tuple(Box<[Value<'a>]>),
 }
 
 impl<'a> Value<'a> {
+    /// Take ownership of the value, copying any text or blob it borrows.
     pub fn into_static(self) -> Value<'static> {
         match self {
             Value::Text(x) => Value::Text(Cow::Owned(x.into_owned())),
@@ -83,6 +119,7 @@ impl<'a> Value<'a> {
         }
     }
 
+    /// A copy that owns its text and blob, leaving the original alone.
     pub fn to_owned_static(&self) -> Value<'static> {
         match self {
             Value::Text(x) => Value::Text(Cow::Owned(x.as_ref().to_string())),
@@ -122,24 +159,8 @@ impl From<String> for Value<'static> {
     }
 }
 
-/*
-   SQLite serial type codes:
-   0       -> NULL
-   1       -> i8
-   2       -> BE i16
-   3       -> BE i24
-   4       -> BE i32
-   5       -> BE i48
-   6       -> BE i64
-   7       -> BE f64 (IEEE 754)
-   8       -> integer 0
-   9       -> integer 1
-   10,11    -> reserved/internal
-   N>=12 even -> BLOB, (N-12)/2 bytes
-   N>=13 odd  -> TEXT, (N-13)/2 bytes
-*/
-
 impl<'a> Value<'a> {
+    /// The name of the value's type.
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Null => "NULL",
@@ -150,6 +171,13 @@ impl<'a> Value<'a> {
             Value::Tuple(_) => "TUPLE",
         }
     }
+    /// Write the value as text.
+    ///
+    /// Blobs and tuples have no one sensible text form, so they are reported as
+    /// a failed conversion rather than guessed at.
+    ///
+    /// # Errors
+    /// [`InkError::type_conversion`] when the value cannot be written as text.
     pub fn to_string(&self) -> Result<String, InkError> {
         match self {
             Value::Null => Ok("NULL".to_string()),
@@ -161,12 +189,27 @@ impl<'a> Value<'a> {
             Value::Tuple(_) => Err(InkError::type_conversion("TEXT", self.type_name())),
         }
     }
+    /// Read the value as a whole number.
+    ///
+    /// Nothing is converted here: a float or some text is a conversion error
+    /// rather than being rounded or parsed.
+    ///
+    ///
+    /// # Errors
+    /// [`InkError::type_conversion`] when the value is not an integer.
+    ///
+    /*  We always call this with a valid Value::Integer. */
     pub fn cast_int(&self) -> Result<i64, InkError> {
         match self {
             Value::Integer(n) => Ok(*n),
             other => Err(InkError::type_conversion("INTEGER", other.type_name())),
         }
     }
+    /// Read the value as a float, which an integer also answers to.
+    ///
+    /// # Errors
+    /// [`InkError::type_conversion`] when the value is neither a float nor an
+    /// integer.
     pub fn get_float(&self) -> Result<f64, InkError> {
         match self {
             Value::Float(n) => Ok(*n),
@@ -198,6 +241,8 @@ impl<'a> std::fmt::Display for Value<'a> {
     }
 }
 impl<'a> Value<'a> {
+    /// NULL, zero and zero point zero are false, and so are blobs and tuples.
+    /// Any text is true, even text that reads like a number.
     pub fn to_bool(&self) -> bool {
         match self {
             Value::Null => false,
@@ -209,29 +254,30 @@ impl<'a> Value<'a> {
     }
 }
 
+/// A number on its way to being written, at the narrowest width that still
+/// holds it.
+///
+/// The masks above decide how many bytes an integer needs. A float is narrowed
+/// to `f32` only when that conversion changes nothing, since a record cannot
+/// afford to lose precision just to save four bytes.
 #[derive(Debug)]
 pub(crate) enum CompressedNumeric {
+    /// Fits in one byte.
     I8(i8),
+    /// Fits in two bytes.
     I16(i16),
+    /// Fits in four bytes.
     I32(i32),
+    /// Needs all eight bytes.
     I64(i64),
+    /// A float that survives being narrowed to `f32`.
     F32(f32),
+    /// A float that needs all eight bytes.
     F64(f64),
 }
-// impl CompressedNumeric {
-//     fn into_int<T: Copy + Clone>(self) -> T {
-//         match self {
-//             Self::I8(x) => {
-//                 let v = (&x as *const i8 as *const T);
-//                 unsafe { *v }
-//             }
-//             _ => todo!(),
-//         }
-//     }
-// }
+
 impl<'a> From<&Value<'a>> for CompressedNumeric {
     fn from(value: &Value<'a>) -> Self {
-        // let value = value.get_int().unwrap();
         match value.cast_int() {
             Ok(value) => {
                 if value & I8_MASK == value {
@@ -252,6 +298,7 @@ impl<'a> From<&Value<'a>> for CompressedNumeric {
                         Self::F64(value)
                     }
                 }
+                // Must be unreachable by this time.
                 _ => panic!("Compressing works only for integers and floats"),
             },
         }

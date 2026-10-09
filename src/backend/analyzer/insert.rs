@@ -9,6 +9,13 @@ use crate::util::assert_with_runtime_err;
 use super::{Analyze, ResolvedInsertQuery, ResolvedQuery};
 
 impl<'a> Analyze<'a> {
+    /// Resolve an INSERT.
+    ///
+    /// Each row becomes a full row of values in table column order, with a value
+    /// evaluated for every column the statement names and the column default
+    /// filled in for the ones it does not. Every value is checked against the
+    /// column affinity, NULL is only allowed where the column is not NOT NULL, and
+    /// the table CHECK constraints are run over the finished row.
     pub(crate) fn analyze_insert_stmt(&self, stmt: InsertStmt) -> Result<ResolvedQuery, InkError> {
         let InsertStmt {
             table_name,
@@ -94,12 +101,15 @@ impl<'a> Analyze<'a> {
     }
 }
 
+/// The number of values in a VALUES tuple has to match the number of columns it
+/// fills.
 fn assert_value_count(provided: usize, expected: usize) -> InkResult<()> {
     assert_with_runtime_err(provided == expected, || {
         format!("{provided} values for {expected} columns")
     })
 }
 
+/// Every name in the column list has to belong to the table.
 fn assert_columns_resolved(table: &Table, columns: &[String], resolved: usize) -> InkResult<()> {
     if resolved == columns.len() {
         return Ok(());
@@ -125,6 +135,7 @@ fn assert_columns_resolved(table: &Table, columns: &[String], resolved: usize) -
     }
 }
 
+/// Put a value into a column only when the column allows NULL.
 fn assert_not_null(col: &Column, table_name: &str) -> InkResult<()> {
     /*
      * Error if
@@ -138,6 +149,8 @@ fn assert_not_null(col: &Column, table_name: &str) -> InkResult<()> {
     )
 }
 
+/// Fill in a column the statement did not name: with its default when it has one,
+/// and otherwise with NULL, which the NOT NULL check then has its say about.
 fn handle_missing(col: &Column, table_name: &str, out: &mut Vec<Value>) -> InkResult<()> {
     if let Some(ref default) = col.default {
         assert!(matches!(default, DefaultValue::Val(_)));

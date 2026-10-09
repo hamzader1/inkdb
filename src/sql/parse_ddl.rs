@@ -5,7 +5,14 @@ use super::tokens::TokenKind::*;
 use crate::InkResult;
 use crate::errors::InkError;
 
+/// The statements that build and remove schema objects.
 impl Parser {
+    /// Read a `CREATE` statement, either a table or an index.
+    ///
+    /// # Errors
+    /// An error when the keyword after `CREATE` is neither `TABLE` nor `INDEX`,
+    /// and when a table or index is created with `UNIQUE` in front of it, which
+    /// only an index may have.
     pub(crate) fn parse_create(&mut self) -> Result<Ast, InkError> {
         self.expect(Create)?;
         let unique = self.eat(Unique);
@@ -24,6 +31,10 @@ impl Parser {
             )),
         }
     }
+    /// Read a `DROP` statement, either a table or an index.
+    ///
+    /// # Errors
+    /// An error when the keyword after `DROP` is neither `TABLE` nor `INDEX`,
     pub(crate) fn parse_drop(&mut self) -> InkResult<Ast> {
         self.expect(Drop)?;
         match self.peek() {
@@ -35,6 +46,8 @@ impl Parser {
         }
     }
 
+    /// Read a table definition: the column list, the column types, and the
+    /// constraints written on each column.
     fn parse_create_table(&mut self) -> Result<Ast, InkError> {
         self.expect(Table)?;
         let name = self.expect_ident()?.to_ascii_lowercase();
@@ -43,12 +56,12 @@ impl Parser {
         let mut tbl_constraints = Vec::new();
         while !self.at(RightParen) {
             columns.push(self.parse_create_column()?);
-            if !self.eat(Comma) {
-                break;
-            }
             if self.eat(Check) {
                 let tbl_cst = self.parse_expression()?;
                 tbl_constraints.push(tbl_cst);
+            }
+            if !self.eat(Comma) {
+                break;
             }
         }
         self.expect(RightParen)?;
@@ -61,6 +74,8 @@ impl Parser {
         }))
     }
 
+    /// Read an index definition. `unique` is already known by the time this is
+    /// called, because it is the keyword that came before `INDEX`.
     fn parse_create_index(&mut self, unique: bool) -> Result<Ast, InkError> {
         self.expect(Index)?;
         if self.eat(If) {
@@ -88,7 +103,15 @@ impl Parser {
         }))
     }
 
-    /// not parse_columns since [`SelectStmt`] (and Insert later) reserved it
+    /// Read one column of a table: its name, its type, and whatever constraints
+    /// follow the type.
+    /// The name and type is required.
+    ///
+    /// # Errors
+    /// An error when the name or the type is missing, and when the column is
+    /// declared with an empty type size such as `INTEGER()`. Named
+    /// `parse_create_column` rather than `parse_column` because the name
+    /// `parse_columns` already belongs to the select list.
     fn parse_create_column(&mut self) -> Result<Column, InkError> {
         let name = self.expect_ident()?.to_ascii_lowercase();
         let mut affinity: Option<Affinity> = None;
@@ -152,6 +175,7 @@ impl Parser {
         })
     }
 
+    /// Work out the type of a column from the words written for it.
     fn set_affinity(
         &mut self,
         slot: &mut Option<Affinity>,
@@ -167,6 +191,17 @@ impl Parser {
         Ok(())
     }
 
+    /// Read the optional size in brackets after a type, as in `DECIMAL(10)` or
+    /// `DECIMAL(10, 2)`.
+    ///
+    /// A size wider than the column can hold affects nothing here, since the
+    /// value stored is what decides how much room it needs, so the numbers are
+    /// read and then left behind. Reading them still matters, because a type
+    /// written with a size has to be accepted rather than rejected as junk.
+    ///
+    /// # Errors
+    /// An error when the brackets are left unclosed or hold something other than
+    /// a comma between the numbers.
     fn eat_type_size(&mut self) -> Result<(), InkError> {
         if !self.eat(LeftParen) {
             return Ok(());
@@ -189,6 +224,7 @@ impl Parser {
         self.expect(RightParen)
     }
 
+    /// Read the name of the table to drop.
     pub(crate) fn parse_drop_table(&mut self) -> InkResult<Ast> {
         self.expect(Table)?;
         let tbl_name = self.expect_ident()?.to_ascii_lowercase();
@@ -196,6 +232,7 @@ impl Parser {
         Ok(Ast::DropTblAst(DropTableStmt { tbl_name }))
     }
 
+    /// Read the name of the index to drop.
     pub(crate) fn parse_drop_index(&mut self) -> InkResult<Ast> {
         self.expect(Index)?;
         let index_name = self.expect_ident()?.to_ascii_lowercase();

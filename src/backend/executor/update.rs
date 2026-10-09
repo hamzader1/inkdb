@@ -6,6 +6,11 @@ use crate::{
     vfs::Vfs,
 };
 
+/// Rewrites the columns an UPDATE names.
+///
+/// Each new value is evaluated over the row as it was before the change, so an
+/// expression may read any column, including one being changed. The columns are
+/// held as the index of the target column and the arena index of its new value.
 #[derive(Debug)]
 pub struct Update<V: Vfs> {
     pub(crate) child: Box<Plan<V>>,
@@ -21,6 +26,10 @@ impl<V: Vfs> Update<V> {
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
+    /// Compute the new values for one row and hand on the rewritten row.
+    ///
+    /// The row comes back with a key of zero, since it is about to be inserted
+    /// again and its row id will be decided there.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if let Some(row) = self.child.next(ctx)? {
             let mut row_values = row.to_values()?;

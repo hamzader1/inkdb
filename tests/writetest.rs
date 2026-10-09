@@ -3,7 +3,7 @@ fn btree_index_split_roundtrip() {
     use inkdb::pager::pager::Pager;
     use inkdb::record::Value;
     use inkdb::record::tuple::Tuple;
-    use inkdb::storage::btree::BTree;
+    use inkdb::storage::btree::tree::BTree;
     use inkdb::storage::cell::Encode;
     use inkdb::vfs::disk::DiskVfs;
     use inkdb::vfs::{InkOptions, Vfs};

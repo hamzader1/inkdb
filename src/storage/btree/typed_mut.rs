@@ -7,10 +7,15 @@ use crate::vfs::Vfs;
 
 use super::kind::{IndexInterior, IndexLeaf, PageKind, TableInterior, TableLeaf, TypedPage};
 
+/// A page borrowed for writing, with its kind worked out from its bytes.
 pub(crate) enum AnyPageMut<B> {
+    /// A table interior page.
     TableInterior(TypedPage<B, TableInterior>),
+    /// A table leaf page.
     TableLeaf(TypedPage<B, TableLeaf>),
+    /// An index interior page.
     IndexInterior(TypedPage<B, IndexInterior>),
+    /// An index leaf page.
     IndexLeaf(TypedPage<B, IndexLeaf>),
 }
 
@@ -32,6 +37,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> AnyPageMut<B> {
         })
     }
 
+    /// How many cells the page holds, whichever kind it turned out to be.
     #[allow(dead_code)]
     pub(crate) fn no_of_cells(&self) -> InkResult<u16> {
         match self {

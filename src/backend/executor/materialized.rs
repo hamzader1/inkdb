@@ -12,24 +12,23 @@ use crate::vfs::file::InkFile;
 use super::StreamSource;
 
 use super::MEM_CAP;
-const FILE: &str = "ink_update";
+/// The name of the temporary file the collected rows spill into. It is reused
+/// between runs rather than recreated, so the name is fixed.
+const FILE: &str = "ink_update_temp";
 
-/*
-
-* MaterializedResult plan was created to be used mainly for the update plan.
-* Update plan needs to (in plan) delete a row and insert it
-* while some sort of scanner is yielding rows to it.
-* However, this method won’t work well since there is a risk
-* of getting stuck in an infinite loop, for example, we delete row A
-* and insert row A, but the source of the scan (either index scan or tablescan)
-* will continue searching for rows that match the where clause, this may lead to visiting
-* the row twice or even more (infinity).
-*
-* As a solution to this, we will collect all rows either in memory buffer for smaller outputs or in disk
-* in case if we exceed the maximum memory capacity.
-* So later we start yielding rows safely since we have a copy of them stored in a
-* StreamSouce
-    */
+/// Runs its child to completion, collects every row, then yields them one by one.
+///
+/// This plan was created mainly for the UPDATE plan, which deletes and reinserts
+/// rows while the underlying operator is still scanning for rows that match the
+/// WHERE clause. For example, deleting row A and inserting it again could cause
+/// the scan to visit the same row repeatedly, potentially leading to an infinite
+/// loop.
+///
+/// To prevent this, we collect all rows before yielding any of them. Rows stay
+/// in memory while they fit within the memory limit and spill to a temporary
+/// file when that limit is exceeded. This allows us to safely yield rows from
+/// a StreamSource without the ongoing scan being affected by changes to the
+/// underlying data.
 #[derive(Debug)]
 pub struct MaterializedResult<V: Vfs> {
     child: Box<Plan<V>>,
@@ -51,9 +50,15 @@ impl<V: Vfs> MaterializedResult<V> {
             rowid_captured: false,
         }
     }
+    /// The operator whose rows are collected.
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
+    /// Hand back one collected row.
+    ///
+    /// The first call collects everything the child has, and the rest read it
+    /// back. The temporary file, if one was used, goes away when the last row has
+    /// been handed out.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if let StreamSource::None = self.stream_source {
             self.collect(ctx)?;
@@ -66,6 +71,11 @@ impl<V: Vfs> MaterializedResult<V> {
         }
         res
     }
+    /// Pull every row from the child.
+    ///
+    /// Rows are kept as frames in one growing buffer until the buffer fills, at
+    /// which point it is written to a temporary file and started again. Which of
+    /// the two the rows ended up in decides where they are read back from.
     fn collect(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut buffer = Vec::new();
         let mut in_disk_data = false;

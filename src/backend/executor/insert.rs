@@ -6,6 +6,11 @@ use crate::vfs::Vfs;
 
 use super::context::ExecCtx;
 
+/// Puts one cell into a tree.
+///
+/// The bytes are a whole cell, already laid out, so this only has to hand them
+/// to the tree with their key. The data is taken rather than borrowed, because
+/// the cell is used once and does not need to be copied.
 #[derive(Debug)]
 pub struct Insert<'a, V> {
     pub(crate) root_page: u32,
@@ -24,6 +29,7 @@ impl<'a, V: Vfs> Insert<'a, V> {
         }
     }
 
+    /// Insert the cell and hand back nothing.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         let mut btree = BTree::new(self.root_page, ctx.pager);
         btree.insert(&self.key, std::mem::take(&mut self.data))?;

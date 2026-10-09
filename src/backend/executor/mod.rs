@@ -1,5 +1,6 @@
 use crate::errors::CorruptError;
 use crate::record::{Record, Value};
+use crate::schema::Table;
 use crate::varint::{decode_varint, encode_varint};
 use crate::vfs::Vfs;
 use crate::{InkResult, MemCursor};
@@ -28,14 +29,21 @@ pub mod transaction;
 pub mod truncate;
 pub mod update;
 
+/// How much a sort or a materialization may keep in memory before it spills
+/// to a temporary file.
 pub(crate) const MEM_CAP: usize = 0xA00000; /*10MiB*/
 
+/// The columns of a row, either still in their stored bytes or already worked
+/// out. Bytes are kept as they came off the page, so a row that only passes
+/// through is never decoded; values are used for a row that has been built or
+/// changed in memory.
 #[derive(Debug)]
 pub(crate) enum Columns {
     Stored(Vec<u8>),
     Computed(Vec<Value<'static>>),
 }
 
+/// One row on its way through a plan, with the key it is stored under.
 #[derive(Debug)]
 pub struct Row {
     key: u64,
@@ -68,18 +76,45 @@ impl Row {
         }
     }
 
+    /// The column that stands in for the row id, when the table has one.
+    ///
+    /// Such a column is not stored in the row, so reading it has to come from the
+    /// row key instead. It is carried here because the row itself, once decoded,
+    /// has no way of knowing where it came from.
     pub fn rowid_column(&self) -> Option<usize> {
         self.rowid_column
     }
 
+    /// The key the row is stored under, which is its row id.
     pub fn key(&self) -> u64 {
         self.key
     }
 
+    /// The record bytes, when the row still holds them rather than values.
     pub fn stored_bytes(&self) -> Option<&[u8]> {
         match &self.columns {
             Columns::Stored(bytes) => Some(bytes),
             Columns::Computed(_) => None,
+        }
+    }
+
+    /// A row fetched from a table using its row ID.
+    ///
+    /// The row ID is added here because it is not stored in the row's bytes.
+    /// If a column aliases the row ID, its value is stored as `NULL`, and the
+    /// actual value is kept as the row key.
+    pub fn from_table(key: u64, record: Vec<u8>, table: Option<&Table>) -> Self {
+        Self::stored_with_rowid(key, record, table.and_then(|table| table.rowid_column()))
+    }
+
+    pub fn view(&self) -> InkResult<Option<RowView<'_>>> {
+        match &self.columns {
+            Columns::Stored(bytes) => Ok(Some(RowView::new(
+                self.key,
+                Record::new(bytes)?,
+                self.rowid_column,
+            ))),
+            Columns::Computed(_) => Ok(None),
         }
     }
 
@@ -90,6 +125,10 @@ impl Row {
         }
     }
 
+    /// Read one column.
+    ///
+    /// The row id column is answered from the key, and a computed row reads its
+    /// own values, while a stored row decodes the field it was asked for.
     pub fn value(&self, index: usize) -> InkResult<Value<'_>> {
         if self.rowid_column == Some(index) {
             return Ok(Value::Integer(self.key as i64));
@@ -106,6 +145,7 @@ impl Row {
         }
     }
 
+    /// How many columns the row has.
     pub fn len(&self) -> usize {
         match &self.columns {
             Columns::Stored(bytes) => match Record::new(bytes) {
@@ -116,10 +156,15 @@ impl Row {
         }
     }
 
+    /// Whether the row has no columns.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// The whole row as values that own their bytes.
+    ///
+    /// A stored row is decoded once here; a computed row is copied, with the row
+    /// id column filled in from the key when there is one.
     pub fn to_values(&self) -> InkResult<Vec<Value<'static>>> {
         match (&self.columns, self.rowid_column) {
             (Columns::Computed(values), _) => Ok(values.clone()),
@@ -134,6 +179,11 @@ impl Row {
     }
 }
 
+/// A row read straight from the page bytes, never copied.
+///
+/// The record borrows from the page guard that is still held, which is what lets
+/// a pushed down predicate run without decoding the row into values first, and
+/// without the row outliving the bytes it came from.
 pub struct RowView<'a> {
     key: u64,
     rowid_column: Option<usize>,
@@ -150,8 +200,15 @@ impl<'a> RowView<'a> {
     }
 }
 
+/// Anything a single column can be read out of.
+///
+/// The evaluator works against this rather than a concrete row type, so the same
+/// expression code runs over a stored row, a borrowed record, a computed row and
+/// a plain list of values.
 pub trait ColumnSource {
+    /// Read one column.
     fn column(&self, index: usize) -> InkResult<Value<'_>>;
+    /// How many columns there are.
     fn column_count(&self) -> usize;
 }
 impl<'a> ColumnSource for Vec<Value<'a>> {
@@ -190,16 +247,6 @@ impl ColumnSource for Row {
     }
 }
 
-impl ColumnSource for Record<'_> {
-    fn column(&self, index: usize) -> InkResult<Value<'_>> {
-        self.value(index)
-    }
-
-    fn column_count(&self) -> usize {
-        self.len()
-    }
-}
-
 impl ColumnSource for [Value<'static>] {
     fn column(&self, index: usize) -> InkResult<Value<'_>> {
         self.get(index).cloned().ok_or_else(|| {
@@ -216,6 +263,7 @@ impl ColumnSource for [Value<'static>] {
     }
 }
 
+/// A row that prints its columns separated by commas.
 pub struct RowWrapper(pub Row);
 
 impl std::fmt::Display for RowWrapper {
@@ -232,6 +280,8 @@ impl std::fmt::Display for RowWrapper {
     }
 }
 
+/// How many bytes a frame takes: the length varint, the key varint and the
+/// record.
 pub(crate) fn frame_len(record_len: usize, key: u64) -> usize {
     let mut buffer = [0u8; 9];
     let key_bytes = encode_varint(&mut buffer, key);
@@ -240,6 +290,12 @@ pub(crate) fn frame_len(record_len: usize, key: u64) -> usize {
     length_bytes + payload
 }
 
+/// Write a frame into a buffer: the length of what follows, the key and the
+/// record.
+///
+/// The length covers the key and the record but not the length itself, so a
+/// reader can walk frames one after another without knowing their sizes up
+/// front.
 pub(crate) fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize {
     let mut length_buffer = [0u8; 9];
     let mut key_buffer = [0u8; 9];
@@ -252,6 +308,11 @@ pub(crate) fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize 
     length_bytes + payload
 }
 
+/// Read a frame: its key and the record that follows.
+///
+/// # Errors
+/// When a length runs past the bytes there are, which means the frame was cut
+/// short.
 pub(crate) fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
     let (payload, consumed) = decode_varint(frame).ok_or(CorruptError::TruncatedRecord {
         field: 0,
@@ -277,26 +338,40 @@ pub(crate) fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
     Ok((key, &rest[start..end]))
 }
 
+/// Where a spilled row stream is being read back from.
+///
+/// A stream is frames one after another, either in a buffer already in memory or
+/// in a temporary file read a page at a time. The two hold the same frames, so
+/// the reader walks either one the same way.
 #[derive(Debug)]
 pub(crate) enum StreamSource<V: Vfs> {
+    /// The whole stream sitting in a buffer.
     Mem {
         buffer: Vec<u8>,
         offset: usize,
-        nrows: usize,
+        nrows: usize, /*Number of rows*/
     },
+    /// A stream in a temporary file, read in pages as it is walked.
     Disk {
         f: V::File,
         buffer: Vec<u8>,
         file_offset: usize,
         buffer_offset: usize,
         page_size: usize,
-        nrows: u32,
-        rrows: usize,
+        nrows: u32,   /*Number of rows*/
+        rrows: usize, /*How many rows we read*/
     },
+    /// Nothing yet, before the first collection.
     None,
 }
 
 impl<V: Vfs> StreamSource<V> {
+    /// Read the next frame out of whichever stream this is, and build the row
+    /// from it.
+    ///
+    /// The answer is nothing once the stream has given out as many rows as it
+    /// holds. A stream on disk reads a new page whenever the current one runs
+    /// out, which is what keeps its memory small.
     fn yield_from_stream(
         &mut self,
         nread: &mut usize,

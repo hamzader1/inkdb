@@ -11,12 +11,24 @@ use crate::{
 
 use super::context::ExecCtx;
 
+/// What happens to the root page of a tree that is being emptied.
+///
+/// Emptying a table keeps the tree and hands back an empty root, while dropping
+/// it frees every page including the root.
 #[derive(Debug, Clone, Copy)]
 pub enum RootStateAfterTruncate {
+    /// Empty the tree and leave the root in place.
     Keep,
+    /// Empty the tree and free the root along with everything under it.
     Release,
 }
 
+/// Empties a table, and any indexes on it, without deleting row by row.
+///
+/// Every page under the root is walked and put back on the freelist, and the root
+/// is either reset to an empty page of its own kind or freed as well. An index
+/// gets the same treatment, except that its own pages are counted from the index
+/// root rather than from the table root.
 #[derive(Debug)]
 pub struct TruncateTable<V: Vfs> {
     root_page: u32,
@@ -45,17 +57,22 @@ impl<V: Vfs> TruncateTable<V> {
             ..Self::new(root_page, indexes, child)
         }
     }
+    /// The plan that runs after the tree has been emptied.
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
 
+    /// The root page of the tree being emptied.
     pub fn root_page(&self) -> u32 {
         self.root_page
     }
+    /// The root page of every index that goes with the table.
     pub fn indexes(&self) -> &[u32] {
         &self.indexes
     }
 
+    /// A truncation that only frees an index tree, with nothing to run
+    /// afterwards.
     fn new_index(root_page: u32) -> Self {
         Self {
             root_page,
@@ -67,6 +84,7 @@ impl<V: Vfs> TruncateTable<V> {
         }
     }
 
+    /// Free the pages once, then run whatever comes after.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if !self.is_init {
             self.is_init = true;
@@ -75,6 +93,7 @@ impl<V: Vfs> TruncateTable<V> {
         self.child.next(ctx)
     }
 
+    /// Free the table tree, and every index tree that goes with it.
     fn release_trees(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<(), InkError> {
         match self.free_root {
             RootStateAfterTruncate::Keep => {
@@ -103,17 +122,11 @@ impl<V: Vfs> TruncateTable<V> {
         }
         Ok(())
     }
-    /*
-     *
-     *  Currently we are leaking overflowed pages, since we can't easly know if a page has a row
-     *  which its payload linked to other pages (overflow pages)
-     *
-     *  We leave it as it now since we do not include overflow page in our tests
-     *
-     *  NOTE / TODO:
-     *      Back to row by row delete or add a linked list of overflow pages
-     *
-     * */
+    /// Walk a tree and free every page under it, leaving the root alone.
+    ///
+    /// A page is freed only after the pages below it, so a crash partway leaves
+    /// the tree still whole. OVERFLOW PAGES ARE NOT FOLLOWED, since a page does
+    /// not record which rows have one; that is left for later.
     fn dfs(root_page: u32, page_no: u32, pager: &mut Pager<V>) -> Result<(), InkError> {
         let (is_leaf, children, rmp) = {
             let guard = pager.get_mut(page_no)?;

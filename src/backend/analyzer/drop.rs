@@ -11,6 +11,8 @@ use crate::{
 use super::{ResolvedDropIndexQuery, ResolvedDropTableQuery};
 
 impl<'a> Analyze<'a> {
+    /// Resolve a DROP TABLE, gathering the root page of every index on the table
+    /// so they can be emptied and freed along with it.
     pub(crate) fn analyze_drop_tbl(&self, stmt: DropTableStmt) -> InkResult<ResolvedQuery> {
         let tbl = self.get_non_master_table(&stmt.tbl_name)?;
         let indexes = index_roots(self.master, tbl.name())?;

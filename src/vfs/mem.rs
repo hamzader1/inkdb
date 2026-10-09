@@ -9,16 +9,31 @@ use super::temp::create_temp_dir;
 use crate::InkError;
 use crate::vfs::Vfs;
 
+/// The name every in-memory file reports, so the engine always sees a name.
 const MEM_B: &str = "__INK_MEMORY_BUFFER";
+/// The directory the in-memory files report, which keeps neighbour lookups
+/// like the journal's working even though no bytes are ever written.
 const MEM_D: &str = "__INK_MEMORY_DIR";
 
+/// The in-memory VFS: a file is a buffer instead of a real file.
+///
+/// Nothing reaches the disk, which makes tests faster and lets them run the
+/// whole engine without cleaning up files afterwards.
+///
+/// Buffers live in `db_buffers` keyed by path, and each one is shared with the
+/// handles opened from it through an [`Rc`]. Journals are kept separately, keyed
+/// by the address of the buffer they belong to, so a database and its journal
+/// stay paired without needing a file name.
 #[derive(Debug, Default)]
 pub(crate) struct MemVfs {
+    /// One shared buffer per database path, and per temporary file name.
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
+    /// One shared buffer per open database handle, addressed by pointer.
     journals: HashMap<usize, Rc<RefCell<Vec<u8>>>>,
 }
 
 impl MemVfs {
+    /// Start with no files (buffers) at all.
     pub fn new() -> Self {
         Self {
             db_buffers: HashMap::new(),
@@ -26,6 +41,9 @@ impl MemVfs {
         }
     }
 
+    /// Put `bytes` in the VFS under `f_name`, so a later [`Vfs::open`] of that
+    /// path finds them. Tests use this to hand the engine a database built by
+    /// someone else.
     pub fn insert<P>(&mut self, f_name: P, bytes: Vec<u8>)
     where
         P: AsRef<Path>,
@@ -79,6 +97,10 @@ impl Vfs for MemVfs {
     }
 }
 
+/// A file whose bytes live in memory.
+///
+/// The buffer is shared, not owned, so reopening the same path hands out another
+/// handle onto the same bytes, exactly like a path on disk.
 #[derive(Debug)]
 pub(crate) struct MemFile {
     bytes: Rc<RefCell<Vec<u8>>>,
@@ -86,6 +108,8 @@ pub(crate) struct MemFile {
 }
 
 impl MemFile {
+    /// Wrap `bytes` and give the handle a temporary directory of its own, so
+    /// [`InkFile::path`] has something real to return.
     pub(crate) fn new(bytes: Rc<RefCell<Vec<u8>>>) -> Self {
         let path =
             create_temp_dir(MEM_D).expect("Error while trying to create a temporary memory dir");
@@ -94,6 +118,8 @@ impl MemFile {
             temp_dir: path,
         }
     }
+    /// Wrap `bytes` and reuse an existing directory instead of creating one.
+    /// Journals take this path so they sit beside the database they belong to.
     pub(crate) fn with_dir(bytes: Rc<RefCell<Vec<u8>>>, temp_dir: PathBuf) -> Self {
         Self { bytes, temp_dir }
     }

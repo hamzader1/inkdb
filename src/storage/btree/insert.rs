@@ -11,13 +11,8 @@ use crate::{InkResult, MemCursor};
 use super::cursor::BTreeCursor;
 use super::kind::{AnyPage, IndexLeaf, TableLeaf, TypedPage};
 use super::ops::{CellOps, Consumed, Divider, InteriorOps, LeafKind, ParentSlot, Split};
+use super::tree::BTree;
 use super::typed_mut::{AnyPageMut, parse_ref};
-
-pub struct BTree<'a, V: Vfs> {
-    pub(crate) root_page: PageNo,
-    pub(crate) pager: &'a mut Pager<V>,
-    pub(crate) cursor: BTreeCursor<V>,
-}
 
 impl<'a, V: Vfs> BTree<'a, V> {
     pub fn new(root_page: PageNo, pager: &'a mut Pager<V>) -> Self {
@@ -30,10 +25,16 @@ impl<'a, V: Vfs> BTree<'a, V> {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
+    /// Store a value under a key, taking the cell bytes as they come.
     pub fn insert_value(&mut self, key: &Value, cell_bytes: &[u8]) -> InkResult<()> {
         self.insert_cell(key, cell_bytes.to_vec())
     }
 
+    /// Store a value under a key.
+    ///
+    /// A payload too long for one page is split off onto overflow pages first,
+    /// then the cell goes into the leaf a seek lands on. When it does not fit
+    /// there, the page is split and the halves are placed.
     pub fn insert_cell(&mut self, key: &Value, mut cell_bytes: Vec<u8>) -> InkResult<()> {
         self.cursor.seek(self.pager, key)?;
         self.fix_overlow(&mut cell_bytes)?;
@@ -71,6 +72,120 @@ impl<'a, V: Vfs> BTree<'a, V> {
         }
     }
 
+    /// Split the leaf, put the divider in the parent, and place the cell in
+    /// whichever half it belongs to.
+    ///
+    /// A split at the root grows a new root, since there is no parent to take
+    /// the divider.
+    ///
+    /// # Phase 1: Split the leaf
+    /// [`BTree::split_page`] splits the leaf page into two leaves.
+    /// The left page is the original page being split, and the right page is
+    /// a newly allocated page.
+    /// The function returns a [`super::ops::Split`] struct containing the data
+    /// needed for the next operation, which is to insert the divider into the parent.
+    ///
+    /// The tree (of table leaf) after the split_page stage would be:
+    /// ```text
+    ///                             +-----------+
+    ///                            /|  40, 80   |\
+    ///                           / +-----------+ \
+    ///            /-------------/        |        \---------\
+    ///           /                       |                   \
+    ///          v                        v                    v
+    /// +----------------+        +-----------------+  +---------------+
+    /// | 10, 20, 22, 25 |        | 50, 61, 65, 70  |  |82, 91, 97, 97 |
+    /// +----------------+        +-----------------+  +---------------+
+    ///      PageNo(4)                                       RMP
+    ///
+    ///
+    ///    Leaked page +-----------------+
+    ///     for now.   |29 30, 33, 39 40 | PageNo(9)
+    ///                +-----------------+
+    /// ```
+    /// The function returns:
+    /// `left_page_no`: The page number of the left page, which is `4` in this example.
+    /// `right_page_no`: The page number of the newly allocated right page, which is `9`.
+    /// `divider`: The cell to be promoted to the parent, which has the key [`25`].
+    /// `right_bound`: The maximum key in the right page, which is [`40`] in this example.S
+    ///
+    /// We pop the current page (the left page, PageNo(4)) and then pop its parent.
+    /// If there is no parent, the current page was the root, so we need to create
+    /// a new interior root, insert the left page at index 0, and set its RMP to
+    /// point to the right page.
+    ///
+    /// If there is a parent, we need to insert the new cell into it.
+    /// However, insertion is a little tricky because we must account for the
+    /// parent and grandparent overflowing as well. We need to recursively fix
+    /// any overflows and keep track of the split pages so we know where to
+    /// insert the cell, even after one or more parent splits.
+    ///
+    /// The other tricky part is determining whether the split page was the RMP
+    /// of its parent. If it was, we need to update the parent's RMP and insert
+    /// only the left cell, since the right page is represented by the RMP.
+    ///
+    /// If the split page was not the RMP, we replace the cell at the split page's
+    /// index with the new left cell and insert the right page as a new cell.
+    ///
+    /// # Example
+    /// ### Case 1: The split page was the RMP
+    /// ```text
+    ///                          +-----------+
+    ///                         /|  40, 80   |\
+    ///                        / +-----------+ \
+    ///            /----------/        |        \--------------------\
+    ///           /                    |                              \
+    ///          v                     v                               v
+    /// +----------------+     +-----------------+  +------------------------------------+
+    /// | 10, 20, 22, 25 |     | 50, 61, 65, 70  |  | 82, 91, 97, 97, 120, 140, 160, 190 |
+    /// +----------------+     +-----------------+  +------------------------------------+
+    ///                                                     RMP
+    /// ```
+    /// ### After the split
+    /// ```text
+    ///                                 +---------------------+
+    ///                                /|     40, 80, 120     |\
+    ///                               / +--------+-----+------+ \
+    ///            /-----------------/           |     |         \----------------------\
+    ///           /                   +----------+     +-------+                         \
+    ///          v                    |                        |                          v
+    /// +----------------+  +-----------------+    +-----------v----------+    +-----------------+
+    /// | 10, 20, 22, 25 |  | 50, 61, 65, 70  |    | 82, 91, 97, 97, 120  |    |  140, 160, 190  |   RMP
+    /// +----------------+  +-----------------+    +----------------------+    +-----------------+
+    /// ```
+    /// We set the right page as the RMP and insert the cell containing the left page's data.
+    ///
+    /// ### Case2: The split page was not the RMP
+    /// The tree before:
+    /// ```text
+    ///                                       +-----------+
+    ///                                      /|  40, 80   |\
+    ///                                     / +-----------+ \
+    ///            /-----------------------/        |        \-----------------------\
+    ///           /                                 |                                 \
+    ///          v                                  v                                  v
+    /// +----------------+     +--------------------------------------+     +---------------------+
+    /// | 10, 20, 22, 25 |     |  50, 62, 63, 64, 68, 69, 71, 73, 79  |     |   82, 91, 97, 97    | RMP
+    /// +----------------+     +--------------------------------------+     +---------------------+
+    ///                                       OVERFLOW
+    /// ```
+    /// The pointer to the overflowing page is at index 1 (`80`).
+    /// After the split, we need to replace that pointer with the left divider
+    /// and insert the right bound as a new key.
+    /// ```text
+    ///                                       +-----------+
+    ///                                      /|40, 68, 79 |\
+    ///                                     / +---+----+--+ \
+    ///            /-----------------------/      |    |     \----------------------\
+    ///           /                   +-----------+    +-----+                       \
+    ///          v                    |                      |                        v
+    /// +----------------+  +-------------------+   +--------v---------+   +---------------------+
+    /// | 10, 20, 22, 25 |  |50, 62, 63, 64, 68 |   |  69, 71, 73, 79  |   |   82, 91, 97, 97    | RMP
+    /// +----------------+  +-------------------+   +------------------+   +---------------------+
+    /// ```
+    /// Everything is balanced:
+    ///
+    ///
     fn split_then_place<K: LeafKind>(
         &mut self,
         page_no: PageNo,
@@ -96,6 +211,15 @@ impl<'a, V: Vfs> BTree<'a, V> {
         Ok(())
     }
 
+    /// Work out where the divider belongs on the parent page.
+    ///
+    /// When the split child was the right-most one, the divider needs a new
+    /// cell. Otherwise the parent already has a cell pointing at that child, and
+    /// that cell is handed back so it can take over one of the halves.
+    ///
+    /// # Errors
+    /// When the cell at the slot does not point at the child that was split,
+    /// which would mean the tree no longer agrees with itself.
     fn parent_slot<P: InteriorOps>(
         &mut self,
         parent_no: PageNo,
@@ -133,6 +257,13 @@ impl<'a, V: Vfs> BTree<'a, V> {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
+    /// Move the tail of a cell payload onto overflow pages when the cell is too
+    /// long for the page it is going into.
+    ///
+    /// The local part the page keeps follows the SQLite rule, which depends on
+    /// whether the cell is going into a table page or an index page. The rest
+    /// goes into a chain of fresh pages, each one starting with the number of
+    /// the next, and the number of the first is written at the end of the cell.
     pub fn fix_overlow(&mut self, cell: &mut Vec<u8>) -> InkResult<()> {
         if cell.len() <= self.pager.usable_size() {
             return Ok(());
@@ -181,6 +312,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
     }
 }
 
+/// The error for a page guard that cannot hand out mutable bytes.
 pub(crate) fn guard_not_mutable() -> InkError {
     InkError::Internal("btree: page guard is not mutable")
 }
@@ -193,6 +325,80 @@ fn not_a_leaf(page_no: PageNo) -> InkError {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
+    /// Split a page in two, leaving the left half where it was.
+    ///
+    /// The cells are divided in the middle, and the cell at the split point
+    /// becomes the divider between the halves. What this costs the halves is what
+    /// `Consumed` reports: an index entry or a table interior cell comes out of
+    /// the left half, while a table leaf keeps every row it had.
+    ///
+    /// Phase 1, Stage 1: Split the current page into two pages and decide which
+    /// cell to promote.
+    ///
+    /// For table B trees, specifically leaf pages, the promoted key is a copy of
+    /// the last cell in the left partition. We do not move or remove the original
+    /// cell from the leaf because table B tree interior pages store rowids as
+    /// routing keys, not as data.
+    ///
+    /// When splitting an [`IndexLeaf`], [`super::kind::IndexInterior`], or
+    /// [`super::kind::TableInterior`], we need to move the promoted entry for the
+    /// following reasons:
+    ///
+    /// For table interior pages, copying the routing key instead of moving it
+    /// would leave a duplicate, which will cause problems later during
+    /// redistribution.
+    ///
+    /// Index interior and leaf pages hold actual entries. Copying an entry instead
+    /// of moving it would leave a duplicate, which could violate `UNIQUE` indexes
+    /// or cause problems when updating or deleting data.
+    ///
+    /// The RMP of the new left page, when splitting an interior page, is set to
+    /// the left child pointer of the promoted cell.
+    /// The RMP of the new right page remains the same as the original RMP.
+    ///
+    /// # Example
+    /// Simple example of a table btree leaf page
+    /// ```text
+    ///                                           +-----------+
+    ///                                          /|  40, 80   |\
+    ///                                         / +-----------+ \
+    ///                          /-------------/        |        \---------\
+    ///                         /                       |                   \
+    ///            Overflow    v                        v                    v
+    /// +----------------------------------+    +-----------------+  +---------------+
+    /// | 10, 20, 22, 25, 29 30, 33, 39 40 |    | 50, 61, 65, 70  |  |82, 91, 97, 97 |
+    /// +----------------------------------+    +-----------------+  +---------------+
+    ///                                                                      RMP
+    /// ```
+    /// ### After the split
+    /// ```text
+    ///                             +-----------+
+    ///                            /|  40, 80   |\
+    ///                           / +-----------+ \
+    ///            /-------------/        |        \---------\
+    ///           /                       |                   \
+    ///          v                        v                    v
+    /// +----------------+        +-----------------+  +---------------+
+    /// | 10, 20, 22, 25 |        | 50, 61, 65, 70  |  |82, 91, 97, 97 |
+    /// +----------------+        +-----------------+  +---------------+
+    ///                                                        RMP
+    ///
+    ///
+    ///    Leaked page +-----------------+
+    ///     for now.   |29 30, 33, 39 40 |
+    ///                +-----------------+
+    /// ```
+    /// This function does not link the right page to the parent. That is handled
+    /// in Phase 2 by [`BTree::split_then_place`].
+    ///
+    /// The cell to be promoted has the key [`25`]. Since this is a leaf page, the
+    /// parent takes a copy of the cell.
+    ///
+    /// The RMP is `None` for leaf pages, so nothing needs to be set here. However,
+    /// if this were an interior page, the RMP of the new left page would be the
+    /// left child of key [`25`], and the key would be moved to the parent.
+    ///
+    ///
     fn split_page<K: CellOps>(&mut self, page_no: PageNo) -> InkResult<Split> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
@@ -215,7 +421,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 let cell = page.cell_bytes_as_ref(i)?;
                 cells.extend_from_slice(cell);
                 cells_len.push(cell.len());
-                // cells.push(page.cell_bytes_as_ref(i)?.to_vec());
             }
             (cells, cells_len, split_at, promo, page.right_most_ptr()?)
         };
@@ -297,6 +502,29 @@ impl<'a, V: Vfs> BTree<'a, V> {
         })
     }
 
+    /// Split the root by giving the left half a fresh page of its own and
+    /// leaving the root as the new interior page above both halves.
+    /// # Example
+    /// ```text
+    ///                   PageNo (2)
+    ///                   Single leaf
+    /// +---------------------------------------------------+
+    /// |   82, 91, 97, 97, 120, 140, 160, 190, 200, 220    |
+    /// +---------------------------------------------------+
+    /// ```
+    /// After the grow
+    /// ```text
+    ///                              Root
+    ///                            PageNo(2)
+    ///                         +------------+
+    ///                        /|    120     |\
+    ///                       / +------------+ \
+    ///   PageNo(4)   /------/                  \--------\
+    ///              v                                    v       PageNo(3)
+    /// +-------------------------+         +---------------------------+
+    /// |   82, 91, 97, 97, 120   |         |  140, 160, 190, 200, 220  |  RMP
+    /// +-------------------------+         +---------------------------+
+    /// ```
     fn grow_root<K: CellOps, R: InteriorOps>(&mut self, split: &Split) -> InkResult<Split> {
         let page_size = self.pager.page_size();
         let usable = self.pager.usable_size();
@@ -348,6 +576,12 @@ impl<'a, V: Vfs> BTree<'a, V> {
 }
 
 impl<'a, V: Vfs> BTree<'a, V> {
+    /// Put a new divider into a parent page, moving the existing cell when the
+    /// split child was the right-most one and adding a cell when it was not.
+    ///
+    /// When the parent is full the divider cells are held back, the parent is
+    /// split, and they are placed into the halves afterward. Holding them rather
+    /// than walking the stack again is what lets this go up one page at a time.
     fn insert_divider<P: InteriorOps>(
         &mut self,
         parent_no: PageNo,
@@ -424,7 +658,7 @@ impl<'a, V: Vfs> BTree<'a, V> {
             }
             Some(path) => {
                 let gp_no = path.page_no;
-                drop(path);
+                drop(path); // release the guard
                 let (gp_idx, gp_slot) =
                     self.parent_slot::<P>(gp_no, parent_split.left_page, &parent_split.divider)?;
                 self.insert_divider::<P>(gp_no, gp_idx, gp_slot, &parent_split)?;
@@ -433,6 +667,8 @@ impl<'a, V: Vfs> BTree<'a, V> {
                 }
             }
         }
+
+        // We must not forget to set the rightmost pointer.
         if matches!(&plan, Plan::MoveHeader) {
             let mut guard = self.pager.get_mut(parent_split.right_page)?;
             let bytes = guard.bytes_as_mut().ok_or_else(guard_not_mutable)?;
@@ -448,6 +684,17 @@ impl<'a, V: Vfs> BTree<'a, V> {
         Ok(())
     }
 
+    /// Insert a cell into the correct half of a split page.
+    ///
+    /// This is critical because we may need to split the parent when inserting
+    /// the new cells, since the parent itself may overflow. When the parent splits,
+    /// we lose track of which resulting page should receive the cell. To solve
+    /// this, we keep copies of the keys from both the left and right pages, allowing
+    /// us to find the correct parent page again and insert the cell into it.
+    ///
+    /// # Errors
+    /// When the cell does not fit in that half, which would mean the split did
+    /// not leave enough room for the very cell that caused it.
     fn place_cell<K: CellOps>(
         &mut self,
         split: &Split,

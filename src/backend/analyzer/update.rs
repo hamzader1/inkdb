@@ -5,6 +5,10 @@ use crate::sql::ast::UpdateStmt;
 use super::ResolvedUpdateQuery;
 
 impl<'a> Analyze<'a> {
+    /// Resolve an UPDATE.
+    ///
+    /// The target columns, the new value expressions and the predicate are all
+    /// bound in place.
     pub(crate) fn analyze_update_stmt(
         &self,
         update_stmt: UpdateStmt,

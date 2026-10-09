@@ -10,6 +10,11 @@ use super::Row;
 use super::context::ExecCtx;
 use super::scan_guard::ScanGuard;
 
+/// Walks the rows of a table whose row ids fall in a range.
+///
+/// Row ids are the key of a table tree, so a range over them is walked in order
+/// straight from the tree. An equality on the row id column turns into a range
+/// with both ends the same.
 #[derive(Debug)]
 pub struct RowRangeScan<V: Vfs> {
     root_page: u32,
@@ -40,14 +45,17 @@ impl<V: Vfs> RowRangeScan<V> {
         }
     }
 
+    /// The table root page.
     pub fn root_page(&self) -> u32 {
         self.root_page
     }
 
+    /// The column that stands in for the row id, when the table has one.
     pub fn rowid_column(&self) -> Option<usize> {
         self.rowid_column
     }
 
+    /// Whether a row id is inside the range.
     fn contains(&self, rowid: i64) -> bool {
         let above_start = match self.range.0 {
             Bound::Included(start) => rowid >= start,
@@ -62,6 +70,12 @@ impl<V: Vfs> RowRangeScan<V> {
         above_start && below_end
     }
 
+    /// Hand on the next row inside the range.
+    ///
+    /// A range whose start is excluded seeks to that row id and then steps over
+    /// any rows still on it, since a seek lands on the first row not less than
+    /// the value. The walk ends as soon as a row id falls past the far end, since
+    /// the rows come in order.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if !self.is_init {
             match self.range.0 {
@@ -108,6 +122,7 @@ impl<V: Vfs> RowRangeScan<V> {
     }
 }
 
+/// Write a row id range the way a WHERE clause would, for an EXPLAIN.
 pub fn render_rowid_range(range: &(Bound<i64>, Bound<i64>)) -> String {
     match (&range.0, &range.1) {
         (Bound::Included(start), Bound::Included(end)) if start == end => start.to_string(),

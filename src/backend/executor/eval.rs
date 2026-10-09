@@ -8,8 +8,16 @@ use crate::schema::Table;
 use crate::sql::ast::{BinaryOperator, Expr};
 use crate::sql::parser::ExprArena;
 
+/// How deep an expression is rendered before it is cut off. An expression
+/// cannot nest this deeply today, so this only guards against a node that points
+/// back at itself, which would otherwise render forever.
 const MAX_RENDER_DEPTH: usize = 32;
 
+/// Write an expression back out as text.
+///
+/// A column is printed by its name when the table is given and by its index when
+/// it is not, which is what makes an EXPLAIN readable and a stored CHECK
+/// constraint print the way it was written.
 pub fn render_expr(arena: &ExprArena, index: usize, table: Option<&Table>) -> String {
     render_expr_at(arena, index, table, 0)
 }
@@ -85,6 +93,7 @@ fn render_expr_at(arena: &ExprArena, index: usize, table: Option<&Table>, depth:
     }
 }
 
+/// How a comparison operator is written.
 pub(crate) fn render_operator(op: BinaryOperator) -> &'static str {
     match op {
         BinaryOperator::Eq => "=",
@@ -98,8 +107,14 @@ pub(crate) fn render_operator(op: BinaryOperator) -> &'static str {
     }
 }
 
+/// Runs an expression over a row.
 pub struct Eval;
 impl Eval {
+    /// Evaluate one expression against a row.
+    ///
+    /// Most of the work is arithmetic and comparison, which is where the value
+    /// types decide what the result is. A row is optional because an expression that has no column
+    /// in it, such as a LIMIT, is evaluated without one.
     pub fn eval<'a>(
         arena: &ExprArena,
         idx: usize,
@@ -168,42 +183,54 @@ impl Eval {
                 right,
             } => match op {
                 BinaryOperator::Eq => {
-                    if Self::eval(arena, left, row)? == Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left == right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::NotEq => {
-                    if Self::eval(arena, left, row)? != Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left != right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Gt => {
-                    if Self::eval(arena, left, row)? > Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left > right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Ge => {
-                    if Self::eval(arena, left, row)? >= Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left >= right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Lt => {
-                    if Self::eval(arena, left, row)? < Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left < right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))
                 }
 
                 BinaryOperator::Le => {
-                    if Self::eval(arena, left, row)? <= Self::eval(arena, right, row)? {
+                    let left = Self::eval(arena, left, row)?;
+                    let right = Self::eval(arena, right, row)?;
+                    if left <= right && !left.is_null() && !right.is_null() {
                         return Ok(Value::Integer(1));
                     }
                     Ok(Value::Integer(0))

@@ -14,16 +14,29 @@ use std::os::unix::fs::FileExt;
 use std::os::windows::fs::FileExt;
 use std::path::PathBuf;
 
+/// The on-disk VFS: every file is a real file opened through [`std::fs`].
+///
+/// It is the implementation the engine uses outside of tests. Journals and
+/// temporary files are ordinary files too, placed next to the database and in
+/// the system temporary directory respectively.
 #[derive(Debug)]
 pub struct DiskVfs;
 
+/// An open file on disk.
 #[derive(Debug)]
 pub struct DiskFile {
+    /// The opened file.
     file: std::fs::File,
+    /// The full path this file was opened at.
+    ///
+    /// It is kept so the VFS can work out where the neighbouring files go,
+    /// such as the journal and the temporary files.
     path: PathBuf,
 }
 
 impl DiskVfs {
+    /// The journal of `db`: a file next to it whose name is the database name
+    /// plus `-journal`.
     fn journal_path(db: &DiskFile) -> PathBuf {
         let name = db.name().to_owned() + "-journal";
         db.path().join(name)
@@ -84,6 +97,11 @@ impl Vfs for DiskVfs {
     }
 }
 
+/// Unix build of the file handle, using `pread` and `pwrite` for positioned
+/// reads and writes.
+///
+/// The Windows build below mirrors this one with `seek_read` and `seek_write`,
+/// because Windows only got positioned I/O later.
 #[cfg(unix)]
 impl InkFile for DiskFile {
     fn path(&self) -> PathBuf {
@@ -145,6 +163,11 @@ impl InkFile for DiskFile {
     }
 }
 
+/// Windows build of the file handle.
+///
+/// `seek_read` and `seek_write` are used instead of the Unix `pread` and
+/// `pwrite`, and the loops make up for the fact that a single call is allowed
+/// to transfer fewer bytes than it was asked for.
 #[cfg(windows)]
 impl InkFile for DiskFile {
     fn path(&self) -> PathBuf {
@@ -247,6 +270,7 @@ impl InkFile for DiskFile {
     }
 }
 
+/// Translate the VFS flags into the ones [`std::fs`] understands.
 impl From<InkOptions> for OpenOptions {
     fn from(value: InkOptions) -> Self {
         let mut options = OpenOptions::new();

@@ -6,13 +6,12 @@ use crate::storage::btree::{BTree, TableLeaf};
 use crate::storage::cell::Encode;
 use crate::{backend::planner::plan::Plan, record::Value, vfs::Vfs};
 
-/*
- *
- * PrepareRow does the following
- * Taking a Pre validated Row and seeking into the position
- * where it should be, as well as validating *table constraits
- *
- */
+/// Turns a row into a table cell and puts it in the tree.
+///
+/// A row that names its own primary key is checked against the rows already
+/// there, and otherwise the next free row id is taken from the largest one in the
+/// tree. The key column is blanked before storing, since a key that aliases the
+/// row id is not kept in the row as well.
 #[derive(Debug)]
 pub struct PrepareRow<V: Vfs> {
     child: Box<Plan<V>>,
@@ -28,10 +27,15 @@ impl<V: Vfs> PrepareRow<V> {
             table_name,
         }
     }
+    /// The operator this one pulls from.
     pub fn child(&self) -> &Plan<V> {
         &self.child
     }
 
+    /// Store one row and hand it on.
+    ///
+    /// The row comes back with the row id it was stored under, which the index
+    /// operators above need in order to build their entries.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         let row = {
             let Some(row) = self.child.next(ctx)? else {
@@ -63,6 +67,11 @@ impl<V: Vfs> PrepareRow<V> {
                 )));
             }
             next_row_id = inner[idx].cast_int()? as _;
+            // This is a special case in SQLite.
+            // If the table has an INTEGER PRIMARY KEY, its value is the same as the
+            // rowid stored as the key in the B tree, so we store NULL for that column.
+            // When retrieving the row, we do the reverse and replace the INTEGER PRIMARY
+            // KEY column with the rowid.
             inner[idx] = Value::Null;
         }
 
@@ -84,6 +93,10 @@ use crate::errors::InkError;
 use super::context::ExecCtx;
 use super::insert::Insert;
 
+/// Hands out the rows of an INSERT, one VALUES tuple at a time.
+///
+/// The values were all worked out when the statement was resolved, so this only
+/// has to hand them on, one row per call.
 #[derive(Debug)]
 pub struct PrepareInsert<V: Vfs> {
     pub(crate) rows: Vec<Vec<Value<'static>>>,
@@ -99,6 +112,7 @@ impl<V: Vfs> PrepareInsert<V> {
             _marker: PhantomData,
         }
     }
+    /// Hand out the next tuple of values as a row.
     pub fn next(&mut self, _ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if self.pos >= self.rows.len() {
             return Ok(None);

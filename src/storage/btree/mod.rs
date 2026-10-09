@@ -9,7 +9,6 @@ pub mod typed_mut;
 
 pub(crate) use cursor::RestorePosition;
 pub use cursor::{BTreeCursor, CursorState, SeekResult};
-pub use insert::BTree;
 pub(crate) use kind::IndexLeaf;
 pub use kind::TableLeaf;
 
@@ -21,8 +20,16 @@ use crate::pager::pager::{PageNo, Pager};
 use crate::record::Value;
 use crate::storage::page::PageRef;
 
+pub(crate) use self::tree::BTree;
+
+/// The slot a cell takes in a page cell pointer array.
 pub type CellIndex = u16;
 
+/// A read-only page view over a guard bytes, sized from the header values the
+/// pager already has.
+///
+/// # Errors
+/// When the first byte of the page is not one of the four page type bytes.
 pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b PageGuard,
@@ -37,6 +44,11 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
     )
 }
 
+/// The same view over bytes borrowed for writing.
+///
+/// # Errors
+/// An internal error when the guard was handed out for reading only, since such
+/// a guard has no mutable bytes, and the same page type check as above.
 pub(crate) fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b mut PageGuard,
@@ -54,6 +66,12 @@ pub(crate) fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     )
 }
 
+/// Compare a stored index entry with a seek key.
+///
+/// Only as many columns as the key holds are looked at, which is what lets a
+/// seek on a subset of an index columns find its place. The second value says
+/// whether the whole entry was matched, so a full hit can be told apart from
+/// one that only matched the leading columns.
 pub(crate) fn compare_index_entry(
     entry: &[Value],
     target: &Value,

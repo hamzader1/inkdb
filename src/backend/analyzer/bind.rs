@@ -6,6 +6,66 @@ use crate::sql::parser::ExprArena;
 use super::Analyze;
 
 impl<'a> Analyze<'a> {
+    /// Bind every name in an expression, writing a brand new one.
+    ///
+    /// This is used when the expression list changes shape, which happens for a
+    /// SELECT with a star: the star stands for however many columns the table has,
+    /// so those columns are spliced into the list and every other expression is
+    /// moved along. `map` records where each old node ended up, `new_cols`
+    /// collects the output columns, and both are filled as the expression is
+    /// walked.
+    /// # Example
+    /// Let's say we want to run this query:
+    /// ```sql
+    /// SELECT *, salary * 2 FROM employees;
+    /// ```
+    /// The table has the columns `["name", "age", "salary", "position"]`.
+    ///
+    /// The arena initially contains the following nodes:
+    /// `["*", Ident("salary"), Int(2), Mul(1, 2)]`.
+    ///
+    /// If we expand `*` in place, we get:
+    /// `["Ident(name)", "Ident(age)", "Ident(salary)", "Ident(position)",
+    /// Ident("salary"), Int(2), Mul(1, 2)]`.
+    ///
+    /// This produces an incorrect result because the `Mul` node still points to
+    /// nodes 1 and 2, which are now `Ident(age)` and `Ident(salary)`.
+    ///
+    /// To fix this, we create a new arena and a mapper to update the node pointers
+    /// as we expand the columns.
+    ///
+    /// The rule is simple: whenever we encounter `*`, we expand it into the
+    /// columns stored in `new_cols` and record the new index in the mapper.
+    ///
+    /// Initially, both the new arena and the mapper are empty. We start walking
+    /// through the original arena.
+    ///
+    /// The first node is `*`. We expand it into the four columns and record the
+    /// index of the last expanded column in the mapper. Since there are four
+    /// columns, the last index is `4 - 1 = 3`.
+    ///
+    /// The mapper becomes `[3]`.
+    ///
+    /// Next, we encounter `Ident("salary")`. We add it to the new arena and record
+    /// its index in the mapper, giving us `[3, 4]`.
+    ///
+    /// Next, we encounter `Int(2)`. We add it to the new arena and update the
+    /// mapper to `[3, 4, 5]`.
+    ///
+    /// Finally, we reach `Mul`, whose pointers are now incorrect. To fix them, we
+    /// call [`Expr::remap_l_r`] with the indexes from the mapper.
+    ///
+    /// The original `Mul` node points to indexes 1 and 2. We look up those indexes
+    /// in the mapper:
+    /// * `map[1] = 4`
+    /// * `map[2] = 5`
+    ///
+    /// The updated node becomes `Mul(4, 5)`.
+    ///
+    /// The new arena is now correct:
+    /// `["Ident(name)", "Ident(age)", "Ident(salary)", "Ident(position)",
+    /// Ident("salary"), Int(2), Mul(4, 5)]`.
+    ///
     pub(super) fn slow_bind(
         table: &impl TableSchema,
         idx: usize,
@@ -20,7 +80,10 @@ impl<'a> Analyze<'a> {
         Ok(())
     }
 
-    // General purpose
+    /// Bind every name in an expression in place.
+    ///
+    /// Identifiers become column references without changing the arena indices.
+    /// This is used for expressions that do not expand `*`, such as `WHERE`.
     pub(super) fn fast_bind(
         table: &impl TableSchema,
         idx: usize,
@@ -34,6 +97,11 @@ impl<'a> Analyze<'a> {
 }
 
 impl<'a> Analyze<'a> {
+    /// Walk an expression and hand each node to a sink.
+    ///
+    /// The sink decides what each node becomes and what index it takes, which is
+    /// the whole difference between binding in place and binding into a new arena.
+    /// The answer is the index the node came out at.
     pub(crate) fn walk(
         table: &impl TableSchema,
         idx: usize,
@@ -73,13 +141,24 @@ impl<'a> Analyze<'a> {
     }
 }
 
+/// The sink that binds into a new arena, remembering where each node came out.
+///
+/// An expression list is rebuilt whenever a star has to be expanded, and the new
+/// arena is longer than the old one, so the executor cannot use the old indices.
+/// `map` is the translation from the old arena to the new one, and `new_cols` is
+/// the output column list as it is rebuilt.
 pub(crate) struct SlowBind<'a> {
     new: &'a mut Vec<Expr>,
     map: &'a mut Vec<usize>,
     new_cols: &'a mut Vec<usize>,
 }
 
+/// What gets done with each node while an expression is bound.
+///
+/// One implementation binds in place and another builds a new arena, and the walk
+/// itself does not care which, so the two share one traversal.
 pub(crate) trait BindSink {
+    /// Bind an identifier to a column.
     fn ident(
         &mut self,
         table: &impl TableSchema,
@@ -87,15 +166,20 @@ pub(crate) trait BindSink {
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError>;
+    /// Take a literal or a constant as it is.
     fn leaf(&mut self, arena: &mut ExprArena, expr: Expr, idx: usize) -> usize;
+    /// Expand a star into every column of the table.
     fn star(
         &mut self,
         table: &impl TableSchema,
         arena: &mut ExprArena,
         idx: usize,
     ) -> Result<usize, InkError>;
+    /// Rebuild a unary expression around its bound child.
     fn unary(&mut self, arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize;
+    /// Rebuild a binary expression around its two bound children.
     fn binary(&mut self, node: &Expr, idx: usize, l: usize, r: usize) -> usize;
+    /// The error for an expression this sink cannot bind.
     fn unsupported(&mut self, expr: &Expr) -> InkError;
 }
 impl BindSink for SlowBind<'_> {
@@ -171,6 +255,7 @@ impl BindSink for SlowBind<'_> {
     }
 }
 
+/// The sink that binds an expression in place.
 pub(crate) struct FastBind;
 impl BindSink for FastBind {
     fn ident(

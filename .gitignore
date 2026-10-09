@@ -1,14 +1,12 @@
 /target
 .DS_Store
-/db/
 .zed/
 .idea/
 bench/
-docs/
 profile.*
 *.db
+*.inkdb
 *.trace
-docs2
 .backup
 *.sh
 .context

@@ -1,4 +1,4 @@
 pub mod btree;
 pub mod cell;
-pub mod cursor;
+pub mod mem_cursor;
 pub mod page;

@@ -6,6 +6,14 @@ use crate::sql::parser::ExprArena;
 use super::{Analyze, ResolvedCountQuery, ResolvedQuery, ResolvedSelectQuery};
 
 impl<'a> Analyze<'a> {
+    /// Resolve a SELECT.
+    ///
+    /// A SELECT is a list of output expressions plus a WHERE clause, and the two
+    /// are bound differently. The WHERE and LIMIT are bound in place, since
+    /// binding a name never moves anything. The output list is only bound in place
+    /// when it holds no star; a star stands for a run of columns that is not known
+    /// until the table is looked up, so the whole expression list is rebuilt
+    /// around it.
     pub(crate) fn analyze_select_stmt(
         &self,
         select_stmt: SelectStmt,

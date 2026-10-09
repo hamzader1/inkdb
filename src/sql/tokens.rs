@@ -1,12 +1,19 @@
+/// One token, with the bytes it came from.
+///
+/// The span is what lets an error point at the exact piece of the statement
+/// that went wrong instead of describing it in words.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Token {
     pub(crate) kind: TokenKind,
     pub(crate) span: Span,
 }
 
+/// Where a token sits in the statement, as a byte range: the first number is
+/// where it starts and the second is where it ends.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Span(pub usize, pub usize);
 
+/// Everything the lexer can produce.
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub enum TokenKind {
     Create,

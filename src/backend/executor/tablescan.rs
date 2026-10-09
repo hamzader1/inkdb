@@ -10,6 +10,12 @@ use super::eval::Eval;
 use super::scan_guard::{ScanGuard, ScanMode};
 use super::{Row, RowView};
 
+/// Walks a table in row id order, yielding each row.
+///
+/// A predicate given here is pushed down: instead of handing every row up to a
+/// filter above, the scan checks the row itself and only hands on the ones that
+/// pass. The guard decides what happens to the cursor when a row is changed or
+/// removed while the scan is still walking.
 #[derive(Debug)]
 pub struct TableScan<V: Vfs> {
     pub(crate) cursor: BTreeCursor<V>,
@@ -37,19 +43,28 @@ impl<V: Vfs> TableScan<V> {
         })
     }
 
+    /// Give the scan a predicate to check rows against as it walks.
     pub fn set_pushed_predicate(&mut self, predicate: usize) {
         self.pushed_predicate = Some(predicate);
     }
 
+    /// The predicate the scan was given, if any.
     pub fn pushed_predicate(&self) -> Option<usize> {
         self.pushed_predicate
     }
 
+    /// How many rows the pushed predicate turned away.
     pub fn rows_rejected(&self) -> u64 {
         self.rows_rejected
     }
 }
 impl<V: Vfs> TableScan<V> {
+    /// Hand on the next row that passes.
+    ///
+    /// The first call seeks to the smallest row id, and an empty table ends the
+    /// scan there. A row that fails the predicate is skipped without being
+    /// decoded when it fits on its page, since the predicate only needs the
+    /// fields it mentions.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         if !self.is_init {
             self.cursor.first(ctx.pager)?;

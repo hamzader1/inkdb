@@ -5,8 +5,8 @@ use common::*;
 use inkdb::Master;
 use inkdb::db::Database;
 use inkdb::db::header::{
-    DATABASE_SIZE_IN_PAGES_OFFSET, FIRST_FREELIST_TRUNK_PAGE_OFFSET,
-    TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
+    SQLITE_DATABASE_SIZE_IN_PAGES_OFFSET, SQLITE_FIRST_FREELIST_TRUNK_PAGE_OFFSET,
+    SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
 };
 use inkdb::record::Value;
 use inkdb::storage::btree::kind::{AnyPage, HasChild};
@@ -27,7 +27,7 @@ fn u32_at(bytes: &[u8], off: usize) -> u32 {
 
 fn file_page_count(db: &mut Database<DiskVfs>) -> u32 {
     let guard = db.pager().get(1).expect("page 1");
-    u32_at(guard.bytes(), DATABASE_SIZE_IN_PAGES_OFFSET)
+    u32_at(guard.bytes(), SQLITE_DATABASE_SIZE_IN_PAGES_OFFSET)
 }
 
 fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> HashSet<u32> {
@@ -36,8 +36,8 @@ fn walk_freelist(db: &mut Database<DiskVfs>, problems: &mut Vec<String>) -> Hash
         let guard = db.pager().get(1).expect("page 1");
         let bytes = guard.bytes();
         (
-            u32_at(bytes, FIRST_FREELIST_TRUNK_PAGE_OFFSET),
-            u32_at(bytes, TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET),
+            u32_at(bytes, SQLITE_FIRST_FREELIST_TRUNK_PAGE_OFFSET),
+            u32_at(bytes, SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET),
         )
     };
     let mut free = HashSet::new();
