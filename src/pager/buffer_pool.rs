@@ -27,17 +27,10 @@ pub struct BufferPool {
     dirty_pages_linked_list: Option<FrameId>,
 }
 impl BufferPool {
-    /// Make a pool with room for the default number of pages.
     pub fn new(page_size: usize, cache_size: usize) -> Self {
         Self::with_cache(cache_size, page_size)
     }
 
-    /// Make a pool with room for this many pages of this size.
-    ///
-    /// # Panics
-    /// When the cache size and the page size multiplied together overflow. The
-    /// bytes for every frame are set aside up front, so the product has to fit
-    /// in a `usize`.
     pub fn with_cache(cache_size: usize, page_size: usize) -> Self {
         let cache_cap: usize = cache_size
             .checked_mul(page_size)
@@ -58,7 +51,7 @@ impl BufferPool {
             clock_hand: 0,
         }
     }
-    /// Drop a page from the pool. The frame itself is cleared by the caller.
+    /// Take a page out of the pool. The frame slot is cleared once the page replacing it is read in.
     ///
     /// # Errors
     /// When the page table does not map this page to this frame, which would
@@ -85,7 +78,7 @@ impl BufferPool {
     }
 
     /// A raw pointer to the pool, so a guard can pin and unpin frames without
-    /// holding a borrow that would stop the caller from using the pool.
+    /// holding a borrow that would otherwise stop the pool from being used.
     pub fn as_ptr_mut(&mut self) -> NonNull<Self> {
         unsafe { NonNull::new_unchecked(self as *mut BufferPool) }
     }
@@ -127,9 +120,8 @@ impl BufferPool {
     /// Take a frame out of the dirty list.
     ///
     /// # Panics
-    /// When the frame is not in the list. The callers only remove frames they
-    /// have already put in, so a panic here means the list lost track of a
-    /// frame somewhere else.
+    /// When the frame is not in the list. We only remove frames we put in
+    /// ourselves, so a panic here means the list has lost track of one.
     fn dp_ll_remove(&mut self, frame_id: FrameId) {
         let is_tail = frame_id == self.dirty_pages_linked_list.unwrap();
 
