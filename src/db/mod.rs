@@ -8,7 +8,7 @@ use crate::errors::InkError;
 pub mod header;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
-pub use crate::storage::cursor::MemCursor;
+pub use crate::storage::mem_cursor::MemCursor;
 use crate::vfs::{InkOptions, Vfs};
 use header::{DatabaseHeader, DbFormat};
 use std::path::Path;
@@ -191,9 +191,6 @@ impl<V: crate::vfs::Vfs> Database<V> {
 
 // TODO: Take Rc<RefCell<Database>> instead
 /// It borrows the database it came from, so only one statement runs at a time.
-/// An statement that produces no rows still has to be drained, because the work
-/// happens as rows are pulled: `create table` does its writing on the first call
-/// and reports nothing, so skipping [`Statement::rows`] skips the statement.
 #[derive(Debug)]
 pub struct Statement<'a, V: Vfs> {
     pager: &'a mut Pager<V>,
