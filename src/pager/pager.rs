@@ -31,9 +31,9 @@ pub type PageNo = u32; /* Replace this with a `PageNo(usize)` new type */
 /// Everything that touches a page goes through the pager. It keeps the pages it
 /// has read in the buffer pool, so a page that is used twice is only read once,
 /// and it keeps a journal of the pages a write changes, so a crash partway
-/// through can be put right. A caller does not see any of this: it asks for a
-/// page and gets a guard, changes the bytes through the guard, and the pager
-/// works out when those bytes reach the file.
+/// through can be put right. None of this is visible from outside: a page is
+/// asked for, a guard comes back, the bytes are changed through the guard, and
+/// the pager works out when they reach the file.
 #[rustfmt::skip]
 #[derive(Debug)]
 pub struct Pager<V: Vfs> {
@@ -141,21 +141,9 @@ impl From<DatabaseHeader> for HeaderCache {
 }
 
 impl<V: Vfs> Pager<V> {
-    /// Open a pager over a database file, with the default cache size.
-    ///
-    /// Any journal left behind by a crash is replayed first, because the file
-    /// may be part way through a write, and the journal is enabled after that so
-    /// the next write has somewhere to record what it is about to change.
-    ///
-    /// # Errors
-    /// Whatever recovering from a crash or reading the file's length reports.
     pub fn new(vfs: V, source: V::File, header: HeaderCache) -> Result<Self, InkError> {
         Self::with_cache(vfs, source, header, DEFAULT_CACHE_SIZE)
     }
-    /// Open a pager with room for this many pages in its cache.
-    ///
-    /// # Errors
-    /// Whatever recovering from a crash or reading the file's length reports.
     pub fn with_cache(
         vfs: V,
         source: V::File,
@@ -315,7 +303,7 @@ impl<V: Vfs> Pager<V> {
     /// Read a page, with the right to change it.
     ///
     /// The page is recorded in the journal before it is handed out, since the
-    /// caller is about to change it and the journal has to hold the bytes it had
+    /// we are about to change it and the journal has to hold the bytes it had
     /// before. A page is only recorded once, no matter how many times it is
     /// gotten this way.
     ///
