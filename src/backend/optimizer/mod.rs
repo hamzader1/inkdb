@@ -12,6 +12,11 @@ use crate::sql::parser::ExprArena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
 
+/// Try to replace the scan under a filter with an index or rowid scan.
+///
+/// The filter stays in place, and only the scan beneath it is replaced.
+/// Even if the new scan returns too many or too few rows, the filter above
+/// still checks the full predicate, ensuring the result is correct.
 pub(crate) fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,
     master: &Master,
@@ -38,6 +43,11 @@ pub(crate) fn optimize_index_scan<V: Vfs>(
     optimizer.optimize()
 }
 
+/// Works out whether a filter can be answered by an index scan instead.
+///
+/// At most one index is used per filter, and once one is chosen the rest of the
+/// predicate is left to the filter. The guard is spent when the chosen scan is
+/// built, and only one scan gets one, since a guard follows a single cursor.
 struct Optimizer<'a, V: Vfs> {
     master: &'a Master,
     relation: &'a crate::schema::Table,
@@ -50,6 +60,7 @@ struct Optimizer<'a, V: Vfs> {
 }
 
 impl<'a, V: Vfs> Optimizer<'a, V> {
+    /// The guard for the chosen scan, or nothing if one was already spent.
     fn take_guard(&mut self) -> Option<Box<dyn ScanGuard<V>>> {
         if self.guard_spent {
             return None;
@@ -58,6 +69,8 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Some(self.mode.guard())
     }
 
+    /// Look at the predicate and, if an index scan comes out of it, put it
+    /// under the filter.
     fn optimize(&mut self) -> InkResult<()> {
         let Plan::Filter(filter) = self.plan else {
             return Ok(());
@@ -83,6 +96,12 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Ok(())
     }
 
+    /// Look for an index shape in a predicate.
+    ///
+    /// A comparison between a column and a constant is the shape that counts, and
+    /// either side may be the column. An AND is flattened so every part gets a
+    /// look, equality first, while an OR refuses the whole predicate since no
+    /// single index covers both of its sides.
     fn optimize_where(&mut self, predicate: usize) -> InkResult<()> {
         if self.is_done {
             return Ok(());
@@ -135,6 +154,8 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
     /// Flatten a chain of ANDs into its conjunct leaves. Anything that
     /// is not itself an AND (equalities, ranges, ORs, bare nodes) stays
     /// whole for the normal per leaf handling.
+    /// Flatten a chain of ANDs into the leaves it is made of, so each can be
+    /// tried on its own.
     fn collect_conjuncts(arena: &ExprArena, node: usize, out: &mut Vec<usize>) {
         if let Expr::And { left, right } = arena.nodes[node] {
             Self::collect_conjuncts(arena, left, out);
@@ -146,6 +167,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
 
     /// True when the leaf is an equality with a usable index, building
     /// the exact scan as a side effect. Both operand orders tried.
+    /// Try an equality leaf against an index, in both operand orders.
     fn try_exact_side(&mut self, node: usize) -> InkResult<bool> {
         if let Expr::BinaryOp {
             left,
@@ -163,6 +185,12 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
         Ok(false)
     }
 
+    /// Try to turn one comparison into a scan.
+    ///
+    /// A range on the row id column becomes a walk over the table tree, and a
+    /// comparison against an indexed column becomes an entry lookup or an index
+    /// range. When a range is already there on the same index, another bound
+    /// narrows it instead of replacing it; an equality replaces it outright.
     fn try_index(
         &mut self,
         left: usize,
@@ -258,7 +286,6 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                             tighten_upper_bound(&mut irc.range.1, Bound::Excluded(target));
                             return Ok(None);
                         }
-                        // Exact replaces the range below, keep going.
                         _ => {}
                     }
                 }
@@ -306,10 +333,13 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
 
         Ok(None)
     }
+    /// Evaluate an expression with no row behind it, which is how the constant
+    /// side of a comparison is found.
     fn try_cast_to_const_expr(arena: &ExprArena, index: usize) -> Option<Value<'static>> {
         Eval::eval(arena, index, None).ok()
     }
 
+    /// Build the exact match scan.
     fn new_index_exact_match(
         &mut self,
         index_root_page: u32,
@@ -324,6 +354,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
             scan_guard,
         )?))
     }
+    /// Build the index range scan.
     fn new_index_range_scan(
         &mut self,
         index_root_page: u32,
@@ -341,6 +372,8 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
     }
 }
 
+/// Turn `a > b` into `b < a`, for when the column is on the right and the
+/// constant on the left.
 fn flip_comparison(op: BinaryOperator) -> BinaryOperator {
     match op {
         BinaryOperator::Eq => BinaryOperator::Eq,
@@ -354,6 +387,8 @@ fn flip_comparison(op: BinaryOperator) -> BinaryOperator {
     }
 }
 
+/// Move a lower bound in towards the middle, keeping whichever bound is
+/// tighter. An included bound is looser than an excluded one at the same value.
 fn tighten_lower_bound<T: Ord>(current: &mut Bound<T>, new: Bound<T>) {
     let replace = match (&*current, &new) {
         (Bound::Unbounded, _) => true,
@@ -373,6 +408,7 @@ fn tighten_lower_bound<T: Ord>(current: &mut Bound<T>, new: Bound<T>) {
     }
 }
 
+/// The same for an upper bound.
 fn tighten_upper_bound<T: Ord>(current: &mut Bound<T>, new: Bound<T>) {
     let replace = match (&*current, &new) {
         (Bound::Unbounded, _) => true,
