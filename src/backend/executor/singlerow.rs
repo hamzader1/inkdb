@@ -4,6 +4,7 @@ use crate::vfs::Vfs;
 use super::Row;
 use super::context::ExecCtx;
 
+/// One empty row, which is what a SELECT with no FROM clause runs over.
 #[derive(Debug, Default)]
 pub struct SingleRow {
     done: bool,
@@ -14,6 +15,7 @@ impl SingleRow {
         Self { done: false }
     }
 
+    /// Yield the one row, and nothing after it.
     pub fn next<V: Vfs>(&mut self, _ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if self.done {
             return Ok(None);
