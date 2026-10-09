@@ -1,13 +1,19 @@
 use crate::InkResult;
 use crate::backend::analyzer::ResolvedCreateIndexQuery;
 use crate::backend::executor::eval::Eval;
-use crate::errors::InkError;
+use crate::errors::InkError::{self, MasterTableError};
 use crate::sql::ast::{Constraint, CreateIndexStmt, CreateTableStmt, DefaultValue};
 use crate::util::assert_with_runtime_err;
 
 use super::{Analyze, ResolvedCreateTableQuery, ResolvedQuery};
 
 impl<'a> Analyze<'a> {
+    /// Resolve a CREATE TABLE.
+    ///
+    /// The table constraints are bound against the table still being defined, so
+    /// a CHECK can name a column that does not exist yet. Each default is
+    /// evaluated here, once, and stored as a value, since it cannot depend on the
+    /// row it will later be used for.
     pub(crate) fn analyze_create_table_stmt(
         &self,
         mut stmt: CreateTableStmt,
@@ -52,6 +58,10 @@ impl<'a> Analyze<'a> {
         }))
     }
 
+    /// Resolve a CREATE INDEX.
+    ///
+    /// Only one column is supported so far, so only the first named column is
+    /// looked up.
     pub(crate) fn analyze_create_index_stmt(
         &self,
         stmt: CreateIndexStmt,
@@ -85,6 +95,8 @@ impl<'a> Analyze<'a> {
     }
 }
 
+/// A table may have at most one primary key, since that is what decides the
+/// row id.
 fn assert_single_primary_key(stmt: &CreateTableStmt) -> InkResult<()> {
     let count = stmt
         .columns
