@@ -16,11 +16,11 @@ These books, documentation pages, source code, and lectures informed the project
 
 ## Install and run
 
-InkDB is built with Rust 1.98.1. Install that toolchain with rustup, then build the project from its directory:
+The repository pins Rust 1.98.1 in `rust-toolchain.toml`. Rustup selects that toolchain when you run Rust commands here and installs it if needed.
+This pin is the project's chosen toolchain, not a declared minimum supported Rust version.
 
 ```sh
-rustup toolchain install 1.98.1
-cargo +1.98.1 build --release
+cargo build --release
 ```
 
 Open or create a database file and enter SQL in the shell:
@@ -59,9 +59,17 @@ cargo run --release -- users.db "SELECT name FROM users;"
 - Running `cargo run --release -- users.db` creates a SQLite format database.
 - Running `cargo run --release -- users.inkdb` creates an InkDB format database with its own header.
 - InkDB can open SQLite database files and writes `.db` files that remain readable by SQLite, within the SQL and file format features it supports.
-- SQLite cannot open .inkdb files
+- SQLite cannot open `.inkdb` files.
 
 The catalog table is called `master` in InkDB. SQLite calls the equivalent table `sqlite_master`.
+
+## Architecture
+
+![Simplified database architecture from SQL input to disk storage](assets/architecture.png)
+
+InkDB follows this layered architecture. At a high level, a query moves through `SQL → Planner → Executor → B-tree → Pager → Disk`. The image uses the labels “Code Generator” and “Virtual Machine” for its middle layers. InkDB handles those stages with a query planner and a Volcano style executor instead.
+
+The SQL front end tokenizes and parses each statement before planning it. The executor pulls rows through its operators. B-tree operations read and write pages through the pager and VFS, which access the database file.
 
 ## How it works
 
