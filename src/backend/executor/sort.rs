@@ -13,12 +13,21 @@ use crate::vfs::Vfs;
 use crate::vfs::file::InkFile;
 use crate::{InkResult, MemCursor};
 
+/// A name for this sort's temporary files, made unique across the process so
+/// that two sorts running at once do not write over each other.
 fn temp_prefix() -> String {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     format!("ink_sort_{}_{}", std::process::id(), id)
 }
 
+/// Orders the rows of its child by one expression.
+///
+/// The rows are pulled in, each with the value it sorts by worked out, and sorted
+/// in memory while they fit. Once they no longer fit, what has been sorted so far
+/// is written to a run on disk and the sort starts again with an empty buffer;
+/// at the end the runs are merged. Rows that end up on disk are read back the
+/// same way a materialized result is.
 #[derive(Debug)]
 pub struct Sort<V: Vfs> {
     child: Box<plan::Plan<V>>,
@@ -26,7 +35,7 @@ pub struct Sort<V: Vfs> {
     desc: bool,   /*Asc is the default*/
     index: usize, /*Arena index*/
     is_sorted: bool,
-    nread: usize,
+    nread: usize, /*Number of reads*/
     is_done: bool,
     max_frame: usize,
     temp: String,
@@ -50,9 +59,14 @@ impl<V: Vfs> Sort<V> {
             rowid_captured: false,
         }
     }
+    /// The operator whose rows are sorted.
     pub fn child(&self) -> &Plan<V> {
         self.child.as_ref()
     }
+    /// Hand back one row in order.
+    ///
+    /// The first call sorts everything; the rest read the sorted rows back. The
+    /// temporary files go away once the last row has been handed out.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<Option<Row>> {
         if self.is_done {
             return Ok(None);
@@ -69,15 +83,26 @@ impl<V: Vfs> Sort<V> {
         }
         Ok(row)
     }
+    /// The arena index of the expression the sort is by.
     pub fn id(&self) -> usize {
         self.index
     }
+    /// The file holding one sorted run.
     fn run_path(&self, run: usize) -> String {
         format!("{}_run_{}", self.temp, run)
     }
+    /// The file the merged output is written to.
     fn out_path(&self) -> String {
         format!("{}_out", self.temp)
     }
+    /// Pull every row, sorting as it goes.
+    ///
+    /// Each row is written into a buffer as a frame with the sort key in front of
+    /// it, and the keys are kept alongside the frames so the frames can be
+    /// reordered without being decoded. When the buffer would overflow, the part
+    /// gathered so far is sorted and written out as one run. If only one run was
+    /// ever needed the whole result is in memory, and otherwise the runs are
+    /// merged.
     fn sort(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let mut unsorted_buffer: Vec<u8> = Vec::new();
         let mut sorted_buffer: Vec<u8> = Vec::new();
@@ -162,6 +187,13 @@ impl<V: Vfs> Sort<V> {
         self.is_sorted = true;
         Ok(())
     }
+    /// Merge the sorted runs into one stream.
+    ///
+    /// Every run is read a page at a time, and the first row of each goes into a
+    /// heap ordered by the sort key. The smallest is taken out, written to the
+    /// output, and the next row of that same run is put in its place, which walks
+    /// all the runs together in order. A descending sort is handled by reversing
+    /// each buffer as it is written, so the heap only ever has to compare one way.
     fn external_sort(&mut self, nruns: usize, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         let page_size = (MEM_CAP / (nruns + 1)).max(self.max_frame).max(64);
         let mut sort_buffers = Vec::new();
@@ -274,6 +306,11 @@ impl<V: Vfs> Sort<V> {
         self.sort_source = sort_source;
         Ok(())
     }
+    /// Sort the frames gathered so far and lay them out in order.
+    ///
+    /// The keys are sorted rather than the frames, and descending is the same
+    /// sort read backwards, so the frames are copied out in whichever order the
+    /// sort left the keys.
     fn sort_buffer(
         &mut self,
         inp: &[u8],
@@ -292,6 +329,11 @@ impl<V: Vfs> Sort<V> {
     }
 }
 
+/// Read whole frames out of a spilled file into a buffer.
+///
+/// Frames are read until the row limit or the buffer size is reached, so the
+/// buffer always holds whole frames and ends on a boundary. The answer is how
+/// many were read, and the offset is moved past them.
 pub fn load_page<F: InkFile>(
     file: &mut F,
     out: &mut Vec<u8>,
@@ -328,6 +370,7 @@ pub fn load_page<F: InkFile>(
     Ok(niter)
 }
 
+/// Work out the sort key of every frame in a buffer, so they can be ordered.
 fn load_children<V: Vfs>(
     inp: &[u8],
     children: &mut Vec<InnerSortBuffer>,
@@ -359,6 +402,7 @@ fn load_children<V: Vfs>(
     Ok(())
 }
 
+/// One run on disk, with the page of it that is currently in memory.
 struct SortBuffer<V: Vfs> {
     f: V::File,
     rid: usize,   /*Run id*/
@@ -390,6 +434,10 @@ impl<V: Vfs> SortBuffer<V> {
             offset,
         }
     }
+    /// The heap entry for one row of this run.
+    ///
+    /// When the page has been walked to its end, the next page is read in and the
+    /// walk starts again. Nothing is returned once the run has no rows left.
     fn yield_entry(
         &mut self,
         mut child_id: usize,
@@ -423,9 +471,10 @@ impl<V: Vfs> SortBuffer<V> {
     }
 }
 
+/// Where one frame sits in the buffer it is held in, with the value it sorts by.
 #[derive(Debug, Clone)]
 struct InnerSortBuffer {
-    key: Value<'static>, /*Can we change it to 'any ?*/
+    key: Value<'static>,
     start: usize,
     len: usize,
 }
@@ -435,6 +484,10 @@ impl InnerSortBuffer {
     }
 }
 
+/// One run's next row, ordered by its sort key.
+///
+/// The comparison is reversed so that a `BinaryHeap`, which is a max heap, hands
+/// back the smallest key first.
 #[derive(Debug)]
 struct HeapEntry {
     key: Value<'static>,
@@ -452,6 +505,7 @@ impl HeapEntry {
     }
 }
 impl Ord for HeapEntry {
+    /// Reversed, so the smallest key comes out first.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other.key.cmp(&self.key)
     }
