@@ -10,7 +10,6 @@ path = "src/main.rs"
 [dependencies]
 rustyline = "18.0.1"
 thiserror = "2.0"
-chrono = { version = "0.4", features = ["serde"], optional = true }
 
 
 [dev-dependencies]
