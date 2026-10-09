@@ -34,8 +34,6 @@ pub struct Frame {
     pub borrow: Cell<i16>,
 }
 impl Frame {
-    /// Make a frame that holds this page, with these flags and this many pins,
-    /// and with no neighbours in the dirty list.
     pub fn new(page_no: Option<PageNo>, flags: u8, pin_count: u32) -> Self {
         Self {
             page_no,
