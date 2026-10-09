@@ -38,14 +38,12 @@ impl<'a> MemCursor<'a> {
             offset,
         })
     }
-    /// A copy of this cursor, at the same offset.
     pub fn clone_cursor(&self) -> Self {
         Self {
             bytes: self.bytes,
             offset: self.offset,
         }
     }
-    /// A copy of this cursor pointed at another offset, which has to be within the bytes.
     pub fn clone_with_offset(&self, offset: u64) -> Result<Self, InkError> {
         Self::with_offset(self.bytes, offset)
     }
