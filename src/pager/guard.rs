@@ -25,7 +25,6 @@ pub struct PageGuard {
     _marker: PhantomData<BufferPool>,
 }
 impl PageGuard {
-    /// Build a guard over a frame and its bytes.
     pub fn new(
         buffer_pool: NonNull<BufferPool>,
         frame_id: FrameId,
