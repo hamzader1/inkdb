@@ -5,6 +5,11 @@ use crate::sql::ast::DeleteStmt;
 use super::{Analyze, ResolvedQuery};
 
 impl<'a> Analyze<'a> {
+    /// Resolve a DELETE.
+    ///
+    /// A DELETE with a predicate becomes a delete query. One without a predicate
+    /// removes every row, which needs no scan at all, so it is resolved as a
+    /// truncate instead and the pages are freed in bulk.
     pub(crate) fn analyze_delete_stmt(&self, mut stmt: DeleteStmt) -> InkResult<ResolvedQuery> {
         let table = self.get_non_master_table(&stmt.table_name)?;
         if let Some(predicate) = stmt.where_clause {
