@@ -5,7 +5,7 @@ use super::MEM_CAP;
 use crate::backend::executor::Row;
 use crate::backend::executor::context::ExecCtx;
 use crate::backend::executor::eval::Eval;
-use crate::backend::executor::{StreamSource, decode_frame};
+use crate::backend::executor::{RowView, StreamSource, decode_frame};
 use crate::backend::planner::plan::Plan;
 use crate::record::{Record, Value};
 use crate::varint::encode_varint;
@@ -120,14 +120,14 @@ impl<V: Vfs> Sort<V> {
             let mut key_buffer = [0u8; 9];
             let mut len_buffer = [0u8; 9];
             let row_bytes = row.stored_bytes().unwrap();
-            let record = Record::new(row_bytes)?;
+            let view = RowView::new(row.key(), Record::new(row_bytes)?, row.rowid_column());
             debug_assert!(
                 ctx.arena.nodes.get(self.index).is_some(),
                 "sort key must be a bound arena node, got {} of {}",
                 self.index,
                 ctx.arena.nodes.len()
             );
-            let key = Eval::eval(ctx.arena, self.index, Some(&record))?;
+            let key = Eval::eval(ctx.arena, self.index, Some(&view))?;
             let key_bytes = encode_varint(&mut key_buffer, row.key());
             let payload = key_bytes + row_bytes.len();
             let len_varint = encode_varint(&mut len_buffer, payload as u64);
@@ -214,7 +214,14 @@ impl<V: Vfs> Sort<V> {
                 page_size,
                 &mut offset,
             )?;
-            load_children(&page_buffer, &mut children, rrows, self.index, ctx)?;
+            load_children(
+                &page_buffer,
+                &mut children,
+                rrows,
+                self.index,
+                self.rowid_column,
+                ctx,
+            )?;
             let sort_buffer = SortBuffer::new(
                 file,
                 run_id,
@@ -267,6 +274,7 @@ impl<V: Vfs> Sort<V> {
                 entry.child_id + 1,
                 page_size,
                 self.index,
+                self.rowid_column,
                 ctx,
             )? {
                 Some(e) => {
@@ -376,6 +384,7 @@ fn load_children<V: Vfs>(
     children: &mut Vec<InnerSortBuffer>,
     limit: usize,
     arena_index: usize,
+    rowid_column: Option<usize>,
     ctx: &mut ExecCtx<'_, V>,
 ) -> InkResult<()> {
     children.clear();
@@ -393,9 +402,9 @@ fn load_children<V: Vfs>(
         if frame_len > available {
             break;
         }
-        let (_, record_bytes) = decode_frame(&inp[pos..pos + frame_len])?;
-        let record = Record::new(record_bytes)?;
-        let key = Eval::eval(ctx.arena, arena_index, Some(&record))?.into_static();
+        let (row_key, record_bytes) = decode_frame(&inp[pos..pos + frame_len])?;
+        let view = RowView::new(row_key, Record::new(record_bytes)?, rowid_column);
+        let key = Eval::eval(ctx.arena, arena_index, Some(&view))?.into_static();
         children.push(InnerSortBuffer::new(key, pos, frame_len));
         pos += frame_len;
     }
@@ -443,6 +452,7 @@ impl<V: Vfs> SortBuffer<V> {
         mut child_id: usize,
         page_size: usize,
         index: usize,
+        rowid_column: Option<usize>,
         ctx: &mut ExecCtx<'_, V>,
     ) -> InkResult<Option<HeapEntry>> {
         if child_id == self.children.len() {
@@ -460,7 +470,14 @@ impl<V: Vfs> SortBuffer<V> {
                 return Ok(None);
             }
             self.rrows += niter;
-            load_children(&self.page_buffer, &mut self.children, niter, index, ctx)?;
+            load_children(
+                &self.page_buffer,
+                &mut self.children,
+                niter,
+                index,
+                rowid_column,
+                ctx,
+            )?;
             child_id = 0;
         }
         if child_id >= self.children.len() {
