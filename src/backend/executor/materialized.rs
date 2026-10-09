@@ -27,7 +27,7 @@ const FILE: &str = "ink_update_temp";
 /// To prevent this, we collect all rows before yielding any of them. Rows stay
 /// in memory while they fit within the memory limit and spill to a temporary
 /// file when that limit is exceeded. This allows us to safely yield rows from
-/// a [`StreamSource`] without the ongoing scan being affected by changes to the
+/// a StreamSource without the ongoing scan being affected by changes to the
 /// underlying data.
 #[derive(Debug)]
 pub struct MaterializedResult<V: Vfs> {
