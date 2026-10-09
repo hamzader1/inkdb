@@ -602,10 +602,10 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         }
         self.u16_at((self.header_size()? as u16 + i * 2) as usize)
     }
-    #[allow(clippy::chunks_exact_to_as_chunks)]
     /// The offset of every cell, in order.
     /// The cell pointer array begins on the first byte after the page header,
     /// and it contains zero or more cell pointers.
+    #[allow(clippy::chunks_exact_to_as_chunks)]
     pub fn cell_ptrs(&self) -> InkResult<impl Iterator<Item = u16> + '_> {
         let start = self.header_size()? as usize;
         let no_of_cells = self.no_of_cells()? as usize;
@@ -649,7 +649,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     }
     /// Read the values of a cell.
     /// # Deserialize Algorithm
-    /// Both [`BTreePage::decode_loop_owned`] and [`BTreePage::decode_loop_borrowed`]
+    /// Both `decode_loop_owned` and `decode_loop_borrowed`
     /// follow the same approach.
     ///
     /// We initialize a [`MemCursor`] at the start of the payload and read the first
@@ -695,7 +695,7 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     /// We read the next varint and get `1`, which tells us that the value takes one
     /// byte. We read that byte using the data pointer, then continue the same
     /// process until all values have been decoded.
-    /// See [`BTreePage::decode_loop_owned`] and [`BTreePage::decode_loop_borrowed`]
+    /// See `decode_loop_owned` and `decode_loop_borrowed`
     ///
     /// When the payload spilled onto overflow pages it is gathered first, and
     /// the values then own their bytes, since they no longer point into this
