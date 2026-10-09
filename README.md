@@ -59,12 +59,12 @@ The shell accepts statements ending in a semicolon. For a single query, pass it 
 cargo run --release -- users.db "SELECT name FROM users;"
 ```
 
-The file extension selects the format when creating a database.
-Running `cargo run --release -- users.db` creates a SQLite format database.
-Running `cargo run --release -- users.inkdb` creates an InkDB format database with its own header.
-InkDB can open SQLite database files and writes `.db` files that remain readable by SQLite, within the SQL and file format features it supports.
-SQLite cannot open .inkdb files
-
+- The file extension selects the format when creating a database.
+- Running `cargo run --release -- users.db` creates a SQLite format database.
+- Running `cargo run --release -- users.inkdb` creates an InkDB format database with its own header.
+- InkDB can open SQLite database files and writes `.db` files that remain readable by SQLite, within the SQL and file format features it supports.
+- SQLite cannot open .inkdb files
+  
 The catalog table is called `master` in InkDB. SQLite calls the equivalent table `sqlite_master`.
 
 ## How it works
