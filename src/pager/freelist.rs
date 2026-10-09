@@ -10,8 +10,8 @@ impl<V: Vfs> Pager<V> {
     /// A freelist page is a trunk. The first trunk holds up to a page's worth of
     /// spare page numbers and points on to the next trunk. This hands back the
     /// page at the end of the first trunk's list, or the trunk page itself when
-    /// its list is empty, and answers with that page, the first trunk the caller
-    /// should record next, and how many pages are left on the freelist.
+    /// its list is empty, and answers with that page, the first trunk to record
+    /// next, and how many pages are left on the freelist.
     ///
     /// +----------+                +-------Trunk pages-------+
     /// |          |                |                         |
