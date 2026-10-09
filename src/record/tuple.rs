@@ -105,7 +105,7 @@ const fn text_encoding(len: usize) -> usize {
 
 /// The serial type for a blob of this many bytes. The length is doubled and
 /// added to twelve.
-// Same for blob_encoding. See the formula above.
+// Same for blob_encoding, see the formula above.
 const fn blob_encoding(len: usize) -> usize {
     (len * 2) + 12
 }
@@ -318,11 +318,12 @@ impl Tuple {
     ///
     /// The output looks like
     ///
-    /// +------------+------+------+------+------+-----+------+------+------+------+-----+
-    /// |     04     |  01  |  17  |  01  |  01  | 41  |  6c  |  69  |  63  |  65  | 16  |
-    /// +------------+------+------+------+------+-----+------+------+------+------+-----+
-    /// |            |                           |                                       |
-    /// +-Header-len-+-------Data types----------+---------------Payload-----------------+
+    ///     +------------+------+------+------+------+-----+------+------+------+------+-----+
+    ///     |     04     |  01  |  17  |  01  |  01  | 41  |  6c  |  69  |  63  |  65  | 16  |
+    ///     +------------+------+------+------+------+-----+------+------+------+------+-----+
+    ///     |            |                    |                                              |
+    ///     +-Header-len-+-----Data types-----+---------------Payload------------------------+
+    ///
     /// ```
     // Well... 120 lines of explanation for a 20 line function.
     pub fn serialize(values: &[Value]) -> Vec<u8> {
