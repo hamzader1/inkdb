@@ -65,11 +65,9 @@ The catalog table is called `master` in InkDB. SQLite calls the equivalent table
 
 ## Architecture
 
-![Simplified database architecture from SQL input to disk storage](assets/architecture.png)
+![InkDB architecture showing the core, SQL compiler, storage engine, and auxiliary components](assets/architecture.png)
 
-InkDB follows this layered architecture. At a high level, a query moves through `SQL → Planner → Executor → B-tree → Pager → Disk`. The image uses the labels “Code Generator” and “Virtual Machine” for its middle layers. InkDB handles those stages with a query planner and a Volcano style executor instead.
-
-The SQL front end tokenizes and parses each statement before planning it. The executor pulls rows through its operators. B-tree operations read and write pages through the pager and VFS, which access the database file.
+InkDB follows this architecture. The SQL compiler tokenizes and parses each statement, then the planner builds a query plan. The Volcano executor runs that plan, and storage operations pass through the B-tree and pager to the OS interface. The schema and catalog support query processing, while utilities provide shared functionality. In short, a query moves through `SQL → Planner → Executor → B-tree → Pager → Disk`.
 
 ## How it works
 
