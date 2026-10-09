@@ -12,6 +12,13 @@ impl<'a> Analyze<'a> {
         &self,
         mut stmt: CreateTableStmt,
     ) -> Result<ResolvedQuery, InkError> {
+        match self.get_non_master_table(&stmt.name) {
+            Ok(_) => {
+                return Err(InkError::TableAlreadyExists(stmt.name));
+            }
+            Err(MasterTableError) => return Err(MasterTableError),
+            _ => {}
+        };
         if self.get_non_master_table(&stmt.name).is_ok() {
             return Err(InkError::TableAlreadyExists(stmt.name));
         }
