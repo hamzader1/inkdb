@@ -8,13 +8,20 @@ use crate::vfs::Vfs;
 
 use super::plan::Plan;
 
+/// A plan that is ready to run, with the arena its expressions live in.
+///
+/// The difference between the two variants is who owns the transaction. An
+/// autocommit statement starts one, runs, and commits or rolls back by itself,
+/// while a direct one runs inside a transaction that is already open.
 #[derive(Debug)]
 pub enum PreparedPlan<V: Vfs> {
+    /// A statement that owns its transaction.
     AutoCommit {
         parent: Plan<V>,
         arena: ExprArena,
         statement_table: Option<String>,
     },
+    /// A statement running inside a transaction someone else opened.
     Direct {
         parent: Plan<V>,
         arena: ExprArena,
@@ -39,18 +46,22 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
+    /// The root of the plan.
     pub fn parent(&self) -> &Plan<V> {
         match self {
             Self::AutoCommit { parent, .. } | Self::Direct { parent, .. } => parent,
         }
     }
 
+    /// The arena the plan expressions are held in.
     pub fn arena(&self) -> &ExprArena {
         match self {
             Self::AutoCommit { arena, .. } | Self::Direct { arena, .. } => arena,
         }
     }
 
+    /// The table the statement is about, when there is one, which is what a
+    /// CHECK constraint error names.
     pub fn table_name(&self) -> Option<&str> {
         match self {
             Self::AutoCommit {
@@ -62,6 +73,7 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
+    /// Note which table the statement is about.
     pub(crate) fn with_table(mut self, table: &str) -> Self {
         match &mut self {
             Self::AutoCommit {
@@ -74,6 +86,7 @@ impl<V: Vfs> PreparedPlan<V> {
         self
     }
 
+    /// Set the table from outside, which is what an EXPLAIN does with the table of the query it wraps.
     pub(crate) fn set_statement_table(&mut self, table: Option<String>) {
         match self {
             Self::AutoCommit {
@@ -85,6 +98,7 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
+    /// Take the plan apart, for wrapping it in another plan.
     pub(crate) fn into_parts(self) -> (Plan<V>, ExprArena, Option<String>) {
         match self {
             Self::AutoCommit {
@@ -100,11 +114,22 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
+    /// Run the plan.
+    ///
+    /// An autocommit plan starts a transaction, walks the plan, and then commits
+    /// or rolls back. If the plan failed it is rolled back and the schema is
+    /// marked stale, since a rolled back create or drop left the file as it was.
+    /// A direct plan just runs, leaving the transaction to whoever opened it.
     pub fn next(
         &mut self,
         pager: &mut Pager<V>,
         master: &mut Master,
     ) -> Result<Option<Row>, InkError> {
+        // LIMITATION: The current pager API supports only three operations: begin, rollback,
+        // and commit. Single statement rollback is not supported yet. For example, if
+        // a transaction contains five queries and the first four succeed but the last
+        // one fails, the database rolls back the entire transaction, including the
+        // four queries that succeeded.
         match self {
             Self::Direct {
                 parent,
