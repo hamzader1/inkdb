@@ -20,7 +20,7 @@ use crate::storage::page::{BTreePage, BTreePageType};
 use crate::vfs::disk::DiskVfs;
 use crate::vfs::file::InkFile;
 
-/// The database handle, and the only way into the engine.
+/// Database handle containing the pager, schema, and file header.
 ///
 /// One of these owns everything a session needs: the [`pager`](`Pager`) that moves pages
 /// between the file and memory, the [`schema`](`Master`) read out of the master table, and the
@@ -85,9 +85,8 @@ impl Database<DiskVfs> {
     }
     /// Create a brand new database at this path, in the format you name.
     ///
-    /// For the SQLite format this is the same byte layout SQLite itself writes
-    /// when it creates a file, which is what lets other tools open it. The Ink
-    /// format is a shorter header that carries only what this engine needs.
+    /// The SQLite format uses SQLite's header layout. The Ink format has a
+    /// shorter header containing the fields this engine needs.
     pub fn create<P: AsRef<Path>>(db_path: P, format: DbFormat) -> Result<Self, InkError> {
         Self::create_with_vfs(DiskVfs, db_path, format)
     }

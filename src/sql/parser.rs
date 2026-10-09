@@ -17,7 +17,7 @@ use super::tokens::{
 use std::{rc::Rc, string::String};
 
 use super::ast::Expr;
-/// Every expression of one statement, in a flat list.
+/// Expressions for one statement, stored in a flat list.
 ///
 /// Expressions refer to each other by their position in this list rather than
 /// by holding their children, so `WHERE 9 + 1 = 10` becomes three entries and
@@ -49,18 +49,19 @@ impl ExprArena {
 }
 /// Turns a list of tokens into a statement.
 ///
-/// This is a recursive descent parser a kind of top down parsing
-/// where one first looks at the highest level of the parse tree and
-/// works down the parse tree by using the rewriting rules of our grammar.
-/// More on it: [`Recursive descent parser`](https://en.wikipedia.org/wiki/Recursive_descent_parser)
+/// This is a recursive descent parser, a type of top down parser that starts
+/// at the highest level of the parse tree and works its way down using the
+/// production rules of the grammar.
 ///
-/// In this context:
-/// The parser walks the tokens once, from left to right, reading one at a time.
-/// Expressions it builds go into `arena`, and the statement it returns refers to
-/// them by index. The original text is kept as well, because errors quote it.
+/// For more information, see the [`Recursive descent parser`](https://en.wikipedia.org/wiki/Recursive_descent_parser).
 ///
-/// The grammar is written as a chain of small functions, each one handling a
-/// level of precedence and calling the next level down.
+/// The parser walks through the tokens from left to right, reading one at a
+/// time. Expressions are stored in `arena`, and the returned statement refers
+/// to them by index. The original query text is also preserved so errors can
+/// include it in their messages.
+///
+/// The grammar is implemented as a chain of small functions, each handling
+/// a level of precedence and calling the next level down.
 pub struct Parser {
     pub query: Rc<str>,
     pub tokens: Vec<Token>,
@@ -77,7 +78,7 @@ impl Parser {
             arena: ExprArena::new(),
         }
     }
-    /// Parse one statement from the tokens, which is the way in for callers.
+    /// Parse one statement from its tokens.
     ///
     /// # Errors
     /// Any syntax error the statement contains, reported with the span of the

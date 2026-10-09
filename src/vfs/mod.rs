@@ -21,28 +21,16 @@ const READ: u8 = 1 << 0;
 const WRITE: u8 = 1 << 1;
 /// Flag bit for [`InkOptions`]: the file is created when it is missing.
 const CREATE: u8 = 1 << 2;
-/// Ink's own version of [`OpenOptions`].
-///
-/// It is a small bitset holding three flags: `READ`, `WRITE` and `CREATE`.
-/// Keeping it independent of `std` lets each VFS decide what the flags mean:
-/// the disk VFS translates them into an [`OpenOptions`], while the in memory
-/// VFS simply ignores them.
+/// File access flags interpreted by each VFS implementation.
 pub struct InkOptions {
     /// The open flags, a combination of `READ`, `WRITE` and `CREATE`.
     options: u8,
 }
 
-/// The OS interface, also called the VFS (Virtual File System), and the layer
-/// that makes InkDB portable across operating systems.
+/// Abstracts database, journal, and temporary file operations.
 ///
-/// Every other module comes through these few methods whenever it needs the
-/// operating system: opening files, reading and writing bytes, and creating and
-/// deleting journals and temporary files. Each implementation turns those calls
-/// into the platform specific code that satisfies them.
-///
-/// A VFS also decides what a file *is*. [`DiskVfs`] wraps a real file on disk,
-/// while `MemVfs` keeps the bytes in a buffer, which is rarely what you want
-/// outside of testing because nothing survives the process.
+/// [`DiskVfs`] accesses files on disk. `MemVfs` keeps them in memory and is
+/// primarily used in tests.
 pub trait Vfs: std::fmt::Debug {
     type File: InkFile;
 
@@ -58,7 +46,7 @@ pub trait Vfs: std::fmt::Debug {
     fn read_journal(&self, db: &Self::File) -> Result<Option<Vec<u8>>, InkError>;
     /// Open a temporary file in the system temporary location.
     ///
-    /// Its used to hold intermediate results that do not fit in memory.
+    /// Used to hold intermediate results that do not fit in memory.
     fn open_temp<T: AsRef<Path>>(&mut self, name: T) -> InkResult<Self::File>;
     /// Remove a temporary file.
     ///
@@ -114,7 +102,7 @@ impl InkOptions {
         self.options & CREATE != 0
     }
 
-    /// Every flag at once, which is what journals and temporary files need.
+    /// Set the read, write, and create flags.
     pub fn all() -> Self {
         Self {
             options: READ | WRITE | CREATE,
