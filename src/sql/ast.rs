@@ -174,6 +174,7 @@ pub struct SelectStmt {
 
 /// How the result should be ordered: the expression to sort on, and whether it
 /// should come out descending.
+/*Order by is limited to one expression for now*/
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OrderBy {
     pub(crate) index: usize,
