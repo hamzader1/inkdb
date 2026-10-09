@@ -151,12 +151,6 @@ impl<V: Vfs> IndexExactMatch<V> {
         }
         let row_id = rowid_of(&index_record)?;
 
-        let pk_as_rowid = {
-            match ctx.master.table(&self.relation_name) {
-                Some(table) => table.rowid_column(),
-                _ => None,
-            }
-        };
         let mut relation_btree = BTree::new(self.relation_root_page, ctx.pager);
         if relation_btree.seek(&Value::Integer(row_id as i64))? != SeekResult::Exact {
             return Err(CorruptError::IndexEntryWithoutRow {
@@ -171,7 +165,11 @@ impl<V: Vfs> IndexExactMatch<V> {
             .current_record_bytes(ctx.pager)?
             .ok_or(InkError::Corrupt(CorruptError::RowVanished))?;
 
-        let row = Row::stored_with_rowid(row_id, relation_record, pk_as_rowid);
+        let row = Row::from_table(
+            row_id,
+            relation_record,
+            ctx.master.table(&self.relation_name),
+        );
         self.scan_guard
             .save_or_advance(ctx.pager, &mut self.cursor)?;
 
@@ -330,8 +328,7 @@ impl<V: Vfs> IndexRangeScan<V> {
             .cursor
             .current_record_bytes(ctx.pager)?
             .ok_or(InkError::Corrupt(CorruptError::RowVanished))?;
-
-        let row = Row::stored(row_id, relation_record);
+        let row = Row::from_table(row_id, relation_record, ctx.table());
         self.scan_guard
             .save_or_advance(ctx.pager, &mut self.cursor)?;
         Ok(Some(row))
