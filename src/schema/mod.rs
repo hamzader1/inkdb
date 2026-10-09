@@ -66,11 +66,11 @@ use std::sync::LazyLock;
 /// Every database has one and it cannot be read from the catalog, because it is
 /// the catalog. Its five columns are the ones a SQLite file gives it, and page
 /// one is always its root.
-/**
- +----------+----------+----------+----------+----------+
- |   type   |   name   | tbl_name |root_page |   sql    |
- +----------+----------+----------+----------+----------+
-*/
+/// ```text
+/// +----------+----------+----------+----------+----------+
+/// |   type   |   name   | tbl_name |root_page |   sql    |
+/// +----------+----------+----------+----------+----------+
+/// ```
 pub(crate) static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
     name: "master".to_string(),
     root_page: 1,
