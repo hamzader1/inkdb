@@ -14,7 +14,9 @@ These books, documentation pages, source code, and lectures informed the project
 - [SQLite 3.0.0 source](https://sqlite.org/src/tree?ci=8b409aaae42cc36d)
 - [CMU Introduction to Database Systems, Fall 2025](https://www.youtube.com/watch?v=7NPIENPr-zk&list=PLSE8ODhjZXjYMAgsGH-GtY5rJYZ6zjsd5)
 
-<!-- Add the query demonstration GIF here. -->
+## Demo
+
+![InkDB demo](assets/demo.gif)
 
 ## Install and run
 
@@ -62,6 +64,8 @@ Running `cargo run --release -- users.db` creates a SQLite format database.
 Running `cargo run --release -- users.inkdb` creates an InkDB format database with its own header.
 InkDB can open SQLite database files and writes `.db` files that remain readable by SQLite, within the SQL and file format features it supports.
 SQLite cannot open .inkdb files
+
+The catalog table is called `master` in InkDB. SQLite calls the equivalent table `sqlite_master`.
 
 ## How it works
 
