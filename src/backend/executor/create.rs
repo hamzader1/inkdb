@@ -60,12 +60,12 @@ impl<V: Vfs> CreateTable<V> {
             ctx.pager.usable_size(),
             ctx.pager.header_len(),
         )?;
-        #[rustfmt::skip]
+
         let row = [
             ("table").into(),                     // type
             (&**name).into(),                     // name
             (&**name).into(),                     // tbl_name
-            Value::Integer(new_page as _),  // root page
+            Value::Integer(new_page as _),        // root page
             self.meta.meta.query.as_ref().into(), // original query
         ];
         /* todo*
@@ -85,7 +85,7 @@ impl<V: Vfs> CreateTable<V> {
         for (i, column) in self.meta.unique_on.iter().enumerate() {
             let col_name = self.meta.meta.columns[*column].name.clone();
             let query = format!(
-                "CREATE UNIQUE INDEX ink_autoindex_{}_{} on {}({})",
+                "CREATE UNIQUE INDEX ink_autoindex_{}_{} ON {}({})",
                 name, i, name, col_name
             );
             let meta = ResolvedCreateIndexQuery::new(
