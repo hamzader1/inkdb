@@ -67,7 +67,6 @@ pub(crate) struct JournalMeta {
 }
 
 impl RawJournal {
-    /// Build a journal with its header filled in and no records yet.
     pub fn new(JournalMeta { db_size, p_size }: JournalMeta) -> Self {
         let mut buffer: Vec<u8> = Vec::with_capacity(
             JOURNAL_HEADER_SIZE + ((PAGE_NUMBER_SIZE + p_size as usize) * JOURNAL_CAP),
@@ -240,8 +239,6 @@ pub(crate) struct JournalPage<'a> {
     pub(crate) data: &'a [u8],
 }
 impl<'a> JournalPage<'a> {
-    /// Read a record from its bytes, which are the page number followed by the
-    /// page itself.
     pub fn new(bytes: &'a [u8]) -> Self {
         debug_assert!(
             bytes.len() >= 4,
