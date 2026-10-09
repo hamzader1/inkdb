@@ -1,5 +1,6 @@
 use crate::errors::CorruptError;
 use crate::record::{Record, Value};
+use crate::schema::Table;
 use crate::varint::{decode_varint, encode_varint};
 use crate::vfs::Vfs;
 use crate::{InkResult, MemCursor};
@@ -97,7 +98,26 @@ impl Row {
         }
     }
 
-    /// The record view over the stored bytes, or nothing for a computed row.
+    /// A row fetched from a table using its row ID.
+    ///
+    /// The row ID is added here because it is not stored in the row's bytes.
+    /// If a column aliases the row ID, its value is stored as `NULL`, and the
+    /// actual value is kept as the row key.
+    pub fn from_table(key: u64, record: Vec<u8>, table: Option<&Table>) -> Self {
+        Self::stored_with_rowid(key, record, table.and_then(|table| table.rowid_column()))
+    }
+
+    pub fn view(&self) -> InkResult<Option<RowView<'_>>> {
+        match &self.columns {
+            Columns::Stored(bytes) => Ok(Some(RowView::new(
+                self.key,
+                Record::new(bytes)?,
+                self.rowid_column,
+            ))),
+            Columns::Computed(_) => Ok(None),
+        }
+    }
+
     pub fn raw_record(&self) -> InkResult<Option<Record<'_>>> {
         match self.stored_bytes() {
             Some(bytes) => Ok(Some(Record::new(bytes)?)),
@@ -218,16 +238,6 @@ impl ColumnSource for RowView<'_> {
 }
 
 impl ColumnSource for Row {
-    fn column(&self, index: usize) -> InkResult<Value<'_>> {
-        self.value(index)
-    }
-
-    fn column_count(&self) -> usize {
-        self.len()
-    }
-}
-
-impl ColumnSource for Record<'_> {
     fn column(&self, index: usize) -> InkResult<Value<'_>> {
         self.value(index)
     }
