@@ -18,6 +18,11 @@ use super::prepare::{PrepareInsert, PrepareRow};
 use crate::record::tuple::Tuple;
 use crate::storage::cell::Encode;
 
+/// Creates a table: one empty page for its rows and one catalog row to describe
+/// it.
+///
+/// A column declared UNIQUE also gets an index, built here as part of the same
+/// create.
 #[derive(Debug)]
 pub struct CreateTable<V: Vfs> {
     meta: ResolvedCreateTableQuery,
@@ -31,10 +36,17 @@ impl<V: Vfs> CreateTable<V> {
             _marker: PhantomData,
         }
     }
+    /// The name of the table being created.
     pub fn table_name(&self) -> &str {
         &self.meta.meta.name
     }
 
+    /// Create the table and its automatic indexes.
+    ///
+    /// The new page is made an empty leaf and its number goes into a catalog row,
+    /// which is written through the same path as any other insert. Every UNIQUE
+    /// column then gets an index of its own, named after the table and the
+    /// column.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         let name = &self.meta.meta.name;
         let new_page = BTree::new(1, ctx.pager).allocate_page()?;
@@ -48,11 +60,12 @@ impl<V: Vfs> CreateTable<V> {
             ctx.pager.usable_size(),
             ctx.pager.header_len(),
         )?;
+        #[rustfmt::skip]
         let row = [
             ("table").into(),                     // type
             (&**name).into(),                     // name
             (&**name).into(),                     // tbl_name
-            Value::Integer(new_page as _),        // root page
+            Value::Integer(new_page as _),  // root page
             self.meta.meta.query.as_ref().into(), // original query
         ];
         /* todo*
@@ -66,6 +79,9 @@ impl<V: Vfs> CreateTable<V> {
         let mut prepare = PrepareRow::new(Box::new(prepare_insert), 1, self.meta.meta.name.clone());
         while prepare.next(ctx)?.is_some() {}
         ctx.master.mark_dirty();
+        // I don't know how SQLite strictly validates its autoindexes, so we cannot
+        // use the same approach. Instead, we manually construct the creation query
+        // and execute it so SQLite can use the index as well ^-^
         for (i, column) in self.meta.unique_on.iter().enumerate() {
             let col_name = self.meta.meta.columns[*column].name.clone();
             let query = format!(
@@ -86,6 +102,12 @@ impl<V: Vfs> CreateTable<V> {
     }
 }
 
+/// Creates an index, and fills it from the table it covers.
+///
+/// The index gets a page of its own and a catalog row, then every row of the
+/// table is walked and an entry is inserted for it. A unique index relies on the
+/// table being sorted by the indexed column, so that the row before the current
+/// one holds the nearest value to compare against.
 #[derive(Debug)]
 pub struct CreateIndex<V: Vfs> {
     child: Option<Box<Plan<V>>>,
@@ -113,12 +135,16 @@ impl<V: Vfs> CreateIndex<V> {
             is_init: false,
         })
     }
+    /// The index root page, once the index has been created.
     pub fn index_root_page(&self) -> Option<u32> {
         self.index.map(|index| index.index_root_page)
     }
+    /// The table column the index covers.
     pub fn col_idx(&self) -> usize {
         self.meta.column_index
     }
+    /// The operator that feeds rows in, or nothing for an index created with no
+    /// table to fill it from.
     pub fn child(&self) -> Option<&Plan<V>> {
         self.child.as_deref()
     }
@@ -126,6 +152,10 @@ impl<V: Vfs> CreateIndex<V> {
     /*
      * todo* Clean this
      */
+    /// Create the index, then insert an entry for every row of the table.
+    ///
+    /// An index with nothing to fill it from stops after the creation, which is
+    /// how a table builds its automatic indexes without scanning itself.
     pub fn next(&mut self, ctx: &mut ExecCtx<'_, V>) -> Result<Option<Row>, InkError> {
         self.initialize(ctx)?;
         let Some(index) = self.index else {
@@ -162,6 +192,10 @@ impl<V: Vfs> CreateIndex<V> {
         }
         Ok(None)
     }
+    /// Create the index page and write its catalog row, without filling it.
+    ///
+    /// Doing this on its own is what lets a table create its automatic indexes
+    /// and then fill them as its own rows go in.
     pub fn initialize(&mut self, ctx: &mut ExecCtx<'_, V>) -> InkResult<()> {
         if self.is_init {
             return Ok(());
