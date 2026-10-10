@@ -1,6 +1,6 @@
 # InkDB
 
-## A database engine in Rust
+### A database engine in Rust
 
 InkDB is a learning project built to explore how a relational database works, from SQL parsing through query execution and page storage. **It reads and writes SQLite database files and can also create files with its own header format**.
 
