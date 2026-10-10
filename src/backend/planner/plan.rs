@@ -45,59 +45,32 @@ use crate::{InkResult, Master};
 /// operator the engine has is a variant here.
 #[derive(Debug, Default)]
 pub enum Plan<V: Vfs> {
-    /// Begins a transaction.
     BeginTransaction(BeginTransaction),
-    /// Commits a transaction.
     CommitTransaction(CommitTransaction),
-    /// Counts rows.
     Count(Count<V>),
-    /// Creates and fills an index.
     CreateIndex(CreateIndex<V>),
-    /// Creates a table.
     CreateTable(CreateTable<V>),
-    /// Deletes rows.
     Delete(Delete<V>),
-    /// Marks the schema stale after a drop.
     DropTbl(DropTblExec<V>),
-    /// Prints the plan below it.
     Explain(Explain<V>),
-    /// Passes on rows that satisfy a predicate.
     Filter(Filter<V>),
-    /// Finds rows by an exact index value.
     IndexExactMatch(IndexExactMatch<V>),
-    /// Walks an index over a range of values.
     IndexRangeScan(IndexRangeScan<V>),
-    /// Inserts one cell into a tree.
     Insert(Insert<'static, V>),
-    /// Hands on at most a set number of rows.
     Limit(Limit<V>),
-    /// Collects its rows before handing them back.
     Materialized(MaterializedResult<V>),
-    /// Applies an index change per row.
     PrepareIndex(PrepareIndex<V>),
-    /// Hands out the rows of an INSERT.
     PrepareInsert(PrepareInsert<V>),
-    /// Stores each row in the table.
     PrepareRow(PrepareRow<V>),
-    /// Evaluates the output expressions.
     Project(Project<V>),
-    /// Rolls a transaction back.
     RollbackTransaction(RollBackTransaction),
-    /// Walks rows by row id range.
     RowRangeScan(RowRangeScan<V>),
-    /// Yields one empty row.
     SingleRow(SingleRow),
-    /// Orders its rows.
     Sort(Sort<V>),
-    /// Walks a table.
     TableScan(TableScan<V>),
-    /// Runs its child to the end.
     Terminate(Terminate<V>),
-    /// Empties or frees a whole table.
     TruncateTable(TruncateTable<V>),
-    /// Rewrites columns of each row.
     Update(Update<V>),
-    /// Nothing to do, used where a child is expected but none is needed.
     #[default]
     Halt,
 }
@@ -420,7 +393,6 @@ impl<V: Vfs> Plan<V> {
         mut resolved_query: ResolvedUpdateQuery,
         master: &Master,
     ) -> InkResult<PreparedPlan<V>> {
-        
         let mut plan = Self::scan_with_predicate(
             resolved_query.root_page,
             &resolved_query.table_name,
