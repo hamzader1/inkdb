@@ -15,10 +15,6 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     /// Split a statement into tokens.
-    ///
-    /// # Errors
-    /// Any lexical error, such as an unterminated string, a stray character or
-    /// a bracket that closes more times than it opens.
     pub fn tokenize(input: &'a str) -> Result<Vec<Token>, InkError> {
         let mut lexer = Lexer {
             chars: input.chars().peekable(),
@@ -184,9 +180,6 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read a quoted string. Single and double quotes are both accepted.
-    ///
-    /// # Errors
-    /// [`SyntaxErrorKind::UnterminatedString`] when the closing quote is missing.
     fn lex_string(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let quote = self.next_char().expect("peeked quote");
@@ -209,10 +202,6 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read a number and emit it as a token.
-    ///
-    /// # Errors
-    /// [`SyntaxErrorKind::InvalidNumber`] when the digits cannot be read as a
-    /// whole number, which happens when the value does not fit.
     fn lex_number(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let kind = self.extract_number()?;
@@ -223,10 +212,6 @@ impl<'a> Lexer<'a> {
     /// Read a word and decide what it is: a keyword if it matches one, and a
     /// name otherwise. Case does not matter, so `select` and `SELECT` are the
     /// same token.
-    ///
-    /// # Errors
-    /// [`SyntaxErrorKind::InvalidNumber`] when the word turns out to be a blob
-    /// literal such as `X'0f'` whose digits do not decode.
     fn lex_word(&mut self, tokens: &mut Vec<Token>) -> Result<(), InkError> {
         let start = self.pos;
         let mut word = String::new();

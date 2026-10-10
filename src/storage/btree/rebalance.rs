@@ -63,8 +63,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
     /// 1. The merged cells fit on a single page. If so, we call the merge function
     ///    and we are done, follow [`BTree::merge`]
     /// 2. They do not fit, so we need to handle it the hard way by redistributing, follow [`BTree::redistribute]
-    /// # Errors
-    /// Whatever reading the pages or the parent reports.
     pub(crate) fn rebalance<K: RebalanceOps>(
         &mut self,
         left_page: PageNo,

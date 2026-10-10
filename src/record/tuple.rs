@@ -6,11 +6,6 @@ pub struct Tuple;
 
 impl Tuple {
     /// Describes a field’s type and how many bytes it uses.
-    ///
-    /// # Panics
-    /// When the serial type is one a record header cannot carry. The reserved
-    /// codes 10 and 11 are caught when the record is read, so they are only
-    /// unreachable here.
     pub(crate) fn content_meta(serial_type: u64) -> RecordMetadata {
         let f = |st, sz| RecordMetadata::new(st, sz);
         match serial_type {
@@ -38,10 +33,6 @@ impl Tuple {
     ///
     /// The value’s bytes are appended to output. The serial type is returned
     /// separately because the header is built independently.
-    ///
-    /// # Panics
-    /// When the value is a tuple, which has no serial type of its own and is
-    /// never stored as a field.
     pub fn encode_sqltype(value: &Value, output: &mut Vec<u8>) -> usize {
         match value {
             Value::Integer(_) => {
@@ -133,10 +124,6 @@ pub(crate) enum DecodedValue<'a> {
 /// Integers shorter than eight bytes are sign extended to i64, as required by
 /// the (our) format. This is why the bytes are placed at the high end of the buffer
 /// and then read back as a whole.
-///
-/// # Panics
-/// When the serial type cannot belong to a stored field, which has already
-/// been ruled out, or when a text field does not hold valid UTF-8.
 pub(crate) fn decode_sqltype<'a>(
     bytes: &'a [u8],
     record_metadata: &RecordMetadata,

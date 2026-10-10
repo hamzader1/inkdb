@@ -175,10 +175,6 @@ impl Parser {
     }
     /// Read a single value: a bracketed expression, a name, a function call, or
     /// one of the literals such as a string, number, blob, boolean or `NULL`.
-    ///
-    /// # Errors
-    /// An error naming the token when it is none of those, which is what a
-    /// statement with a stray operator in the middle of an expression gets.
     pub(crate) fn parse_factor(&mut self) -> Result<usize, InkError> {
         if self.eat(LeftParen) {
             let expr = self.parse_expression()?;
@@ -220,9 +216,6 @@ impl Parser {
 
     /// Read a function call. Only `count` exists so far, and it takes either a
     /// single expression or a star.
-    ///
-    /// # Errors
-    /// An error naming the function when it is not one the engine implements.
     fn parse_function(&mut self, name: &str) -> Result<usize, InkError> {
         self.expect(LeftParen)?;
         if name.eq_ignore_ascii_case("count") {

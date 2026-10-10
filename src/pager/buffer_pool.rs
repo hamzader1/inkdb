@@ -52,10 +52,6 @@ impl BufferPool {
         }
     }
     /// Take a page out of the pool. The frame slot is cleared once the page replacing it is read in.
-    ///
-    /// # Errors
-    /// When the page table does not map this page to this frame, which would
-    /// mean the pool is already in an inconsistent state.
     fn evict_page(&mut self, page_no: PageNo, frame_id: FrameId) -> Result<(), InkError> {
         assert_one(
             self.page_table
@@ -118,10 +114,6 @@ impl BufferPool {
         self.dirty_pages_linked_list = Some(frame_id);
     }
     /// Take a frame out of the dirty list.
-    ///
-    /// # Panics
-    /// When the frame is not in the list. We only remove frames we put in
-    /// ourselves, so a panic here means the list has lost track of one.
     fn dp_ll_remove(&mut self, frame_id: FrameId) {
         let is_tail = frame_id == self.dirty_pages_linked_list.unwrap();
 
@@ -230,10 +222,6 @@ impl BufferPool {
     /// as explained below.
     ///
     /// ```
-    ///
-    /// # Errors
-    /// [`InkError::BufferPoolExhausted`] when the clock hand goes round twice
-    /// without finding a frame it may take, which means every frame is pinned.
     pub fn acquire(&mut self, page_no: PageNo) -> InkResult<Acquire> {
         if let Some(frameid) = self.lookup(page_no) {
             let frame = &self.frame_buffer[frameid];
@@ -340,10 +328,6 @@ impl BufferPool {
         self.frame_buffer[frame_id].decr_pin_count();
     }
     /// Note that a frame is being borrowed for reading.
-    ///
-    /// # Errors
-    /// When the frame is currently borrowed for writing, since a reader and a
-    /// writer cannot hold the same page at once.
     // This feature is currently disabled
     pub fn borrow(&self, frameid: FrameId, page_no: PageNo) -> InkResult<()> {
         let frame = &self.frame_buffer[frameid];
@@ -357,10 +341,6 @@ impl BufferPool {
         Ok(())
     }
     /// Note that a frame is being borrowed for writing.
-    ///
-    /// # Errors
-    /// When the frame is borrowed at all, since a writer needs the page to
-    /// itself.
     // This feature is currently disabled
     pub fn exclusive_borrow(&self, frameid: FrameId, page_no: PageNo) -> InkResult<()> {
         let frame = &self.frame_buffer[frameid];
@@ -375,10 +355,6 @@ impl BufferPool {
     }
 
     /// Give back one reader's hold on a frame.
-    ///
-    /// # Panics
-    /// When the frame is not held by any reader, which includes the case where
-    /// it is held by a writer.
     // This feature is currently disabled
     pub fn release_frame(&self, frame_id: FrameId) {
         let frame = &self.frame_buffer[frame_id];
@@ -418,9 +394,6 @@ impl BufferPool {
 
     /// Put a frame's bytes back to what they were, which is how a rollback
     /// undoes a change that never reached disk.
-    ///
-    /// # Panics
-    /// When the bytes are not exactly one page long.
     pub fn restore_bytes(&mut self, id: FrameId, bytes: &[u8]) {
         assert!(bytes.len() == self.page_size);
         let start = id * self.page_size;

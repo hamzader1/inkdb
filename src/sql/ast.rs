@@ -127,10 +127,6 @@ impl Expr {
     /// accepted, so the select rebuild uses it after checking the kind itself.
     /// This used to correct the offset of the expressions inside the
     /// arena.
-    ///
-    /// # Panics
-    /// When handed an expression kind that has no left and right to remap, which
-    /// would mean the caller expected children that are not there.
     pub(crate) fn remap_l_r(expr: &Expr, l: usize, r: usize) -> Expr {
         match expr {
             Expr::Add(_, _) => Expr::Add(l, r),
@@ -252,9 +248,6 @@ impl Affinity {
     ///
     /// The check is on the letters the name contains, not on a list of accepted
     /// spellings, so `VARCHAR(12)` counts as TEXT and `DOUBLE` counts as a FLOAT.
-    ///
-    /// # Errors
-    /// An error naming the type when none of the rules match it.
     pub(crate) fn from_type_name(name: &str) -> InkResult<Self> {
         let upper = name.to_uppercase();
         if upper.contains("INT") {
@@ -327,10 +320,6 @@ pub enum Ast {
 }
 impl From<TokenKind> for Affinity {
     /// The affinity a type keyword stands for.
-    ///
-    /// # Panics
-    /// When handed a keyword that is not a type, which would mean the caller did
-    /// not check what it was looking at first.
     fn from(value: TokenKind) -> Self {
         match value {
             TokenKind::Integer | TokenKind::Bool => Self::Int,

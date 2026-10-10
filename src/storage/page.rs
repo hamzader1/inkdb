@@ -233,10 +233,6 @@ impl<'a> OverflowPageRef<'a> {
     ///                                                         +---------------+
     ///
     /// ```
-    /// # Errors
-    /// When the declared length is shorter than the bytes already held, when the
-    /// chain does not line up with the payload, or when the total falls short of
-    /// what was promised.
     pub fn get_total_payload<V: crate::vfs::Vfs>(
         pager: &mut Pager<V>,
         local_payload_bytes: &[u8],
@@ -593,9 +589,6 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
     }
 
     /// The offset of cell i, read from the cell pointer array.
-    ///
-    /// # Errors
-    /// When i is past the last cell.
     pub fn cell_ptr(&self, i: u16) -> InkResult<u16> {
         if i >= self.no_of_cells()? {
             return Err(InkError::InvalidCellPointer(i));

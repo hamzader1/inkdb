@@ -28,10 +28,6 @@ impl<V: Vfs> Pager<V> {
     ///                     |               |         |               |
     ///                     |               |         |               |
     ///                     +---------------+         +---------------+
-    /// # Errors
-    /// [`CorruptError::FreelistTrunkMissing`] when there are pages on the
-    /// freelist but no trunk to find them, and its several companions when the
-    /// trunk, its count or a leaf page number cannot be right.
     pub fn freelist_alloc(
         &mut self,
         first: u32,
@@ -69,9 +65,6 @@ impl<V: Vfs> Pager<V> {
 
     /// Put a page back on the freelist and write the new head and count into the
     /// database header.
-    ///
-    /// # Errors
-    /// Whatever walking the freelist or writing the header reports.
     pub fn dealloc(&mut self, page_no: PageNo) -> InkResult<()> {
         let first = self.header.first_freelist_truck_page;
         let total = self.header.total_freelist_pages;
@@ -93,9 +86,6 @@ impl<V: Vfs> Pager<V> {
     /// The trunks are walked from the first one until one has room for the page.
     /// If none has room, the page becomes a new trunk pointing to the old first
     /// trunk. Returns the first trunk and the new freelist page count.
-    ///
-    /// # Errors
-    /// Whatever reading a trunk page reports.
     pub fn freelist_push(
         &mut self,
         page_no: PageNo,

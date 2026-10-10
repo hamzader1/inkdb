@@ -48,9 +48,6 @@ impl<J: InkFile> Journal<J> {
     /// Take the open journal file and move to the open state, writing the
     /// journal header out so a crash from here on leaves something recovery
     /// can use.
-    ///
-    /// # Errors
-    /// Whatever writing the header reports.
     pub fn init(&mut self, file: J) -> Result<(), InkError> {
         if let Self::Idle(_) = self {
             let Self::Idle(raw) = std::mem::replace(self, Self::Disabled) else {
@@ -69,9 +66,6 @@ impl<J: InkFile> Journal<J> {
 
     /// Write the journal records that are not yet on disk, all of them from the
     /// last one that was.
-    ///
-    /// # Errors
-    /// Whatever writing the records reports.
     pub fn persist_tail(&mut self) -> Result<(), InkError> {
         if let Self::Open { raw, file, durable } = self {
             let start = super::raw_journal::JOURNAL_HEADER_SIZE

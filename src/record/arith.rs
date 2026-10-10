@@ -17,33 +17,21 @@ enum Numeric {
 
 pub(crate) trait TryAdd {
     /// Add the two values.
-    ///
-    /// # Errors
-    /// When the other side is a tuple, which has no numeric value.
     fn try_add(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub(crate) trait TrySub {
     /// Subtract the other value from this one.
-    ///
-    /// # Errors
-    /// When the other side is a tuple, which has no numeric value.
     fn try_sub(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub(crate) trait TryMul {
     /// Multiply the two values.
-    ///
-    /// # Errors
-    /// When the other side is a tuple, which has no numeric value.
     fn try_mul(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
 pub(crate) trait TryDiv {
     /// Dividing by zero gives NULL rather than failing.
-    ///
-    /// # Errors
-    /// When the other side is a tuple, which has no numeric value.
     fn try_div(&self, rhs: &Value<'_>) -> InkResult<Value<'static>>;
 }
 
@@ -118,9 +106,6 @@ fn numeric_from_text(text: &str) -> Numeric {
 /// Turn a value into a number, or into nothing at all when it is NULL.
 ///
 /// A blob is read as text first, and text that is not UTF-8 counts as zero.
-///
-/// # Errors
-/// When the value is a tuple, which cannot be a number.
 fn to_numeric(value: &Value<'_>) -> InkResult<Option<Numeric>> {
     Ok(match value {
         Value::Null => None,
@@ -138,9 +123,6 @@ fn to_numeric(value: &Value<'_>) -> InkResult<Option<Numeric>> {
 }
 
 /// Turn both sides into numbers, or into nothing when either is NULL.
-///
-/// # Errors
-/// When either side is a tuple.
 fn operands(lhs: &Value<'_>, rhs: &Value<'_>) -> InkResult<Option<(Numeric, Numeric)>> {
     let (Some(lhs), Some(rhs)) = (to_numeric(lhs)?, to_numeric(rhs)?) else {
         return Ok(None);

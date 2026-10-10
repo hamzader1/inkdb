@@ -79,10 +79,6 @@ impl Parser {
         }
     }
     /// Parse one statement from its tokens.
-    ///
-    /// # Errors
-    /// Any syntax error the statement contains, reported with the span of the
-    /// token it stopped on.
     pub fn parse(query: Rc<str>, tokens: Vec<Token>) -> Result<Ast, InkError> {
         let mut parser = Parser {
             query,
@@ -137,11 +133,6 @@ impl Parser {
     }
 
     /// Demand the token we are looking at, and step past it.
-    ///
-    /// # Errors
-    /// [`SyntaxErrorKind::TokenMismatch`] naming what was found instead, or
-    /// [`SyntaxErrorKind::UnexpectedEndOfExpression`] when the statement simply
-    /// stopped too early.
     pub(crate) fn expect(&mut self, t_kind: TokenKind) -> Result<(), InkError> {
         if !self.at(t_kind.clone()) {
             match self.peek() {
@@ -183,10 +174,6 @@ impl Parser {
         Span(self.query.len(), self.query.len() + 1)
     }
     /// Read a name, such as a table, column or index name.
-    ///
-    /// # Errors
-    /// [`SyntaxErrorKind::ExpectedIdentifier`] when the next token is some other
-    /// keyword, and the end of expression error when there is no next token.
     pub(crate) fn expect_ident(&mut self) -> Result<String, InkError> {
         match self.peek() {
             Some(TokenKind::Identifier(_)) => match self.next_token() {
@@ -212,10 +199,6 @@ impl Parser {
 
     /// Read one statement, whichever kind it turns out to be, by looking at the
     /// first token.
-    ///
-    /// # Errors
-    /// [`InkError::Unsupported`] for a first token that starts no statement this
-    /// engine knows.
     pub(crate) fn parse_statement(&mut self) -> Result<Ast, InkError> {
         match self.peek() {
             Some(Create) => self.parse_create(),

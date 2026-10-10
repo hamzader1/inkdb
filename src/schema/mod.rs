@@ -207,10 +207,6 @@ impl Master {
 
 impl Master {
     /// Read the catalog from the master table.
-    ///
-    /// # Errors
-    /// Whatever walking the master table reports, such as a page that cannot be
-    /// read or a catalog row whose DDL does not parse.
     pub fn new<V: crate::vfs::Vfs>(pager: &mut Pager<V>) -> Result<Self, InkError> {
         let mut master = Self {
             tables: HashMap::new(),
@@ -222,10 +218,6 @@ impl Master {
     }
 
     /// Walk the master table and build the schema from it again.
-    ///
-    /// # Errors
-    /// Whatever the walk over the master table reports, including any row it
-    /// cannot make sense of.
     pub fn parse<V: Vfs>(&mut self, pager: &mut Pager<V>) -> InkResult<()> {
         self.indexes.clear();
         self.tables.clear();
@@ -260,9 +252,6 @@ impl Master {
     ///
     /// The master table has none, so that is answered without looking anything
     /// up.
-    ///
-    /// # Errors
-    /// [`InkError::TableNotFound`] when there is no such table.
     pub(crate) fn indexes_on(&self, table_name: &str) -> InkResult<Vec<IndexMetadata>> {
         if table_name.eq_ignore_ascii_case("master") {
             return Ok(vec![]);
@@ -295,10 +284,6 @@ impl Master {
     /// Rows that describe something else, such as views and triggers, and rows
     /// with no SQL attached, such as automatic indexes, are skipped rather than
     /// treated as errors: they belong to other databases and cause no harm here.
-    ///
-    /// # Errors
-    /// [`CorruptError::CatalogRecord`] when the row does not have the five
-    /// columns the master table is supposed to have.
     fn parse_record(&mut self, record: &[Value]) -> Result<(), InkError> {
         if record.len() != 5 {
             return Err(CorruptError::CatalogRecord {

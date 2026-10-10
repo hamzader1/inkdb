@@ -45,9 +45,6 @@ impl Frame {
         }
     }
     /// Whether a flag is set.
-    ///
-    /// # Panics
-    /// When the flag is not one of the four above.
     pub fn is(&self, flag: u8) -> bool {
         assert!(flag == FREE || flag == CLEAN || flag == DIRTY || flag == REFERENCED);
         self.flags.get() & flag != 0

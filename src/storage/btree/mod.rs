@@ -27,9 +27,6 @@ pub type CellIndex = u16;
 
 /// A read-only page view over a guard bytes, sized from the header values the
 /// pager already has.
-///
-/// # Errors
-/// When the first byte of the page is not one of the four page type bytes.
 pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b PageGuard,
@@ -45,10 +42,6 @@ pub fn page_as_ref_with_pager<'b, V: crate::vfs::Vfs>(
 }
 
 /// The same view over bytes borrowed for writing.
-///
-/// # Errors
-/// An internal error when the guard was handed out for reading only, since such
-/// a guard has no mutable bytes, and the same page type check as above.
 pub(crate) fn page_as_mut_with_pager<'b, V: crate::vfs::Vfs>(
     page_no: PageNo,
     guard: &'b mut PageGuard,

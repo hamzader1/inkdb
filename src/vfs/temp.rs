@@ -7,10 +7,6 @@ use std::path::PathBuf;
 /// The in-memory VFS calls this to give its buffers a directory, so code that
 /// asks a file for its [`path`](crate::vfs::file::InkFile::path) gets something
 /// real even when the bytes themselves never touch the disk.
-///
-/// # Errors
-/// The underlying [`std::io::Error`] from `create_dir`, other than
-/// [`std::io::ErrorKind::AlreadyExists`], which is treated as success.
 pub fn create_temp_dir(name: &str) -> std::io::Result<PathBuf> {
     let base = std::env::temp_dir();
 

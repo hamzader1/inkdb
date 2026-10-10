@@ -246,10 +246,6 @@ impl Default for InkFileHeader {
 
 impl InkFileHeader {
     /// Read an Ink header from the start of `source`.
-    ///
-    /// # Errors
-    /// [`InkError::InvalidDatabaseHeader`] when the file is too short to hold a
-    /// header, or when the values in it do not make sense.
     pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
         let mut raw = [0u8; INK_HEADER_SIZE];
         source
@@ -414,10 +410,6 @@ impl DatabaseHeader {
     }
 
     /// Work out which format the file is by looking at the bytes it starts with.
-    ///
-    /// # Errors
-    /// [`InkError::InvalidDatabaseHeader`] when neither magic string matches,
-    /// which means this is not a database this engine can open.
     pub fn detect<R: InkFile>(source: &'_ R) -> InkResult<DbFormat> {
         // This one is safe for INK_MAGIC_HEADER since
         // SQLITE_HEADER_STRING_SIZE > INK_MAGIC_HEADER
@@ -435,10 +427,6 @@ impl DatabaseHeader {
     }
 
     /// Read the header of `source`, in whichever format it turns out to be.
-    ///
-    /// # Errors
-    /// Whatever [`DatabaseHeader::detect`] and the format's own parser reject,
-    /// so a corrupt or unknown file fails here before anything else runs.
     pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
         match Self::detect(source)? {
             DbFormat::Sqlite => Ok(DatabaseHeader::Sqlite(SqliteDatabaseHeader::parse(source)?)),
@@ -575,11 +563,6 @@ impl SqliteDatabaseHeader {
     ///
     /// The fields are read in the order they are stored, which is what lets one
     /// cursor walk the whole header.
-    ///
-    /// # Errors
-    /// [`InkError::InvalidDatabaseHeader`] when the magic string is wrong or a
-    /// field holds something impossible, and [`InkError::InvalidPageSize`] when
-    /// the page size is not one of the allowed ones.
     pub fn parse<R: InkFile>(source: &'_ R) -> Result<Self, InkError> {
         let mut cursor = FileCursor::<'_, R>::new(source);
 
@@ -642,13 +625,6 @@ impl SqliteDatabaseHeader {
     ///
     /// These are the values SQLite itself refuses to open a file without, so a
     /// file that passes here is one the other tools will accept too.
-    ///
-    /// # Errors
-    /// [`InkError::InvalidDatabaseHeader`] when a field holds a value outside
-    /// the range the format allows, and [`InkError::InvalidPageSize`] when the
-    /// page size is not a power of two between 512 and 32768.
-    ///
-    /// All validation steps are from [The Database Header](https://sqlite.org/fileformat.html#the_database_header).
     fn validate(&mut self) -> Result<(), InkError> {
         let Self {
             header_string,

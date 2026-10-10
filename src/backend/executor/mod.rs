@@ -309,10 +309,6 @@ pub(crate) fn encode_frame(out: &mut Vec<u8>, key: u64, record: &[u8]) -> usize 
 }
 
 /// Read a frame: its key and the record that follows.
-///
-/// # Errors
-/// When a length runs past the bytes there are, which means the frame was cut
-/// short.
 pub(crate) fn decode_frame(frame: &[u8]) -> InkResult<(u64, &[u8])> {
     let (payload, consumed) = decode_varint(frame).ok_or(CorruptError::TruncatedRecord {
         field: 0,

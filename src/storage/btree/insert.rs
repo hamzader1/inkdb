@@ -216,10 +216,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
     /// When the split child was the right-most one, the divider needs a new
     /// cell. Otherwise the parent already has a cell pointing at that child, and
     /// that cell is handed back so it can take over one of the halves.
-    ///
-    /// # Errors
-    /// When the cell at the slot does not point at the child that was split,
-    /// which would mean the tree no longer agrees with itself.
     fn parent_slot<P: InteriorOps>(
         &mut self,
         parent_no: PageNo,
@@ -691,10 +687,6 @@ impl<'a, V: Vfs> BTree<'a, V> {
     /// we lose track of which resulting page should receive the cell. To solve
     /// this, we keep copies of the keys from both the left and right pages, allowing
     /// us to find the correct parent page again and insert the cell into it.
-    ///
-    /// # Errors
-    /// When the cell does not fit in that half, which would mean the split did
-    /// not leave enough room for the very cell that caused it.
     fn place_cell<K: CellOps>(
         &mut self,
         split: &Split,

@@ -92,9 +92,6 @@ impl RawJournal {
     }
 
     /// Give the journal file its size and write the header out.
-    ///
-    /// # Errors
-    /// Whatever setting the length or writing reports.
     pub fn init<J: InkFile>(&mut self, file: &J) -> Result<(), InkError> {
         file.set_len(self.buffer.len())?;
         file.write_all_at(0, &self.buffer[0..JOURNAL_HEADER_SIZE])?;
@@ -125,9 +122,6 @@ impl RawJournal {
     /// fixing the count afterwards would leave a moment where a crash loses real
     /// records while pages they belong to have already been written to the
     /// database.
-    ///
-    /// # Errors
-    /// Whatever setting the length, writing or syncing reports.
     pub fn commit<J: InkFile>(&mut self, file: &J) -> Result<(), InkError> {
         self.buffer[8..12].copy_from_slice(&u32::to_be_bytes(self.page_count));
         file.set_len(self.buffer.len())?;
@@ -159,9 +153,6 @@ impl RawJournal {
     /// Nothing is returned when the file does not start with the magic, or when
     /// its record count is zero. Either means there is no committed journal to
     /// replay, so there is nothing to recover.
-    ///
-    /// # Errors
-    /// When the header is too short to hold its four fields.
     pub fn parse_recovery(bytes: Vec<u8>) -> Result<Option<RecoverMetadata>, InkError> {
         let mut cursor = MemCursor::new(&bytes);
         let magic = cursor.read_to(size_of::<u64>() as _)?;
@@ -186,12 +177,6 @@ impl RawJournal {
     /// Write out the records from `start` on, along with the record count, so
     /// the file on disk matches the journal in memory up to the record written
     /// last.
-    ///
-    /// # Panics
-    /// When `start` is past the end of the last record.
-    ///
-    /// # Errors
-    /// Whatever setting the length, writing or syncing reports.
     pub fn persist_tail<J: InkFile>(&mut self, file: &J, start: usize) -> InkResult<()> {
         let end = JOURNAL_HEADER_SIZE + (self.page_count * (self.page_size as u32 + 4)) as usize;
         assert!(start <= end);
@@ -274,9 +259,6 @@ impl JournalIter {
     ///
     /// Reading the whole journal and calling this until it stops returns every
     /// record in the order they were added.
-    ///
-    /// # Errors
-    /// When a record would run past the end of the journal's bytes.
     pub fn iter(&mut self) -> Result<Option<JournalPage<'_>>, InkError> {
         if self.hint == self.count {
             return Ok(None);

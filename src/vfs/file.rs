@@ -22,17 +22,9 @@ pub trait InkFile: std::fmt::Debug {
     fn len(&self) -> Result<u64, InkError>;
 
     /// Read exactly `buff.len()` bytes starting at `offset` into `buff`.
-    ///
-    /// # Errors
-    /// [`InkError::FileRange`] when `offset + buff.len()` runs past the end of
-    /// the file. Growing the file with [`InkFile::set_len`] comes first.
     fn read_exact_at(&self, offset: u64, buff: &mut [u8]) -> Result<(), InkError>;
 
     /// Write `buff` at `offset`, leaving the bytes outside that range alone.
-    ///
-    /// # Errors
-    /// [`InkError::FileRange`] when `offset + buff.len()` runs past the end of
-    /// the file, so a write can never silently extend it.
     fn write_all_at(&self, offset: u64, buff: &[u8]) -> Result<(), InkError>;
 
     /// Append `buff` at the end of the file.

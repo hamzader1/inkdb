@@ -102,17 +102,11 @@ impl<'a> Record<'a> {
 
     /// The serial type of one field, which says what it holds and how long it
     /// is.
-    ///
-    /// # Errors
-    /// [`CorruptError::NoSuchField`] when there is no such field.
     pub fn serial_type(&self, field: usize) -> InkResult<u64> {
         Ok(self.field_span(field)?.0)
     }
 
     /// The stored bytes of one field, left undecoded.
-    ///
-    /// # Errors
-    /// [`CorruptError::NoSuchField`] when there is no such field.
     pub fn field_bytes(&self, field: usize) -> InkResult<&'a [u8]> {
         let (_, start, size) = self.field_span(field)?;
         Ok(&self.bytes[start..start + size])
@@ -122,11 +116,6 @@ impl<'a> Record<'a> {
     ///
     /// Text and blobs borrow their data from the record’s bytes, so they are only
     /// valid for as long as the record itself is alive.
-    ///
-    /// # Errors
-    /// [`CorruptError::NoSuchField`] when there is no such field, and
-    /// [`CorruptError::InvalidUtf8`] when a text field does not hold valid
-    /// UTF-8.
     pub fn value(&self, field: usize) -> InkResult<Value<'a>> {
         let (serial_type, start, size) = self.field_span(field)?;
         let meta = Tuple::content_meta(serial_type);
@@ -159,17 +148,11 @@ impl<'a> Record<'a> {
     }
 
     /// Read every field into a list.
-    ///
-    /// # Errors
-    /// The first field that cannot be decoded.
     pub fn to_values(&self) -> InkResult<Vec<Value<'a>>> {
         self.values().collect()
     }
 
     /// Read every field into a list, copying the text and blobs on the way.
-    ///
-    /// # Errors
-    /// The first field that cannot be decoded.
     pub fn to_values_owned(&self) -> InkResult<Vec<Value<'static>>> {
         Ok(self
             .to_values()?
@@ -191,10 +174,6 @@ impl<'a> Record<'a> {
     /// The header is walked from the beginning each time because a field’s
     /// position can only be found by adding up the lengths of the fields before it.
     /// The offset is relative to the start of the record, not the payload.
-    ///
-    /// # Errors
-    /// [`CorruptError::NoSuchField`] when the field is past the last one, and
-    /// [`CorruptError::RecordHeader`] when the header runs out early.
     fn field_span(&self, field: usize) -> InkResult<(u64, usize, usize)> {
         if field >= self.fields {
             return Err(CorruptError::NoSuchField {

@@ -175,9 +175,6 @@ impl<'a> Value<'a> {
     ///
     /// Blobs and tuples have no one sensible text form, so they are reported as
     /// a failed conversion rather than guessed at.
-    ///
-    /// # Errors
-    /// [`InkError::type_conversion`] when the value cannot be written as text.
     pub fn to_string(&self) -> Result<String, InkError> {
         match self {
             Value::Null => Ok("NULL".to_string()),
@@ -195,9 +192,6 @@ impl<'a> Value<'a> {
     /// rather than being rounded or parsed.
     ///
     ///
-    /// # Errors
-    /// [`InkError::type_conversion`] when the value is not an integer.
-    ///
     /*  We always call this with a valid Value::Integer. */
     pub fn cast_int(&self) -> Result<i64, InkError> {
         match self {
@@ -206,10 +200,6 @@ impl<'a> Value<'a> {
         }
     }
     /// Read the value as a float, which an integer also answers to.
-    ///
-    /// # Errors
-    /// [`InkError::type_conversion`] when the value is neither a float nor an
-    /// integer.
     pub fn get_float(&self) -> Result<f64, InkError> {
         match self {
             Value::Float(n) => Ok(*n),

@@ -54,9 +54,6 @@ impl<'a> MemCursor<'a> {
     }
 
     /// Step the cursor forward.
-    ///
-    /// # Errors
-    /// When adding the step overflows the counter.
     pub fn move_forward_by(&mut self, steps: u64) -> Result<(), InkError> {
         self.offset = self.offset.checked_add(steps).ok_or(InkError::Overflow(
             "Overflow while trying to move the cursor forward".into(),
@@ -65,9 +62,6 @@ impl<'a> MemCursor<'a> {
     }
 
     /// Step the cursor back.
-    ///
-    /// # Errors
-    /// When the step would take the offset below zero.
     pub fn move_backward_by(&mut self, steps: u64) -> Result<(), InkError> {
         self.offset = self.offset.checked_sub(steps).ok_or(InkError::Overflow(
             "Overflow while trying to move the cursor backward".into(),
@@ -131,9 +125,6 @@ impl<'a> MemCursor<'a> {
     }
 
     /// Borrow the next `ahead_by` bytes and step past them.
-    ///
-    /// # Errors
-    /// When the read would run off the end, reported as a corrupt page.
     pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], InkError> {
         let ahead_by = ahead_by as usize;
         assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
@@ -150,9 +141,6 @@ impl<'a> MemCursor<'a> {
     }
 
     /// Borrow the next `ahead_by` bytes without moving the cursor.
-    ///
-    /// # Errors
-    /// When the peek would run off the end, reported as a corrupt page.
     pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], InkError> {
         let ahead_by = ahead_by as usize;
         assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {

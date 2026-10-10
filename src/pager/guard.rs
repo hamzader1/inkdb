@@ -55,10 +55,6 @@ impl PageGuard {
     }
 
     /// The page's bytes, for writing, without checking that the guard allows it.
-    ///
-    /// # Panics
-    /// When the guard was handed out for reading only, which is the same check
-    /// [`PageGuard::bytes_as_mut`] makes.
     pub fn bytes_as_mut_unchecked(&mut self) -> &mut [u8] {
         self.bytes_as_mut().unwrap()
     }
