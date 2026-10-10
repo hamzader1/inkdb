@@ -110,39 +110,34 @@ fn compare_values(a: &Value<'_>, b: &Value<'_>) -> Ordering {
 // a number that large. But why not learn something new?
 // [`Source`](https://stackoverflow.com/questions/58734034/how-to-properly-compare-an-integer-and-a-floating-point-value)
 pub(crate) fn compare_num(i: i64, f: f64) -> Ordering {
-    // Safe Window Optimization: If the integer safely fits in 53 bits,
-    // casting to f64 is mathematically lossless.
+    // small enough to survive the trip to f64, compare there.
     if (MIN_SAFE_INT..=MAX_SAFE_INT).contains(&i) {
         return (i as f64).total_cmp(&f);
     }
 
-    // Beyond the Safe Window: The integer requires real 64-bit accuracy.
-    // We check if the float falls outside the physical numeric bounds of an i64.
-    // Note: We use strict boundaries to bypass casting edge cases at 2^63 - 1.
+    // too big for f64, so check the float against the i64 edges first.
+    // strict on purpose, casting is dicey right at 2^63 - 1.
     if f >= 9223372036854775808.0 {
-        // 2^63
-        return Ordering::Less; // i is completely smaller than f
+        return Ordering::Less;
     }
     if f < -9223372036854775808.0 {
-        // -2^63
-        return Ordering::Greater; // i is completely larger than f
+        return Ordering::Greater;
     }
 
-    // Safe Float to Int Downcast: Since the float falls inside the i64 boundary,
-    // we can safely truncate its fraction to extract the whole number.
+    // float is inside i64 range, compare whole parts and let the fraction
+    // break ties.
     let f_as_i64 = f as i64;
 
     match i.cmp(&f_as_i64) {
         Ordering::Equal => {
-            // The integer matches the truncated float whole number part.
-            // We calculate the remaining decimal fraction on the float side.
+            // same whole part, whatever is left of the fraction decides.
             let fraction = f - (f_as_i64 as f64);
             if fraction > 0.0 {
                 Ordering::Less
             } else if fraction < 0.0 {
                 Ordering::Greater
             } else {
-                Ordering::Equal // Perfect arithmetic match
+                Ordering::Equal
             }
         }
         any => any,

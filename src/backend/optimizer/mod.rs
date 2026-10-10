@@ -122,10 +122,9 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
                 return Ok(());
             }
             Expr::And { .. } => {
-                // Exact matches beat ranges: gather every conjunct, probe
-                // the equality leaves first so a range never spends the
-                // single guard before an exact on the same index is seen.
-                // Either way the kept Filter verifies the full predicate.
+                // exact matches first: a range must not spend the one guard
+                // before we see an exact on the same index. the filter
+                // rechecks everything anyway.
                 let mut leaves = Vec::new();
                 Self::collect_conjuncts(self.arena, predicate, &mut leaves);
                 let mut exact_built = false;

@@ -246,9 +246,8 @@ impl BufferPool {
         let frameid: usize = loop {
             if clock_hand == start {
                 laps += 1;
-                // Two laps is enough for the hand to clear every reference flag
-                // it set on the way round, so a third lap means nothing can be
-                // taken and the pool is full of pinned pages.
+                // two laps clears every flag the hand set itself, so a third
+                // lap means everything left is pinned.
                 if laps > 2 {
                     return Err(InkError::BufferPoolExhausted);
                 }
@@ -267,13 +266,9 @@ impl BufferPool {
         let frame = &self.frame_buffer[frameid];
         let frame_page_no = frame.page_no.unwrap();
         let mut was_dirty = false;
-        // Checking whether the frame is dirty is not just about removing it from
-        // the dirty page linked list (dp_ll). A dirty frame also needs to be flushed
-        // to disk before it can be evicted, otherwise its changes would be lost.
-        // However, flushing it directly to disk would bypass the journal. If the
-        // journal does not know about this page reaching disk, a later rollback could
-        // restore every other page to its state before the transaction while leaving
-        // this page with its newer data, breaking the consistency guarantee.
+        // dirty frames go out through the journal, never straight to disk.
+        // straight to disk loses the write on evict, and skipping the journal
+        // leaves newer data behind when a later rollback restores the rest.
         if frame.is(DIRTY) {
             was_dirty = true;
             self.dp_ll_remove(frameid);

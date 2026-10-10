@@ -87,16 +87,13 @@ impl Tuple {
 }
 
 /// The serial type for text of this many bytes. The length is doubled and added
-/// to thirteen.
-// SQLite uses the formula N = 13 + 2 * Z. We can reverse it to get N from Z:
-// N = (2 * Z) + 13
+/// to 13.
 const fn text_encoding(len: usize) -> usize {
     (len * 2) + 13
 }
 
 /// The serial type for a blob of this many bytes. The length is doubled and
-/// added to twelve.
-// Same for blob_encoding, see the formula above.
+/// added to 12.
 const fn blob_encoding(len: usize) -> usize {
     (len * 2) + 12
 }
