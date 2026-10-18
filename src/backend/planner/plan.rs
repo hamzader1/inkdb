@@ -598,7 +598,11 @@ impl<V: Vfs> Plan<V> {
             Self::RollbackTransaction(_) => "RollbackTransaction".into(),
             Self::Explain(_) => "Explain".into(),
             Self::Terminate(_) => "Terminate".into(),
-            Self::Sort(s) => format!("Sort [i: {}]", render_expr(arena, s.id(), table)),
+            Self::Sort(s) => format!(
+                "Sort [order by: {}, order: {}]",
+                render_expr(arena, s.id(), table),
+                if s.is_desc() { "desc" } else { "asc" }
+            ),
             Self::SingleRow(_) => "SingleRow".into(),
             Self::Update(u) => format!(
                 "Update [(columns_indexes, arena_indexes) -> {:?}]",
