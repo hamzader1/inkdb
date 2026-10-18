@@ -47,9 +47,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         execute(
             &mut db,
             "INSERT INTO customers VALUES
-                (1, 'Alice Johnson', 'alice@example.com', 28, 'Casablanca', TRUE),
-                (2, 'Bob Smith', 'bob@example.com', 35, 'Rabat', TRUE),
-                (3, 'Charlie Brown', 'charlie@example.com', 22, 'Fes', TRUE)",
+                (1, 'Alice Johnson', 'alice@example.com', 28, 'Paris', TRUE),
+                (2, 'Bob Smith', 'bob@example.com', 35, 'NewYork', TRUE),
+                (3, 'Charlie Brown', 'charlie@example.com', 22, 'Tokyo', TRUE)",
         )?;
         execute(
             &mut db,
@@ -112,7 +112,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Query plan for a city lookup:");
     execute(
         &mut db,
-        "EXPLAIN SELECT * FROM customers WHERE city = 'Fes'",
+        "EXPLAIN SELECT * FROM customers WHERE city = 'Paris'",
     )?;
     Ok(())
 }

@@ -24,24 +24,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         execute(
             &mut db,
             "INSERT INTO customers VALUES
-                (1, 'Alice Johnson', 'alice@example.com', 28, 'Casablanca', TRUE)",
+                (1, 'Alice Johnson', 'alice@example.com', 28, 'Madrid', TRUE)",
         )?;
     }
 
     expect_failure(
         &mut db,
         "INSERT INTO customers VALUES
-            (2, 'Another Alice', 'alice@example.com', 30, 'Rabat', TRUE)",
+            (2, 'Another Alice', 'alice@example.com', 30, 'Manchester', TRUE)",
     )?;
     expect_failure(
         &mut db,
         "INSERT INTO customers VALUES
-            (1, 'Duplicate ID', 'duplicate@example.com', 30, 'Fes', TRUE)",
+            (1, 'Duplicate ID', 'duplicate@example.com', 30, 'Münich', TRUE)",
     )?;
     expect_failure(
         &mut db,
         "INSERT INTO customers VALUES
-            (3, NULL, 'nullname@example.com', 25, 'Fes', TRUE)",
+            (3, NULL, 'nullname@example.com', 25, 'Paris', TRUE)",
     )?;
 
     println!("The original row remains unchanged:");
