@@ -76,7 +76,7 @@ InkDB uses a Volcano style execution model. Each operator asks its child for the
 ```text
 ink> EXPLAIN SELECT * FROM products WHERE category = 'Electronics' and price > 100.0 ORDER BY price ASC Limit 10;
 Limit [limit: 10]
-    Sort [i: 14]
+    Sort [order by: price, order: asc]
         Filter [((category = 'Electronics') AND (price > 100))]
             IndexExactMatch [index_root: 9, table_root: 4, target: Electronics]
 ```
