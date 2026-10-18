@@ -63,6 +63,10 @@ impl<V: Vfs> Sort<V> {
     pub fn child(&self) -> &Plan<V> {
         self.child.as_ref()
     }
+    /// Whether the sort is desc
+    pub fn is_desc(&self) -> bool {
+        self.desc
+    }
     /// Hand back one row in order.
     ///
     /// The first call sorts everything; the rest read the sorted rows back. The
