@@ -1,14 +1,14 @@
 use crate::InkResult;
 use crate::backend::executor::RowWrapper;
 use crate::db::Database;
-use crate::vfs::disk::DiskVfs;
+use crate::vfs::Vfs;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 pub struct InkShell;
 
 impl InkShell {
-    pub fn run(database: &mut Database<DiskVfs>) {
+    pub fn run<V: Vfs>(database: &mut Database<V>) {
         let mut rl = DefaultEditor::new().expect("failed to initialize line editor");
         let mut pending = String::new();
         loop {
@@ -41,14 +41,14 @@ impl InkShell {
         }
     }
 
-    pub fn test(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
+    pub fn test<V: Vfs>(database: &mut Database<V>, cmd: &str) -> InkResult<()> {
         Self::exec(database, cmd)
     }
 
-    pub fn run_query(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
+    pub fn run_query<V: Vfs>(database: &mut Database<V>, cmd: &str) -> InkResult<()> {
         Self::exec(database, cmd)
     }
-    fn exec(database: &mut Database<DiskVfs>, cmd: &str) -> InkResult<()> {
+    fn exec<V: Vfs>(database: &mut Database<V>, cmd: &str) -> InkResult<()> {
         let mut stmt = database.execute(cmd)?;
         for row in stmt.rows() {
             println!("{}", RowWrapper(row?));
