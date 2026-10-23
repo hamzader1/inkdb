@@ -1,16 +1,19 @@
-use crate::Master;
 use crate::backend::analyzer::Analyze;
 use crate::backend::executor::Row;
 use crate::backend::planner::plan::Plan;
 use crate::backend::planner::prepared_plan::PreparedPlan;
+use crate::db::header::DEFAULT_PAGE_SIZE;
 use crate::errors::InkError;
+use crate::{InkResult, Master};
 
 pub mod header;
 use crate::sql::lexer::Lexer;
 use crate::sql::parser::Parser;
 pub use crate::storage::mem_cursor::MemCursor;
+use crate::vfs::mem::{MEM_B, MemVfs};
 use crate::vfs::{InkOptions, Vfs};
 use header::{DatabaseHeader, DbFormat};
+use std::env;
 use std::path::Path;
 use std::rc::Rc;
 pub type DbError = InkError;
@@ -51,6 +54,19 @@ impl<V: crate::vfs::Vfs> Database<V> {
     }
 }
 
+/*Temporary for now*/
+impl Database<MemVfs> {
+    pub fn new_mem() -> InkResult<Self> {
+        let mut vfs = MemVfs::new();
+        let p = env::temp_dir().join(MEM_B);
+        vfs.insert(
+            env::temp_dir().join(MEM_B),
+            Vec::with_capacity(DEFAULT_PAGE_SIZE as _),
+        );
+
+        Self::create_with_vfs(vfs, p, DbFormat::Ink)
+    }
+}
 impl Database<DiskVfs> {
     /// Open a database that already exists on disk.
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, InkError> {
