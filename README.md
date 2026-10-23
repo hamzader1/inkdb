@@ -23,10 +23,16 @@ This pin is the project's chosen toolchain, not a declared minimum supported Rus
 cargo build --release
 ```
 
-Open or create a database file and enter SQL in the shell:
+To open an in-memory database:
 
 ```sh
-cargo run --release -- users.db
+cargo run --release
+```
+
+To open or create a database file on disk and execute SQL queries in the shell:
+
+```sh
+cargo run --release -- users.db ["Optional query"]
 ```
 
 For example, create a table, add a row, and read it back:
