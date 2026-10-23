@@ -561,7 +561,19 @@ impl<V: Vfs> Plan<V> {
             Self::PrepareRow(pr) => {
                 format!("PrepareRow [root_page: {}]", pr.root_page,)
             }
-            Self::Project(p) => format!("Project [columns: {:?}]", p.columns()),
+            Self::Project(p) => {
+                let mut columns = String::new();
+                let cols = p.columns();
+                let last_index = cols.len() - 1;
+                for (i, col) in p.columns().iter().enumerate() {
+                    let col_as_expr = render_expr(arena, *col, table);
+                    columns.push_str(&col_as_expr);
+                    if i != last_index {
+                        columns.push_str(", ");
+                    }
+                }
+                format!("Project [Columns: {}]", columns)
+            }
             Self::Delete(d) => format!("Delete [root_page: {}]", d.root_page()),
             Self::CreateTable(c) => format!("CreateTable [name: {}]", c.table_name()),
             Self::CreateIndex(c) => format!("CreateIndex [indexed_column: {}]", c.col_idx()),
