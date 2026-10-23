@@ -10,7 +10,7 @@ use crate::InkError;
 use crate::vfs::Vfs;
 
 /// The name every in-memory file reports, so the engine always sees a name.
-const MEM_B: &str = "__INK_MEMORY_BUFFER";
+pub const MEM_B: &str = "__INK_MEMORY_BUFFER";
 /// The directory the in-memory files report, which keeps neighbour lookups
 /// like the journal's working even though no bytes are ever written.
 const MEM_D: &str = "__INK_MEMORY_DIR";
@@ -25,8 +25,8 @@ const MEM_D: &str = "__INK_MEMORY_DIR";
 /// by the address of the buffer they belong to, so a database and its journal
 /// stay paired without needing a file name.
 #[derive(Debug, Default)]
-pub(crate) struct MemVfs {
-    /// One shared buffer per database path, and per temporary file name.
+pub struct MemVfs {
+    /// Onesshared buffer per database path, and per temporary file name.
     db_buffers: HashMap<PathBuf, Rc<RefCell<Vec<u8>>>>,
     /// One shared buffer per open database handle, addressed by pointer.
     journals: HashMap<usize, Rc<RefCell<Vec<u8>>>>,
@@ -102,7 +102,7 @@ impl Vfs for MemVfs {
 /// The buffer is shared, not owned, so reopening the same path hands out another
 /// handle onto the same bytes, exactly like a path on disk.
 #[derive(Debug)]
-pub(crate) struct MemFile {
+pub struct MemFile {
     bytes: Rc<RefCell<Vec<u8>>>,
     temp_dir: PathBuf,
 }
