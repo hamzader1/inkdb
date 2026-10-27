@@ -20,6 +20,7 @@ pub enum PreparedPlan<V: Vfs> {
         parent: Plan<V>,
         arena: ExprArena,
         statement_table: Option<String>,
+        owned: bool,
     },
     /// A statement running inside a transaction someone else opened.
     Direct {
@@ -35,6 +36,7 @@ impl<V: Vfs> PreparedPlan<V> {
             parent,
             arena,
             statement_table: None,
+            owned: false,
         }
     }
 
@@ -72,6 +74,13 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
+    pub fn owns_transaction(&self) -> bool {
+        match self {
+            Self::AutoCommit { owned, .. } => *owned,
+            Self::Direct { .. } => false,
+        }
+    }
+
     /// Note which table the statement is about.
     pub(crate) fn with_table(mut self, table: &str) -> Self {
         match &mut self {
@@ -104,6 +113,7 @@ impl<V: Vfs> PreparedPlan<V> {
                 parent,
                 arena,
                 statement_table,
+                ..
             }
             | Self::Direct {
                 parent,
@@ -142,34 +152,46 @@ impl<V: Vfs> PreparedPlan<V> {
                 parent,
                 arena,
                 statement_table,
+                owned,
             } => {
-                if pager.start_transaction() {
-                    let parent_res = {
+                // If this statement does not already own an open transaction,
+                // try to start one. When the caller already has a transaction
+                // open, start_transaction returns false and this statement runs
+                // inside the caller's transaction without committing.
+                if !*owned {
+                    if pager.start_transaction() {
+                        *owned = true;
+                    } else {
                         let mut ctx =
                             ExecCtx::new(pager, master, arena, statement_table.as_deref());
-                        parent.next(&mut ctx)
-                    };
-                    match parent_res {
-                        Ok(_) => pager.commit()?,
-                        _ => {
-                            pager.rollback()?;
-                            master.mark_dirty();
+                        let res = parent.next(&mut ctx);
+                        match res {
+                            Err(e) => {
+                                pager.rollback()?;
+                                master.mark_dirty();
+                                return Err(e);
+                            }
+                            ok => return ok,
                         }
                     }
-                    parent_res
-                } else {
-                    let parent_res = {
-                        let mut ctx =
-                            ExecCtx::new(pager, master, arena, statement_table.as_deref());
-                        parent.next(&mut ctx)
-                    };
-                    match parent_res {
-                        Err(e) => {
-                            pager.rollback()?;
-                            master.mark_dirty();
-                            Err(e)
-                        }
-                        ok => ok,
+                }
+
+                // This statement owns an open transaction: run one step and
+                // commit only when the plan is exhausted.
+                let mut ctx = ExecCtx::new(pager, master, arena, statement_table.as_deref());
+                let res = parent.next(&mut ctx);
+                match res {
+                    Ok(None) => {
+                        pager.commit()?;
+                        *owned = false;
+                        Ok(None)
+                    }
+                    Ok(Some(row)) => Ok(Some(row)),
+                    Err(e) => {
+                        pager.rollback()?;
+                        master.mark_dirty();
+                        *owned = false;
+                        Err(e)
                     }
                 }
             }

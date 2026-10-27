@@ -1,8 +1,6 @@
 # InkDB
 
-### A database engine in Rust
-
-InkDB is a learning project built to explore how a relational database works, from SQL parsing through query execution and page storage. **It reads and writes SQLite database files and can also create files with its own header format**.
+**InkDB is a from-scratch relational database engine written in Rust. It reads and writes real SQLite database files.**
 
 ## Resources
 
@@ -17,7 +15,6 @@ These books, documentation pages, source code, and lectures informed the project
 ## Install and run
 
 The repository pins Rust 1.98.1 in `rust-toolchain.toml`. Rustup selects that toolchain when you run Rust commands here and installs it if needed.
-This pin is the project's chosen toolchain, not a declared minimum supported Rust version.
 
 ```sh
 cargo build --release
@@ -75,6 +72,15 @@ The catalog table is called `master` in InkDB. SQLite calls the equivalent table
 
 InkDB follows this architecture. The SQL compiler tokenizes and parses each statement, then the planner builds a query plan. The Volcano executor runs that plan, and storage operations pass through the B-tree and pager to the OS interface. The schema and catalog support query processing, while utilities provide shared functionality. In short, a query moves through `SQL → Planner → Executor → B-tree → Pager → Disk`.
 
+### Design decisions and trade-offs
+
+- SQLite format instead of a custom format: I used SQLite’s format because it’s easy to inspect and test with `sqlite3` and `rusqlite`. I also added `.inkdb` to demonstrate a custom format.
+- Rollback journal instead of WAL: DELETE mode was simpler to implement, but it limits read/write concurrency. WAL would be a better choice for handling concurrent reads.
+- Single writer: I kept the design simple by allowing only one writer at a time. Concurrent access is not supported (yet).
+- Rule-based optimizer: Index selection uses simple rules instead of cost estimates.
+- Single-column sorting: ORDER BY supports one expression for now. Multi-column sorting could be added later.
+- Assertions in storage code: Some invalid pages can cause a panic instead of returning an error.
+
 ## How it works
 
 InkDB uses a Volcano style execution model. Each operator asks its child for the next row, so a query plan produces rows as the parent pulls them. The parser builds a statement, the analyzer resolves names and checks it against the schema, and the planner connects operators for execution. The optimizer can use a row identifier or an index to narrow a scan.
@@ -90,6 +96,30 @@ Limit [limit: 10]
 The storage layer uses B trees for table rows and indexes. A pager moves pages between the database file and memory, while a rollback journal supports transactions. Records use SQLite's serial type and variable length integer encoding. `ORDER BY` uses an external merge sort: when the sort data exceeds its memory budget, InkDB writes sorted runs to temporary files and merges them.
 
 The SQL dialect is a subset of SQLite. Supported statements include `CREATE TABLE`, `CREATE INDEX`, `DROP TABLE`, `DROP INDEX`, `INSERT`, `SELECT`, `UPDATE`, `DELETE`, `BEGIN`, `COMMIT`, `ROLLBACK`, and `EXPLAIN`. The engine also supports expressions, constraints, `COUNT`, `WHERE`, one `ORDER BY` expression, and `LIMIT`.
+
+## Benchmarks
+
+Measured on an Apple M-series laptop, release build, 100,000-row `users` table (page size 4096), best of several runs. Source: `tests/bench.rs`.
+
+| Query                                                    |    Rows |     Time |
+| -------------------------------------------------------- | ------: | -------: |
+| `SELECT * FROM users`                                    | 100,000 |  17.6 ms |
+| `SELECT name FROM users`                                 | 100,000 |  25.6 ms |
+| `SELECT name, age, salary FROM users`                    | 100,000 |  32.2 ms |
+| `SELECT COUNT(*) FROM users`                             |       1 |  17.3 ms |
+| `SELECT * FROM users WHERE age = 21` (index)             |   2,500 |   2.3 ms |
+| `SELECT COUNT(*) FROM users WHERE age = 21` (index)      |       1 |   2.3 ms |
+| `SELECT * FROM users WHERE name = 'User-099999'` (index) |       1 | 0.005 ms |
+| `SELECT COUNT(*) WHERE age in [20,31)`                   |       1 |  28.0 ms |
+| `SELECT COUNT(*) WHERE salary > 50000`                   |       1 |  21.8 ms |
+| `SELECT * ... ORDER BY age LIMIT 10`                     |      10 |  27.3 ms |
+| `SELECT * ... ORDER BY salary DESC LIMIT 10`             |      10 |  28.1 ms |
+| `EXPLAIN SELECT ...`                                     |       0 | 0.003 ms |
+| `INSERT INTO users (...)` (per row)                      |       1 | 0.009 ms |
+
+![Benchmark bar chart](assets/bench.png)
+
+Reading: a full table scan is ~17 ms for 100k rows (~176 ns/row). An indexed point lookup is ~4 microseconds. Inserts are ~9 microseconds/row including B-tree maintenance.
 
 ## Limitations
 

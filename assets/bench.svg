@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520">
+<rect width="100%" height="100%" fill="#0d1117"/>
+<text x="200" y="26" fill="#e6edf3" font-size="15" font-family="sans-serif" font-weight="bold">InkDB benchmark (ms per run, log scale)</text>
+<line x1="200.0" y1="44" x2="200.0" y2="490" stroke="#30363d" stroke-width="1"/>
+<text x="200.0" y="504" fill="#8b949e" font-size="9" font-family="sans-serif" text-anchor="middle">0.003</text>
+<line x1="261.0" y1="44" x2="261.0" y2="490" stroke="#30363d" stroke-width="1"/>
+<text x="261.0" y="504" fill="#8b949e" font-size="9" font-family="sans-serif" text-anchor="middle">0.01</text>
+<line x1="377.6" y1="44" x2="377.6" y2="490" stroke="#30363d" stroke-width="1"/>
+<text x="377.6" y="504" fill="#8b949e" font-size="9" font-family="sans-serif" text-anchor="middle">0.1</text>
+<line x1="494.2" y1="44" x2="494.2" y2="490" stroke="#30363d" stroke-width="1"/>
+<text x="494.2" y="504" fill="#8b949e" font-size="9" font-family="sans-serif" text-anchor="middle">1</text>
+<line x1="610.9" y1="44" x2="610.9" y2="490" stroke="#30363d" stroke-width="1"/>
+<text x="610.9" y="504" fill="#8b949e" font-size="9" font-family="sans-serif" text-anchor="middle">10</text>
+<line x1="681.1" y1="44" x2="681.1" y2="490" stroke="#30363d" stroke-width="1"/>
+<text x="681.1" y="504" fill="#8b949e" font-size="9" font-family="sans-serif" text-anchor="middle">40</text>
+<text x="194" y="64.15384615384616" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">EXPLAIN</text>
+<rect x="200" y="50.5" width="2.0" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="205.0" y="64.2" fill="#e6edf3" font-size="9" font-family="sans-serif">0.003 ms</text>
+<text x="194" y="98.46153846153845" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Index: name lookup</text>
+<rect x="200" y="84.8" width="25.9" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="230.9" y="98.5" fill="#e6edf3" font-size="9" font-family="sans-serif">0.005 ms</text>
+<text x="194" y="132.76923076923077" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">INSERT per row</text>
+<rect x="200" y="119.1" width="61.0" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="266.0" y="132.8" fill="#e6edf3" font-size="9" font-family="sans-serif">0.010 ms</text>
+<text x="194" y="167.07692307692307" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Index: age = 21</text>
+<rect x="200" y="153.4" width="337.2" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="542.2" y="167.1" fill="#e6edf3" font-size="9" font-family="sans-serif">2.335 ms</text>
+<text x="194" y="201.3846153846154" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Index: age count</text>
+<rect x="200" y="187.7" width="337.2" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="542.2" y="201.4" fill="#e6edf3" font-size="9" font-family="sans-serif">2.338 ms</text>
+<text x="194" y="235.6923076923077" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">COUNT(*)</text>
+<rect x="200" y="222.1" width="438.9" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="643.9" y="235.7" fill="#e6edf3" font-size="9" font-family="sans-serif">17.409 ms</text>
+<text x="194" y="270.0" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Full scan (SELECT *)</text>
+<rect x="200" y="256.4" width="439.0" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="644.0" y="270.0" fill="#e6edf3" font-size="9" font-family="sans-serif">17.419 ms</text>
+<text x="194" y="304.3076923076923" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Count salary > 50k</text>
+<rect x="200" y="290.7" width="450.4" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="655.4" y="304.3" fill="#e6edf3" font-size="9" font-family="sans-serif">21.813 ms</text>
+<text x="194" y="338.61538461538464" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Project name</text>
+<rect x="200" y="325.0" width="458.2" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="663.2" y="338.6" fill="#e6edf3" font-size="9" font-family="sans-serif">25.486 ms</text>
+<text x="194" y="372.92307692307696" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">ORDER BY age LIMIT 10</text>
+<rect x="200" y="359.3" width="461.7" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="666.7" y="372.9" fill="#e6edf3" font-size="9" font-family="sans-serif">27.276 ms</text>
+<text x="194" y="407.2307692307693" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Count age in [20,31)</text>
+<rect x="200" y="393.6" width="462.9" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="667.9" y="407.2" fill="#e6edf3" font-size="9" font-family="sans-serif">27.963 ms</text>
+<text x="194" y="441.53846153846155" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">ORDER BY salary DESC LIMIT 10</text>
+<rect x="200" y="427.9" width="463.3" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="668.3" y="441.5" fill="#e6edf3" font-size="9" font-family="sans-serif">28.148 ms</text>
+<text x="194" y="475.84615384615387" fill="#e6edf3" font-size="10" font-family="sans-serif" text-anchor="end">Project 3 cols</text>
+<rect x="200" y="462.2" width="470.0" height="21.3" fill="#2f81f7" rx="3"/>
+<text x="675.0" y="475.8" fill="#e6edf3" font-size="9" font-family="sans-serif">32.148 ms</text>
+</svg>

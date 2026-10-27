@@ -79,6 +79,30 @@ fn timings() {
     );
     bench(
         &mut db,
+        "where age between 20 and 30",
+        "select count(*) from users where age >= 20 and age < 31",
+        5,
+    );
+    bench(
+        &mut db,
+        "order by age limit 10",
+        "select * from users order by age asc limit 10",
+        5,
+    );
+    bench(
+        &mut db,
+        "order by salary desc limit 10",
+        "select * from users order by salary desc limit 10",
+        5,
+    );
+    bench(
+        &mut db,
+        "select count(*) where salary>50000",
+        "select count(*) from users where salary > 50000",
+        5,
+    );
+    bench(
+        &mut db,
         "explain select",
         "explain select * from users where age = 21",
         200,
