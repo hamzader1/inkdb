@@ -117,7 +117,7 @@ Measured on an Apple M-series laptop, release build, 100,000-row `users` table (
 | `EXPLAIN SELECT ...`                                     |       0 | 0.003 ms |
 | `INSERT INTO users (...)` (per row)                      |       1 | 0.009 ms |
 
-![Benchmark bar chart](assets/bench.png)
+![Benchmark bar chart](assets/bench.svg)
 
 Reading: a full table scan is ~17 ms for 100k rows (~176 ns/row). An indexed point lookup is ~4 microseconds. Inserts are ~9 microseconds/row including B-tree maintenance.
 
