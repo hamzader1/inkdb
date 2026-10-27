@@ -1,6 +1,6 @@
 # InkDB
 
-**InkDB is a from-scratch relational database engine written in Rust. It reads and writes real SQLite database files.**
+**InkDB is a relational database built from scratch in Rust. It reads and writes real SQLite database files.**
 
 ## Resources
 
