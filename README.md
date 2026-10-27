@@ -14,7 +14,7 @@ These books, documentation pages, source code, and lectures informed the project
 
 ## Install and run
 
-The repository pins Rust 1.98.1 in `rust-toolchain.toml`. Rustup selects that toolchain when you run Rust commands here and installs it if needed.
+InkDB was developed with Rust 1.98.1, so it’s recommended to use that version or newer.
 
 ```sh
 cargo build --release
