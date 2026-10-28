@@ -452,33 +452,30 @@ impl<B: AsRef<[u8]>> BTreePage<B> {
         let hdr = self.header_size()? as usize;
         let n = self.no_of_cells()? as usize;
         let cca = self.cell_content_area()? as usize;
-        assert!(hdr + 2 * n <= cca, "pointer array overruns content area");
-        assert!(cca <= self.usable_size, "content area past usable size");
+        assert_with_corrupt_err(hdr + 2 * n <= cca, || {
+            "pointer array overruns content area".to_string()
+        })?;
+        assert_with_corrupt_err(cca <= self.usable_size, || {
+            "content area past usable size".to_string()
+        })?;
         let mut spans: Vec<std::ops::Range<usize>> = Vec::with_capacity(n);
         for i in 0..n {
             let p = self.cell_ptr(i as u16)? as usize;
-            assert!(
-                p >= hdr && p < self.usable_size,
-                "cell {} pointer {} outside content area",
-                i,
-                p
-            );
+            assert_with_corrupt_err(p >= hdr && p < self.usable_size, || {
+                format!("cell {i} pointer {p} outside content area")
+            })?;
             spans.push(self.cell_span(p as u16)?);
         }
         spans.sort_by_key(|s| s.start);
         for w in spans.windows(2) {
-            assert!(
-                w[0].end <= w[1].start,
-                "cells overlap: {:?} / {:?}",
-                w[0],
-                w[1]
-            );
+            assert_with_corrupt_err(w[0].end <= w[1].start, || {
+                format!("cells overlap: {:?} / {:?}", w[0], w[1])
+            })?;
         }
         if self.page_type()?.is_interior() && n > 0 {
-            assert!(
-                self.right_most_ptr()?.is_some(),
-                "populated interior page without right-most pointer"
-            );
+            assert_with_corrupt_err(self.right_most_ptr()?.is_some(), || {
+                "populated interior page without right-most pointer".to_string()
+            })?;
         }
         Ok(())
     }
@@ -1352,7 +1349,9 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> BTreePage<B> {
     }
     /// How many bytes the cell at an offset takes.
     pub fn cell_size_by_offset(&mut self, offset: u16) -> InkResult<usize> {
-        assert!((offset as usize) < self.usable_size);
+        if (offset as usize) >= self.usable_size {
+            return Err(InkError::CorruptedPageData);
+        }
         let cell_sp = self.downgrade()?.cell_span(offset)?;
         Ok(cell_sp.end - cell_sp.start)
     }

@@ -68,7 +68,7 @@ pub fn encode_varint(buff: &mut [u8; 9], mut value: u64) -> usize {
     // the execution flow will never reach this point. In practice, the
     // general condition is n <= 9, but due to earlier checks, the case
     // where n == 9 is already excluded before arriving here.
-    assert!(n <= 9);
+    debug_assert!(n <= 9, "varint too long");
     for (i, j) in (0..n).rev().enumerate() {
         buff[i] = temp_buffer[j];
     }
