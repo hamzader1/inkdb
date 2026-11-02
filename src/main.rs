@@ -13,6 +13,7 @@ fn main() -> Result<(), InkError> {
     } else {
         /*Temporary for now*/
         let database = Database::new_mem()?;
+        println!("Connected to a transient in-memory database.");
         run(database)?;
     }
     Ok(())
