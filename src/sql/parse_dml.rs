@@ -100,16 +100,27 @@ impl Parser {
         }
         self.expect(Values)?;
         let mut values: Vec<_> = Vec::new();
+        use std::ops::Range;
+        let mut values_range = Vec::<Range<usize>>::new();
         loop {
-            let mut current_values = Vec::new();
+            let mut start = None;
             self.expect(LeftParen)?;
             while !self.at(RightParen) {
-                current_values.push(self.parse_expression()?);
+                if start.is_none() {
+                    start = Some(values.len());
+                }
+                values.push(self.parse_expression()?);
                 if !self.eat(Comma) {
+                    if let Some(start) = start {
+                        values_range.push(Range {
+                            start,
+                            end: values.len(),
+                        });
+                    }
                     break;
                 }
             }
-            values.push(current_values);
+            // values.push(current_values);
             self.expect(RightParen)?;
             if !self.eat(Comma) {
                 break;
@@ -121,6 +132,7 @@ impl Parser {
             table_name,
             columns,
             values,
+            values_range,
             arena: self.arena.take(),
         }))
     }

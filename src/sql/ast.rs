@@ -188,7 +188,8 @@ impl OrderBy {
 pub struct InsertStmt {
     pub(crate) table_name: String,
     pub(crate) columns: Vec<String>,
-    pub(crate) values: Vec<Vec<usize>>,
+    pub(crate) values_range: Vec<std::ops::Range<usize>>,
+    pub(crate) values: Vec<usize>,
     pub(crate) arena: ExprArena,
 }
 

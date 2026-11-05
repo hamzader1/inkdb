@@ -21,6 +21,7 @@ impl<'a> Analyze<'a> {
             table_name,
             columns,
             values,
+            values_range,
             arena,
         } = stmt;
 
@@ -49,7 +50,8 @@ impl<'a> Analyze<'a> {
         };
 
         let mut j = 0;
-        for inner_values in values.iter() {
+        for inner_values_range in values_range.iter() {
+            let inner_values = &values[inner_values_range.start..inner_values_range.end];
             assert_value_count(inner_values.len(), columns_list.len())?;
             for i in 0..table.columns().len() {
                 let mapped = columns_list
