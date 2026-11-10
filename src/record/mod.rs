@@ -169,6 +169,7 @@ impl<'a> Value<'a> {
             Value::Text(_) => "TEXT",
             Value::Blob(_) => "BLOB",
             Value::Tuple(_) => "TUPLE",
+
         }
     }
     /// Write the value as text.

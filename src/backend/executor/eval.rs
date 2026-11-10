@@ -6,7 +6,7 @@ use crate::record::{TryAdd, TryDiv, TryMul, TrySub, Value};
 use super::ColumnSource;
 use crate::schema::Table;
 use crate::sql::ast::{BinaryOperator, Expr};
-use crate::sql::parser::ExprArena;
+use crate::sql::parser::Arena;
 
 /// How deep an expression is rendered before it is cut off. An expression
 /// cannot nest this deeply today, so this only guards against a node that points
@@ -18,11 +18,16 @@ const MAX_RENDER_DEPTH: usize = 32;
 /// A column is printed by its name when the table is given and by its index when
 /// it is not, which is what makes an EXPLAIN readable and a stored CHECK
 /// constraint print the way it was written.
-pub fn render_expr(arena: &ExprArena, index: usize, table: Option<&Table>) -> String {
+pub fn render_expr(arena: &Arena<Expr>, index: usize, table: Option<&Table>) -> String {
     render_expr_at(arena, index, table, 0)
 }
 
-fn render_expr_at(arena: &ExprArena, index: usize, table: Option<&Table>, depth: usize) -> String {
+fn render_expr_at(
+    arena: &Arena<Expr>,
+    index: usize,
+    table: Option<&Table>,
+    depth: usize,
+) -> String {
     if depth > MAX_RENDER_DEPTH {
         return format!("expr[{index}]");
     }
@@ -116,7 +121,7 @@ impl Eval {
     /// types decide what the result is. A row is optional because an expression that has no column
     /// in it, such as a LIMIT, is evaluated without one.
     pub fn eval<'a>(
-        arena: &ExprArena,
+        arena: &Arena<Expr>,
         idx: usize,
         row: Option<&'a dyn ColumnSource>,
     ) -> Result<Value<'a>, InkError> {

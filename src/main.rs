@@ -5,6 +5,7 @@ use inkdb::vfs::Vfs;
 
 fn main() -> Result<(), InkError> {
     let database = match std::env::args().nth(1) {
+        
         Some(path) => Some(Database::open_or_create(path)?),
         None => None,
     };

@@ -3,7 +3,8 @@ use crate::backend::executor::Row;
 use crate::backend::executor::context::ExecCtx;
 use crate::errors::InkError;
 use crate::pager::pager::Pager;
-use crate::sql::parser::ExprArena;
+use crate::sql::ast::Expr;
+use crate::sql::parser::Arena;
 use crate::vfs::Vfs;
 
 use super::plan::Plan;
@@ -18,20 +19,20 @@ pub enum PreparedPlan<V: Vfs> {
     /// A statement that owns its transaction.
     AutoCommit {
         parent: Plan<V>,
-        arena: ExprArena,
+        arena: Arena<Expr>,
         statement_table: Option<String>,
         owned: bool,
     },
     /// A statement running inside a transaction someone else opened.
     Direct {
         parent: Plan<V>,
-        arena: ExprArena,
+        arena: Arena<Expr>,
         statement_table: Option<String>,
     },
 }
 
 impl<V: Vfs> PreparedPlan<V> {
-    pub(crate) fn new(parent: Plan<V>, arena: ExprArena) -> Self {
+    pub(crate) fn new(parent: Plan<V>, arena: Arena<Expr>) -> Self {
         Self::AutoCommit {
             parent,
             arena,
@@ -40,7 +41,7 @@ impl<V: Vfs> PreparedPlan<V> {
         }
     }
 
-    pub(crate) fn direct(parent: Plan<V>, arena: ExprArena) -> Self {
+    pub(crate) fn direct(parent: Plan<V>, arena: Arena<Expr>) -> Self {
         Self::Direct {
             parent,
             arena,
@@ -56,7 +57,7 @@ impl<V: Vfs> PreparedPlan<V> {
     }
 
     /// The arena the plan expressions are held in.
-    pub fn arena(&self) -> &ExprArena {
+    pub fn arena(&self) -> &Arena<Expr> {
         match self {
             Self::AutoCommit { arena, .. } | Self::Direct { arena, .. } => arena,
         }
@@ -107,7 +108,7 @@ impl<V: Vfs> PreparedPlan<V> {
     }
 
     /// Take the plan apart, for wrapping it in another plan.
-    pub(crate) fn into_parts(self) -> (Plan<V>, ExprArena, Option<String>) {
+    pub(crate) fn into_parts(self) -> (Plan<V>, Arena<Expr>, Option<String>) {
         match self {
             Self::AutoCommit {
                 parent,

@@ -1,7 +1,7 @@
 use crate::errors::InkError;
 
 use crate::sql::ast::{Expr, SelectStmt};
-use crate::sql::parser::ExprArena;
+use crate::sql::parser::Arena;
 
 use super::{Analyze, ResolvedCountQuery, ResolvedQuery, ResolvedSelectQuery};
 
@@ -177,7 +177,7 @@ impl<'a> Analyze<'a> {
         }
         let stmt = ResolvedSelectQuery {
             table: Some((table_name, table.root_page())),
-            arena: ExprArena { nodes: new_arena },
+            arena: Arena { nodes: new_arena },
             columns: new_cols.into(),
             where_clause,
             limit,

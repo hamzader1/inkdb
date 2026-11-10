@@ -1,7 +1,7 @@
 use crate::errors::InkError;
 use crate::schema::TableSchema;
 use crate::sql::ast::Expr;
-use crate::sql::parser::ExprArena;
+use crate::sql::parser::Arena;
 
 use super::Analyze;
 
@@ -69,7 +69,7 @@ impl<'a> Analyze<'a> {
     pub(super) fn slow_bind(
         table: &impl TableSchema,
         idx: usize,
-        arena: &mut ExprArena,
+        arena: &mut Arena<Expr>,
         // new to move
         new: &mut Vec<Expr>,
         map: &mut Vec<usize>,
@@ -87,7 +87,7 @@ impl<'a> Analyze<'a> {
     pub(super) fn fast_bind(
         table: &impl TableSchema,
         idx: usize,
-        arena: &mut ExprArena,
+        arena: &mut Arena<Expr>,
     ) -> Result<(), InkError> {
         let mut sink = FastBind;
         let pos = Self::walk(table, idx, arena, &mut sink)?;
@@ -104,8 +104,9 @@ impl<'a> Analyze<'a> {
     /// The answer is the index the node came out at.
     pub(crate) fn walk(
         table: &impl TableSchema,
+
         idx: usize,
-        arena: &mut ExprArena,
+        arena: &mut Arena<Expr>,
         sink: &mut impl BindSink,
     ) -> Result<usize, InkError> {
         match arena.nodes[idx].clone() {
@@ -136,6 +137,7 @@ impl<'a> Analyze<'a> {
                 let bound_r = Self::walk(table, right, arena, sink)?;
                 Ok(sink.binary(&node, idx, bound_l, bound_r))
             }
+
             other => Err(sink.unsupported(&other)),
         }
     }
@@ -162,21 +164,21 @@ pub(crate) trait BindSink {
     fn ident(
         &mut self,
         table: &impl TableSchema,
-        arena: &mut ExprArena,
+        arena: &mut Arena<Expr>,
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError>;
     /// Take a literal or a constant as it is.
-    fn leaf(&mut self, arena: &mut ExprArena, expr: Expr, idx: usize) -> usize;
+    fn leaf(&mut self, arena: &mut Arena<Expr>, expr: Expr, idx: usize) -> usize;
     /// Expand a star into every column of the table.
     fn star(
         &mut self,
         table: &impl TableSchema,
-        arena: &mut ExprArena,
+        arena: &mut Arena<Expr>,
         idx: usize,
     ) -> Result<usize, InkError>;
     /// Rebuild a unary expression around its bound child.
-    fn unary(&mut self, arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize;
+    fn unary(&mut self, arena: &mut Arena<Expr>, node: Expr, idx: usize, child: usize) -> usize;
     /// Rebuild a binary expression around its two bound children.
     fn binary(&mut self, node: &Expr, idx: usize, l: usize, r: usize) -> usize;
     /// The error for an expression this sink cannot bind.
@@ -186,7 +188,7 @@ impl BindSink for SlowBind<'_> {
     fn ident(
         &mut self,
         table: &impl TableSchema,
-        _arena: &mut ExprArena,
+        _arena: &mut Arena<Expr>,
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError> {
@@ -199,7 +201,7 @@ impl BindSink for SlowBind<'_> {
             _ => Err(InkError::UnknownColumn(name.into())),
         }
     }
-    fn leaf(&mut self, _arena: &mut ExprArena, expr: Expr, idx: usize) -> usize {
+    fn leaf(&mut self, _arena: &mut Arena<Expr>, expr: Expr, idx: usize) -> usize {
         self.new.push(expr);
         let return_index = self.new.len() - 1;
         self.map[idx] = return_index;
@@ -208,7 +210,7 @@ impl BindSink for SlowBind<'_> {
     fn star(
         &mut self,
         table: &impl TableSchema,
-        _arena: &mut ExprArena,
+        _arena: &mut Arena<Expr>,
         idx: usize,
     ) -> Result<usize, InkError> {
         for i in 0..table.columns_len() {
@@ -218,7 +220,7 @@ impl BindSink for SlowBind<'_> {
         self.map[idx] = self.new.len() - 1;
         Ok(self.new.len() - 1)
     }
-    fn unary(&mut self, _arena: &mut ExprArena, node: Expr, idx: usize, child: usize) -> usize {
+    fn unary(&mut self, _arena: &mut Arena<Expr>, node: Expr, idx: usize, child: usize) -> usize {
         match node {
             Expr::Neg(_) => {
                 self.new.push(Expr::Neg(child)); // the return from the recursive call
@@ -261,7 +263,7 @@ impl BindSink for FastBind {
     fn ident(
         &mut self,
         table: &impl TableSchema,
-        arena: &mut ExprArena,
+        arena: &mut Arena<Expr>,
         idx: usize,
         name: &str,
     ) -> Result<usize, InkError> {
@@ -273,20 +275,20 @@ impl BindSink for FastBind {
             _ => Err(InkError::UnknownColumn(name.into())),
         }
     }
-    fn leaf(&mut self, _arena: &mut ExprArena, _expr: Expr, idx: usize) -> usize {
+    fn leaf(&mut self, _arena: &mut Arena<Expr>, _expr: Expr, idx: usize) -> usize {
         idx
     }
     fn star(
         &mut self,
         _table: &impl TableSchema,
-        _arena: &mut ExprArena,
+        _arena: &mut Arena<Expr>,
         _idx: usize,
     ) -> Result<usize, InkError> {
         Err(InkError::runtime(
             "Expression * cannot appear in WHERE/LIMIT (only columns and arithmetic/comparison expressions are supported",
         ))
     }
-    fn unary(&mut self, _arena: &mut ExprArena, _node: Expr, idx: usize, _child: usize) -> usize {
+    fn unary(&mut self, _arena: &mut Arena<Expr>, _node: Expr, idx: usize, _child: usize) -> usize {
         idx
     }
     fn binary(&mut self, _node: &Expr, idx: usize, _l: usize, _r: usize) -> usize {

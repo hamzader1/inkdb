@@ -4,9 +4,9 @@ use crate::errors::CorruptError;
 use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::record::Value;
-use crate::sql::ast::CreateTableStmt;
+use crate::sql::ast::{CreateTableStmt, Expr};
 use crate::sql::lexer::Lexer;
-use crate::sql::parser::{ExprArena, Parser};
+use crate::sql::parser::{Arena, Parser};
 use crate::storage::btree::{BTreeCursor, TableLeaf};
 use crate::vfs::Vfs;
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ pub struct Table {
     root_page: u32,
     columns: Box<[Column]>,
     tbl_constraits: Box<[usize]>,
-    tbl_arena: ExprArena,
+    tbl_arena: Arena<Expr>,
 }
 
 impl Table {
@@ -54,7 +54,7 @@ impl Table {
     }
 
     /// The expressions of the table level constraints.
-    pub(crate) fn arena(&self) -> &ExprArena {
+    pub(crate) fn arena(&self) -> &Arena<Expr> {
         &self.tbl_arena
     }
 }
@@ -107,7 +107,7 @@ pub(crate) static MASTER: LazyLock<Table> = LazyLock::new(|| Table {
         },
     ]
     .into(),
-    tbl_arena: ExprArena::new(),
+    tbl_arena: Arena::new(),
     tbl_constraits: [].into(),
 });
 impl Table {

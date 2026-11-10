@@ -34,7 +34,7 @@ use crate::errors::InkError;
 use crate::pager::pager::Pager;
 use crate::schema::Table;
 use crate::sql::ast::Expr::{self, ColumnRef, StringLitteral};
-use crate::sql::parser::ExprArena;
+use crate::sql::parser::Arena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
 
@@ -100,12 +100,12 @@ impl<V: Vfs> Plan<V> {
 /// A plan shown as a tree, indented one level per operator.
 pub struct PlanTree<'a, V: Vfs> {
     plan: &'a Plan<V>,
-    arena: &'a ExprArena,
+    arena: &'a Arena<Expr>,
     table: Option<&'a Table>,
 }
 
 impl<'a, V: Vfs> PlanTree<'a, V> {
-    pub fn new(plan: &'a Plan<V>, arena: &'a ExprArena, table: Option<&'a Table>) -> Self {
+    pub fn new(plan: &'a Plan<V>, arena: &'a Arena<Expr>, table: Option<&'a Table>) -> Self {
         Self { plan, arena, table }
     }
 
@@ -148,17 +148,17 @@ impl<V: Vfs> Plan<V> {
         match resolved_query {
             ResolvedQuery::BeginTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::BeginTransaction(BeginTransaction),
-                ExprArena::new(),
+                Arena::<Expr>::new(),
             )),
             ResolvedQuery::CommitTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::CommitTransaction(CommitTransaction),
-                ExprArena::new(),
+                Arena::<Expr>::new(),
             )),
             ResolvedQuery::CountQuery(stmt) => Self::init_count_plan(stmt, master),
             ResolvedQuery::CreateIndexQuery(stmt) => Self::init_create_index_plan(stmt),
             ResolvedQuery::CreateTableQuery(stmt) => Ok(PreparedPlan::new(
                 Plan::CreateTable(CreateTable::new(stmt)),
-                ExprArena::new(),
+                Arena::<Expr>::new(),
             )),
             ResolvedQuery::DeleteQuery(stmt) => Self::init_delete_plan(stmt, master),
             ResolvedQuery::DropIndexQuery(stmt) => Self::init_drop_index_plan(stmt),
@@ -174,7 +174,7 @@ impl<V: Vfs> Plan<V> {
             ResolvedQuery::InsertQuery(stmt) => Self::init_insert_plan(stmt, master),
             ResolvedQuery::RollbackTransactionQuery => Ok(PreparedPlan::direct(
                 Plan::RollbackTransaction(RollBackTransaction),
-                ExprArena::new(),
+                Arena::<Expr>::new(),
             )),
             ResolvedQuery::SelectQuery(stmt) => Self::init_select_plan(stmt, master),
             ResolvedQuery::TruncateTable(stmt) => {
@@ -185,7 +185,7 @@ impl<V: Vfs> Plan<V> {
                         indexes.into(),
                         Box::new(Plan::<V>::Halt),
                     )),
-                    ExprArena::new(),
+                    Arena::<Expr>::new(),
                 ))
             }
             ResolvedQuery::UpdateQuery(stmt) => Self::init_update_plan(stmt, master),
@@ -204,7 +204,7 @@ impl<V: Vfs> Plan<V> {
         mode: ScanMode,
         predicate: Option<usize>,
         master: &Master,
-        arena: &ExprArena,
+        arena: &Arena<Expr>,
     ) -> InkResult<Plan<V>> {
         let mut scan = TableScan::new(root_page, mode, table_name.to_string())?;
         let Some(predicate) = predicate else {
@@ -313,7 +313,7 @@ impl<V: Vfs> Plan<V> {
             resolved_query.root_page,
         )?;
         plan = Plan::Terminate(Terminate::new(Box::new(plan)));
-        Ok(PreparedPlan::new(plan, ExprArena::new()))
+        Ok(PreparedPlan::new(plan, Arena::<Expr>::new()))
     }
 
     /// Put the row preparation, and an index operator for each index, around a
@@ -430,7 +430,7 @@ impl<V: Vfs> Plan<V> {
             ScanMode::Safe,
             resolved_query.relation_name.clone(),
         )?);
-        let mut arena = ExprArena::new();
+        let mut arena = Arena::new();
         let key = arena.push(Expr::ColumnRef(resolved_query.column_index));
         if resolved_query.is_unique {
             child = Plan::Sort(Sort::new(Box::new(child), key, false));
@@ -474,7 +474,7 @@ impl<V: Vfs> Plan<V> {
             ScanMode::Unsafe,
             "MASTER".into(), /*Must be unused*/
         )?);
-        let mut arena = ExprArena::new();
+        let mut arena = Arena::new();
         arena.push(ColumnRef(target_col));
         arena.push(StringLitteral(target_name));
         let index = arena.push(Expr::BinaryOp {
@@ -530,7 +530,7 @@ impl<V: Vfs> Plan<V> {
     }
 
     /// One line describing this operator, with its expressions rendered.
-    pub fn node_label(&self, arena: &ExprArena, table: Option<&Table>) -> String {
+    pub fn node_label(&self, arena: &Arena<Expr>, table: Option<&Table>) -> String {
         match self {
             Self::TableScan(tb) => match tb.pushed_predicate() {
                 Some(pushed) => format!(

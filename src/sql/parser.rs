@@ -3,7 +3,12 @@ use super::{
         Ast::{self, ExplainStmtAst},
         ExplainStmt,
     },
-    tokens::Span,
+    tokens::{
+        Span,
+        TokenKind::{
+            Begin, Commit, Create, Delete, Drop, Explain, Insert, RollBack, Select, Update,
+        },
+    },
 };
 use crate::{
     InkResult,
@@ -12,7 +17,7 @@ use crate::{
 
 use super::tokens::{
     Token,
-    TokenKind::{self, *},
+    TokenKind::{self},
 };
 use std::{rc::Rc, string::String};
 
@@ -27,26 +32,32 @@ use super::ast::Expr;
 /// Keeping them flat means the parts can be compared and
 /// rewritten without walking a tree, and the whole arena is cheap to hand
 /// around by reference.
-#[derive(Debug, Default, Clone)]
-pub struct ExprArena {
-    pub(crate) nodes: Vec<Expr>,
+#[derive(Debug, Clone)]
+pub struct Arena<T> {
+    pub(crate) nodes: Vec<T>, // TODO: Make [`Arena`] generic over type `T`
 }
-impl ExprArena {
+impl<T> Arena<T> {
     pub fn new() -> Self {
         Self { nodes: Vec::new() }
     }
-    pub(crate) fn push(&mut self, expr: Expr) -> usize {
+    pub(crate) fn push(&mut self, expr: T) -> usize {
         self.nodes.push(expr);
         self.nodes.len() - 1
     }
     /// Move the expressions out and leave the arena empty.
     /// Used when a builder hands its work to the next stage.
-    pub(crate) fn take(&mut self) -> ExprArena {
+    pub(crate) fn take(&mut self) -> Arena<T> {
         Self {
             nodes: std::mem::take(&mut self.nodes),
         }
     }
 }
+impl<T> Default for Arena<T> {
+    fn default() -> Self {
+        Arena::new()
+    }
+}
+
 /// Turns a list of tokens into a statement.
 ///
 /// This is a recursive descent parser, a type of top down parser that starts
@@ -66,7 +77,7 @@ pub struct Parser {
     pub query: Rc<str>,
     pub tokens: Vec<Token>,
     pub pos: usize,
-    pub arena: ExprArena,
+    pub arena: Arena<Expr>,
 }
 
 impl Parser {
@@ -75,7 +86,7 @@ impl Parser {
             query,
             tokens,
             pos: 0,
-            arena: ExprArena::new(),
+            arena: Arena::new(),
         }
     }
     /// Parse one statement from its tokens.
@@ -84,7 +95,7 @@ impl Parser {
             query,
             tokens,
             pos: 0,
-            arena: ExprArena::new(),
+            arena: Arena::new(),
         };
         parser.parse_statement()
     }

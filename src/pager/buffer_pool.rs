@@ -1,6 +1,6 @@
 use super::frame::{CLEAN, DIRTY, REFERENCED};
 use super::frame::{Frame, FrameId, FrameIndex};
-use crate::InkResult;
+use crate::{InkResult};
 use crate::errors::InkError;
 use crate::pager::pager::PageNo;
 use crate::util::assert_one;
@@ -65,7 +65,7 @@ impl BufferPool {
         self.page_table.remove(&page_no);
         // Reset the frame
         self.frame_buffer[frame_id] = Frame::default();
-        Ok(())
+         Ok(())
     }
 
     /// A buffer of this many default values, boxed so its address is stable.
@@ -76,6 +76,7 @@ impl BufferPool {
     /// A raw pointer to the pool, so a guard can pin and unpin frames without
     /// holding a borrow that would otherwise stop the pool from being used.
     pub fn as_ptr_mut(&mut self) -> NonNull<Self> {
+
         unsafe { NonNull::new_unchecked(self as *mut BufferPool) }
     }
 
@@ -86,6 +87,7 @@ impl BufferPool {
 
     /// How many frames are holding a page.
     pub fn cached_count(&self) -> usize {
+        
         self.frame_buffer.len() - self.free_frames.len()
     }
 

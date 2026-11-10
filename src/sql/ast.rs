@@ -2,7 +2,7 @@ use crate::InkResult;
 use crate::errors::InkError;
 use crate::record::Value;
 
-use super::parser::ExprArena;
+use super::parser::Arena;
 use super::tokens::TokenKind;
 use std::rc::Rc;
 
@@ -20,7 +20,7 @@ pub struct CreateTableStmt {
     pub(crate) name: String,
     pub(crate) columns: Vec<Column>,
     pub(crate) tbl_constraints: Vec<usize>,
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
 }
 
 #[derive(Debug)]
@@ -84,7 +84,7 @@ pub(crate) enum DefaultValue {
 /// this type stays small and the parts of an expression can be compared and
 /// rewritten without copying.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Expr {
+pub enum Expr {
     Number(i64),
     Float(f64),
     StringLitteral(String),
@@ -146,7 +146,7 @@ impl Expr {
     }
 }
 #[derive(Debug, Clone, PartialEq, Copy)]
-pub(crate) enum BinaryOperator {
+pub enum BinaryOperator {
     Eq,
     NotEq,
     Ge,
@@ -161,7 +161,7 @@ pub(crate) enum BinaryOperator {
 #[derive(Debug, Clone)]
 pub struct SelectStmt {
     pub(crate) table_name: Option<String>,
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
     pub(crate) columns: Vec<usize>,
     pub(crate) where_clause: Option<usize>,
     pub(crate) limit: Option<usize>,
@@ -190,7 +190,7 @@ pub struct InsertStmt {
     pub(crate) columns: Vec<String>,
     pub(crate) values_range: Vec<std::ops::Range<usize>>,
     pub(crate) values: Vec<usize>,
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
 }
 
 /// A `DELETE`, with or without a `WHERE` clause. The arena is only there when
@@ -198,7 +198,7 @@ pub struct InsertStmt {
 #[derive(Debug)]
 pub struct DeleteStmt {
     pub(crate) table_name: String,
-    pub(crate) arena: Option<ExprArena>,
+    pub(crate) arena: Option<Arena<Expr>>,
     pub(crate) where_clause: Option<usize>,
 }
 
@@ -282,7 +282,7 @@ pub struct UpdateStmt {
     pub(crate) table_name: String,
     pub(crate) columns: Vec<(usize, usize)>,
     pub(crate) where_clause: Option<usize>,
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
 }
 
 impl UpdateStmt {
@@ -291,7 +291,7 @@ impl UpdateStmt {
         table_name: String,
         columns: Vec<(usize, usize)>,
         where_clause: Option<usize>,
-        arena: ExprArena,
+        arena: Arena<Expr>,
     ) -> Self {
         Self {
             table_name,

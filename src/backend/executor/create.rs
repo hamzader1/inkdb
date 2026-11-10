@@ -165,6 +165,7 @@ impl<V: Vfs> CreateIndex<V> {
             return Ok(None);
         };
         while let Some(row) = child.next(ctx)? {
+
             let value = row.value(index.col_idx)?.into_static();
             // SQLite counts NULLs as distinct: duplicate NULLs are not a
             // uniqueness violation, so they never compare equal here.

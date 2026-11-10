@@ -8,7 +8,7 @@ use crate::backend::executor::index::IndexExactMatch;
 use crate::backend::executor::rowid::RowRangeScan;
 use crate::record::Value;
 use crate::sql::ast::{BinaryOperator, Expr};
-use crate::sql::parser::ExprArena;
+use crate::sql::parser::Arena;
 use crate::vfs::Vfs;
 use crate::{InkResult, Master};
 
@@ -21,7 +21,7 @@ pub(crate) fn optimize_index_scan<V: Vfs>(
     plan: &mut Plan<V>,
     master: &Master,
     table_name: &str,
-    arena: &ExprArena,
+    arena: &Arena<Expr>,
     mode: ScanMode,
 ) -> InkResult<()> {
     let Plan::Filter(_) = plan else {
@@ -52,7 +52,7 @@ struct Optimizer<'a, V: Vfs> {
     master: &'a Master,
     relation: &'a crate::schema::Table,
     plan: &'a mut Plan<V>,
-    arena: &'a ExprArena,
+    arena: &'a Arena<Expr>,
     ready_index: Option<Plan<V>>,
     mode: ScanMode,
     guard_spent: bool,
@@ -155,7 +155,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
     /// whole for the normal per leaf handling.
     /// Flatten a chain of ANDs into the leaves it is made of, so each can be
     /// tried on its own.
-    fn collect_conjuncts(arena: &ExprArena, node: usize, out: &mut Vec<usize>) {
+    fn collect_conjuncts(arena: &Arena<Expr>, node: usize, out: &mut Vec<usize>) {
         if let Expr::And { left, right } = arena.nodes[node] {
             Self::collect_conjuncts(arena, left, out);
             Self::collect_conjuncts(arena, right, out);
@@ -334,7 +334,7 @@ impl<'a, V: Vfs> Optimizer<'a, V> {
     }
     /// Evaluate an expression with no row behind it, which is how the constant
     /// side of a comparison is found.
-    fn try_cast_to_const_expr(arena: &ExprArena, index: usize) -> Option<Value<'static>> {
+    fn try_cast_to_const_expr(arena: &Arena<Expr>, index: usize) -> Option<Value<'static>> {
         Eval::eval(arena, index, None).ok()
     }
 

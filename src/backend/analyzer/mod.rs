@@ -5,9 +5,10 @@ use crate::pager::pager::PageNo;
 use crate::record::{Record, Value};
 use crate::schema::MASTER;
 use crate::schema::Table;
+use crate::sql::ast::Expr;
 use crate::sql::ast::OrderBy;
 use crate::sql::ast::{Ast, CreateTableStmt};
-use crate::sql::parser::ExprArena;
+use crate::sql::parser::Arena;
 pub mod bind;
 pub mod create;
 pub(crate) mod delete;
@@ -28,7 +29,7 @@ pub struct Analyze<'a> {
 pub struct ResolvedSelectQuery {
     /// The table and its root page, or nothing when there is no FROM clause.
     pub(crate) table: Option<(String, u32)>,
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
     /// One arena index per output column, in the order they were written.
     pub(crate) columns: Box<[usize]>,
     /// The predicate, as an arena index.
@@ -116,7 +117,7 @@ pub struct ResolvedCountQuery {
     pub(crate) table_name: String,
     /// Its root page.
     pub(crate) root_page: u32,
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
     /// The expression to count, or nothing for count(*), which counts every row
     /// while count(x) skips the ones where x is NULL.
     pub(crate) arg: Option<usize>,
@@ -147,7 +148,7 @@ pub struct ResolvedDeleteQuery {
     pub(crate) root_page: PageNo,
     /// The predicate, and the arena holding it. A DELETE with no predicate never
     /// reaches here, since it is resolved as a truncate instead.
-    pub(crate) arena: Option<ExprArena>,
+    pub(crate) arena: Option<Arena<Expr>>,
 
     pub(crate) where_clause: Option<usize>,
 }
@@ -212,7 +213,7 @@ pub struct ResolvedUpdateQuery {
 
     pub(crate) where_clause: Option<usize>,
 
-    pub(crate) arena: ExprArena,
+    pub(crate) arena: Arena<Expr>,
 }
 
 impl ResolvedUpdateQuery {
@@ -221,7 +222,7 @@ impl ResolvedUpdateQuery {
         root_page: u32,
         affected_columns: Box<[(usize, usize)]>,
         where_clause: Option<usize>,
-        arena: ExprArena,
+        arena: Arena<Expr>,
     ) -> Self {
         Self {
             table_name,

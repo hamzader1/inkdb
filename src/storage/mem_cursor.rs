@@ -114,6 +114,7 @@ impl<'a> MemCursor<'a> {
     /// Read the next byte.
     pub fn read_next_u8(&mut self) -> Result<u8, InkError> {
         let mut buf = [0u8; 1];
+
         self.read_next_exact(&mut buf)?;
         Ok(to_int!(u8, buf))
     }
