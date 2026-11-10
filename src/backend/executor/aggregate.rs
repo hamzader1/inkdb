@@ -44,6 +44,7 @@ impl<V: Vfs> Count<V> {
             return Ok(None);
         }
         self.is_done = true;
+
         let mut count: i64 = 0;
         while let Some(row) = self.child.next(ctx)? {
             let counted = match self.arg {
