@@ -1,6 +1,5 @@
 #[path = "common.rs"]
 mod common;
-
 use common::*;
 use inkdb::Master;
 use inkdb::backend::analyzer::Analyze;
