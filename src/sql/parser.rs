@@ -10,6 +10,7 @@ use super::{
         },
     },
 };
+
 use crate::{
     InkResult,
     errors::{InkError, SyntaxErrorKind},

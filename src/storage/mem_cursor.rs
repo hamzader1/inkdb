@@ -58,6 +58,7 @@ impl<'a> MemCursor<'a> {
         self.offset = self.offset.checked_add(steps).ok_or(InkError::Overflow(
             "Overflow while trying to move the cursor forward".into(),
         ))?;
+
         Ok(())
     }
 

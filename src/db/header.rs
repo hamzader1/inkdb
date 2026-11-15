@@ -1,14 +1,13 @@
 #![allow(unused)]
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::Seek;
-use std::io::SeekFrom;
-
 use crate::InkResult;
 use crate::errors::InkError;
 use crate::util::assert_one;
 use crate::vfs::cursor::FileCursor;
 use crate::vfs::file::InkFile;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::Seek;
+use std::io::SeekFrom;
 
 use self::DbFormat::Ink;
 
@@ -174,16 +173,16 @@ impl DbFormat {
     /// Where the first freelist trunk page number sits in the header.
     pub fn freelist_trunk_offset(self) -> usize {
         match self {
-            DbFormat::Sqlite => SQLITE_FIRST_FREELIST_TRUNK_PAGE_OFFSET,
-            DbFormat::Ink => INK_FREELIST_TRUNK_OFFSET,
+            Self::Sqlite => SQLITE_FIRST_FREELIST_TRUNK_PAGE_OFFSET,
+            Self::Ink => INK_FREELIST_TRUNK_OFFSET,
         }
     }
 
     /// Where the number of freelist pages sits in the header.
     pub fn freelist_total_offset(self) -> usize {
         match self {
-            DbFormat::Sqlite => SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
-            DbFormat::Ink => INK_FREELIST_TOTAL_OFFSET,
+            Self::Sqlite => SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
+            Self::Ink => INK_FREELIST_TOTAL_OFFSET,
         }
     }
 }

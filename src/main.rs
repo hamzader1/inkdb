@@ -8,6 +8,7 @@ fn main() -> Result<(), InkError> {
         Some(path) => Some(Database::open_or_create(path)?),
         None => None,
     };
+
     if let Some(database) = database {
         run(database)?;
     } else {

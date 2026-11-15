@@ -12,7 +12,7 @@ impl<V: Vfs> Pager<V> {
     /// page at the end of the first trunk's list, or the trunk page itself when
     /// its list is empty, and answers with that page, the first trunk to record
     /// next, and how many pages are left on the freelist.
-    ///
+    /// ```text
     /// +----------+                +-------Trunk pages-------+
     /// |          |                |                         |
     /// +----------+        +---------------+         +---------------+       +----+
@@ -28,6 +28,7 @@ impl<V: Vfs> Pager<V> {
     ///                     |               |         |               |
     ///                     |               |         |               |
     ///                     +---------------+         +---------------+
+    ///```
     pub fn freelist_alloc(
         &mut self,
         first: u32,
