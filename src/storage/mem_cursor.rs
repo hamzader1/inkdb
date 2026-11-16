@@ -129,7 +129,8 @@ impl<'a> MemCursor<'a> {
     /// Borrow the next `ahead_by` bytes and step past them.
     pub fn read_to(&mut self, ahead_by: u64) -> Result<&'a [u8], InkError> {
         let ahead_by = ahead_by as usize;
-        assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
+        let curr_offset = self.offset as usize;
+        assert_with_corrupt_err(curr_offset + ahead_by <= self.bytes.len(), || {
             format!(
                 "Cursor advanced past the end of the buffer: attempted offset {} exceeds buffer length {}",
                 ahead_by,
@@ -145,7 +146,8 @@ impl<'a> MemCursor<'a> {
     /// Borrow the next `ahead_by` bytes without moving the cursor.
     pub fn peek_to(&self, ahead_by: u64) -> Result<&[u8], InkError> {
         let ahead_by = ahead_by as usize;
-        assert_with_corrupt_err(ahead_by <= self.bytes.len(), || {
+        let curr_offset = self.offset as usize;
+        assert_with_corrupt_err(curr_offset + ahead_by <= self.bytes.len(), || {
             format!(
                 "Cursor peeked past the end of the buffer: attempted offset {} exceeds buffer length {}",
                 ahead_by,
