@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::InkResult;
 use crate::backend::analyzer::ResolvedCreateIndexQuery;
 use crate::backend::executor::eval::Eval;
@@ -33,8 +35,18 @@ impl<'a> Analyze<'a> {
         for idx in stmt.tbl_constraints.iter() {
             Self::fast_bind(&stmt, *idx, &mut arena)?;
         }
+        let mut unique_column_names = HashSet::new();
         let mut unique_cols = Vec::new();
+
         for (i, column) in stmt.columns.iter_mut().enumerate() {
+            if unique_column_names.contains(&column.name) {
+                return Err(InkError::runtime(format!(
+                    "Duplicated columns name: {}",
+                    column.name
+                )));
+            }
+            unique_column_names.insert(&column.name);
+
             if let Some(ref mut default) = column.default {
                 assert!(matches!(default, DefaultValue::Node(_)));
                 let node = {
@@ -51,7 +63,6 @@ impl<'a> Analyze<'a> {
             }
         }
         stmt.arena = arena;
-
         Ok(ResolvedQuery::CreateTableQuery(ResolvedCreateTableQuery {
             meta: stmt,
             unique_on: unique_cols,
