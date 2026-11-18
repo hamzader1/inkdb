@@ -9,6 +9,7 @@ use inkdb::db::header::{
     SQLITE_TOTAL_NUMBER_OF_FREELIST_PAGES_OFFSET,
 };
 use inkdb::record::Value;
+
 use inkdb::storage::btree::kind::{AnyPage, HasChild};
 use inkdb::storage::page::{
     BTreePage, CELL_CONTENT_AREA_OFFSET, CELL_COUNT_OFFSET, FIRST_FREEBLOCK_OFFSET,
@@ -503,7 +504,6 @@ fn structural_audit_through_indexed_deletes() {
 }
 
 #[test]
-#[ignore = "known free space corruption: <4 byte gap between free blocks"]
 fn structural_audit_large_pages_deep_deletes() {
     audit_run("audit-large", 1024, 1200, 5, 0xC0FFEE);
 }
