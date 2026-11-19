@@ -213,12 +213,21 @@ impl BindSink for SlowBind<'_> {
         _arena: &mut Arena<Expr>,
         idx: usize,
     ) -> Result<usize, InkError> {
-        for i in 0..table.columns_len() {
-            self.new.push(Expr::ColumnRef(i));
-            self.new_cols.push(self.new.len() - 1);
+        // Handling the case where `Number Of Rows` is not equal to zero, but the number of
+        // `values` is zero.
+        // Without this, the function would panic for a perfectly valid query.
+        // ISSUE: https://github.com/hamzader1/inkdb/issues/50
+        let table_columns_len = table.columns_len();
+        if table_columns_len > 0 {
+            for i in 0..table.columns_len() {
+                self.new.push(Expr::ColumnRef(i));
+                self.new_cols.push(self.new.len() - 1);
+            }
+            self.map[idx] = self.new.len() - 1;
+            Ok(self.new.len() - 1)
+        } else {
+            Ok(0) // No values
         }
-        self.map[idx] = self.new.len() - 1;
-        Ok(self.new.len() - 1)
     }
     fn unary(&mut self, _arena: &mut Arena<Expr>, node: Expr, idx: usize, child: usize) -> usize {
         match node {
