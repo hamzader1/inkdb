@@ -219,7 +219,7 @@ impl BindSink for SlowBind<'_> {
         // ISSUE: https://github.com/hamzader1/inkdb/issues/50
         let table_columns_len = table.columns_len();
         if table_columns_len > 0 {
-            for i in 0..table.columns_len() {
+            for i in 0..table_columns_len {
                 self.new.push(Expr::ColumnRef(i));
                 self.new_cols.push(self.new.len() - 1);
             }
