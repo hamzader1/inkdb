@@ -162,13 +162,13 @@ impl<V: Vfs> Sort<V> {
             offset += frame_len;
         }
 
+        self.sort_buffer(
+            &unsorted_buffer,
+            &mut sorted_buffer,
+            &mut data_buffer,
+            self.desc,
+        );
         if n_of_runs == 1 {
-            self.sort_buffer(
-                &unsorted_buffer,
-                &mut sorted_buffer,
-                &mut data_buffer,
-                self.desc,
-            );
             self.sort_source = StreamSource::Mem {
                 buffer: sorted_buffer,
                 offset: 0,
@@ -176,12 +176,6 @@ impl<V: Vfs> Sort<V> {
             };
         } else {
             /*We flush the last one*/
-            self.sort_buffer(
-                &unsorted_buffer,
-                &mut sorted_buffer,
-                &mut data_buffer,
-                self.desc,
-            );
             let mut file = ctx.pager.vfs_mut().open_temp(self.run_path(n_of_runs))?;
             sorted_buffer.extend_from_slice(&u32::to_be_bytes(data_buffer.len() as _)); /*Last four bytes holds the number of rows*/
             file.set_len(0)?;
