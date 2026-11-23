@@ -325,10 +325,13 @@ impl<V: Vfs> Sort<V> {
         desc: bool,
     ) {
         out.clear();
-        data.sort_by(|a, b| a.key.cmp(&b.key));
-        if desc {
-            data.reverse();
-        }
+        data.sort_by(|a, b| {
+            if desc {
+                b.key.cmp(&a.key)
+            } else {
+                a.key.cmp(&b.key)
+            }
+        });
         for inner in data.iter() {
             out.extend_from_slice(&inp[inner.start..inner.start + inner.len]);
         }
